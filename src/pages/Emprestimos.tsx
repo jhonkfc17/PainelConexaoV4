@@ -45,6 +45,15 @@ export default function Emprestimos() {
   const [pagarOpen, setPagarOpen] = useState(false);
   const [emprestimoSelecionado, setEmprestimoSelecionado] = useState<Emprestimo | null>(null);
 
+  // ✅ mantém o empréstimo selecionado sincronizado com o store (atualiza totais após pagamentos)
+  useEffect(() => {
+    const idSel = emprestimoSelecionado?.id;
+    if (!idSel) return;
+    const atual = emprestimos.find((e) => e.id === idSel) ?? null;
+    if (atual) setEmprestimoSelecionado(atual);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emprestimos]);
+
   const { clientes, fetchClientes } = useClientesStore();
   const { emprestimos, fetchEmprestimos, criarEmprestimo, removerEmprestimo, mudarStatus } =
     useEmprestimosStore();

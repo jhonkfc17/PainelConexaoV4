@@ -199,42 +199,34 @@ function calcularJurosAtrasoEstimado(e: Emprestimo) {
     .sort((a, b) => String(a?.vencimento ?? "").localeCompare(String(b?.vencimento ?? "")));
   if (atrasadas.length === 0) return { total: 0, detalhe: null as null | any };
 
+  const p = atrasadas[0];
+  const venc = String(p?.vencimento ?? "");
+  const dias = Math.max(0, daysDiffISO(hoje, venc));
+
   const payload = ((e as any).payload ?? {}) as any;
   const cfg = (payload?.juros_atraso_config ?? null) as any;
 
   const aplicar = Boolean(cfg?.aplicar ?? (e as any).aplicarJurosAtraso);
   const tipo = ((cfg?.tipo ?? (e as any).jurosAtrasoTipo) as string | undefined) ?? "valor_por_dia";
   const taxa = Number(cfg?.taxa ?? (e as any).jurosAtrasoTaxa ?? 0);
-  if (!aplicar || !taxa) return { total: 0, detalhe: null as null | any };
+  if (!aplicar || !taxa || dias <= 0) return { total: 0, detalhe: null as null | any };
 
-  const linhas = atrasadas.map((p) => {
-    const venc = String(p?.vencimento ?? "");
-    const dias = Math.max(0, daysDiffISO(hoje, venc));
-    if (dias <= 0) return { numero: Number(p?.numero ?? 0), vencimento: venc, dias: 0, valorParcela: Number(p?.valor ?? 0), juros: 0, porDia: 0 };
-
-    const valorParcela = Number(p?.valor ?? (e as any).valorParcela ?? 0);
-    const porDia = tipo === "percentual_por_dia" ? valorParcela * (taxa / 100) : taxa;
-    const juros = Math.max(0, porDia * dias);
-    return { numero: Number(p?.numero ?? 0), vencimento: venc, dias, valorParcela, juros, porDia };
-  });
-
-  const total = linhas.reduce((acc, x) => acc + Number(x.juros || 0), 0);
-  const first = linhas.find((x) => x.juros > 0) ?? linhas[0];
+  const valorParcela = Number(p?.valor ?? (e as any).valorParcela ?? 0);
+  const porDia = tipo === "percentual_por_dia" ? valorParcela * (taxa / 100) : taxa;
+  const total = Math.max(0, porDia * dias);
 
   return {
-    total: Math.max(0, total),
-    detalhe: first
-      ? {
-          parcelaNumero: first.numero,
-          totalParcelas: Number((e as any).numeroParcelas ?? 1),
-          vencimento: first.vencimento,
-          valorParcela: first.valorParcela,
-          dias: first.dias,
-          tipo,
-          taxa,
-          porDia: first.porDia,
-        }
-      : null,
+    total,
+    detalhe: {
+      parcelaNumero: Number(p?.numero ?? 1),
+      totalParcelas: Number((e as any).numeroParcelas ?? 1),
+      vencimento: venc,
+      valorParcela,
+      dias,
+      tipo,
+      taxa,
+      porDia,
+    },
   };
 }
 

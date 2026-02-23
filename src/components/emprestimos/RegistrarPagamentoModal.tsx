@@ -277,7 +277,17 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
         }
       }
 
+      // ✅ avisa a tela pai para atualizar totais/listas
+      try {
+        onSaved?.();
+      } catch {
+        // não bloqueia o fechamento do modal
+      }
+
       onClose();
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.message ?? "Falha ao registrar pagamento");
     } finally {
       setSaving(false);
     }

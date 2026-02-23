@@ -1,7 +1,6 @@
 // src/store/useEmprestimosStore.ts
 import { create } from "zustand";
 import { supabase } from "@/lib/supabaseClient";
-import { getCurrentTenantId } from "@/lib/tenant";
 import { calcularTotais } from "@/components/emprestimos/emprestimoCalculos";
 import type { NovoEmprestimoPayload } from "@/components/emprestimos/emprestimoTipos";
 import type { Cliente } from "@/components/clientes/clienteTipos";
@@ -334,28 +333,11 @@ startRealtime: async () => {
     refreshAll();
   };
 
-  // Realtime precisa filtrar pelo tenant_id (user_id no banco = tenant),
-  // senão staff não recebe eventos.
-  const tenantId = await getCurrentTenantId();
-  if (!tenantId) return;
-
   __rt_channel = supabase
-    .channel(`rt-emprestimos-${tenantId}-${uid}`)
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "emprestimos", filter: `user_id=eq.${tenantId}` },
-      onChange
-    )
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "parcelas", filter: `user_id=eq.${tenantId}` },
-      onChange
-    )
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "pagamentos", filter: `user_id=eq.${tenantId}` },
-      onChange
-    );
+    .channel(`rt-emprestimos-${uid}`)
+    .on("postgres_changes", { event: "*", schema: "public", table: "emprestimos", filter: `user_id=eq.${uid}` }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "parcelas", filter: `user_id=eq.${uid}` }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "pagamentos", filter: `user_id=eq.${uid}` }, onChange);
 
   await __rt_channel.subscribe();
 },

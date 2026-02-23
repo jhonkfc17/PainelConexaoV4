@@ -46,6 +46,15 @@ export default function ClienteDetalhe() {
   const [pagarOpen, setPagarOpen] = useState(false);
   const [emprestimoSelecionado, setEmprestimoSelecionado] = useState<any | null>(null);
 
+  // ✅ mantém o empréstimo selecionado sincronizado com o store (para atualizar totais após pagamentos)
+  useEffect(() => {
+    const idSel = emprestimoSelecionado?.id;
+    if (!idSel) return;
+    const atual = emprestimos.find((e: any) => e.id === idSel);
+    if (atual) setEmprestimoSelecionado(atual);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emprestimos]);
+
   const [confirmacaoOpen, setConfirmacaoOpen] = useState(false);
   const [confirmacaoLinhas, setConfirmacaoLinhas] = useState<string[]>([]);
   const [confirmacaoPhone, setConfirmacaoPhone] = useState<string | undefined>(undefined);
@@ -418,7 +427,17 @@ export default function ClienteDetalhe() {
         whatsappPhone={confirmacaoPhone}
       />
 
-      <RegistrarPagamentoModal open={pagarOpen} onClose={() => setPagarOpen(false)} emprestimo={emprestimoSelecionado} />
+      <RegistrarPagamentoModal
+        open={pagarOpen}
+        onClose={() => {
+          setPagarOpen(false);
+          fetchEmprestimos();
+        }}
+        onSaved={() => {
+          fetchEmprestimos();
+        }}
+        emprestimo={emprestimoSelecionado}
+      />
     </div>
   );
 }
