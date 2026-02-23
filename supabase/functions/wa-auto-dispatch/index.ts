@@ -192,8 +192,10 @@ serve(async () => {
 
     totalQueued += inserted?.length ?? 0;
 
-    // ✅ payload correto do seu connector: { items: [{to, message}] }
+    // ✅ payload compatível com o WhatsApp Connector
+    // { tenant_id, items: [{to, message}] }
     const payload = {
+      tenant_id: tenantId,
       items: (inserted ?? []).map((r: any) => ({
         to: r.to_phone,
         message: r.message,
@@ -204,11 +206,13 @@ serve(async () => {
     let connectorResp: any = null;
 
     try {
-      const resp = await fetch(`${WA_CONNECTOR_URL}/send-batch`, {
+      const resp = await fetch(`${WA_CONNECTOR_URL}/whatsapp/send-batch`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
+          // compat: connector aceita x-wa-token OU Authorization Bearer
           "x-wa-token": WA_TOKEN,
+          Authorization: `Bearer ${WA_TOKEN}`,
         },
         body: JSON.stringify(payload),
       });
