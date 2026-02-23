@@ -1,0 +1,522 @@
+import { supabase } from "../lib/supabaseClient";
+import { isOwnerUser } from "../lib/tenant";
+
+export type DashboardRange = "30d" | "6m" | "12m";
+
+export type DashboardWeekCard = { label: string; value: string | number; hint: string };
+
+export type DashboardHealth = {
+  score: number;
+  status: string;
+  desc: string;
+  bars: { label: string; value: string }[];
+  noteTitle: string;
+  noteDesc: string;
+};
+
+export type DashboardSeriesPoint = { label: string; [key: string]: number | string };
+
+export type DashboardData = {
+  header: {
+    title: string;
+    subtitle: string;
+    roleLabel: string;
+  };
+  weekCards: DashboardWeekCard[];
+  charts: {
+    evolucao: { title: string; data: DashboardSeriesPoint[]; keys: ["emprestado", "recebido"] };
+    juros: { title: string; data: DashboardSeriesPoint[]; keys: ["juros"] };
+    inadimplencia: { title: string; data: DashboardSeriesPoint[]; keys: ["inadimplencia"] };
+    aVencer: { title: string; data: DashboardSeriesPoint[]; keys: ["aVencer"] };
+  };
+  health: DashboardHealth;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ultra-perf: in-memory cache (SWR) + inflight de-duplication
+// ─────────────────────────────────────────────────────────────────────────────
+const CACHE_TTL_MS = 25_000;
+
+type CacheEntry = {
+  value: DashboardData;
+  expiresAt: number;
+};
+
+const cacheByRange = new Map<DashboardRange, CacheEntry>();
+const inflightByRange = new Map<DashboardRange, Promise<DashboardData>>();
+
+export function invalidateDashboardCache(range?: DashboardRange) {
+  if (range) {
+    cacheByRange.delete(range);
+    inflightByRange.delete(range);
+    return;
+  }
+  cacheByRange.clear();
+  inflightByRange.clear();
+}
+
+export function peekDashboardCache(range: DashboardRange): DashboardData | null {
+  const cached = cacheByRange.get(range);
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) return null;
+  return cached.value;
+}
+
+type ParcelaRow = {
+  emprestimo_id?: string;
+  vencimento: string; // YYYY-MM-DD
+  valor: number | null;
+  pago: boolean | null;
+  pago_em: string | null; // ISO
+  valor_pago: number | null;
+  // alguns bancos usam amortização parcial
+  valor_pago_acumulado?: number | null;
+  juros_atraso: number | null;
+};
+
+type EmprestimoRow = {
+  id: string;
+  created_at: string;
+  payload: any;
+};
+
+function brl(n: number): string {
+  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function safeNum(v: any): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function toDateOnlyISO(d: Date): string {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function startOfWeek(d: Date): Date {
+  const x = new Date(d);
+  // semana começando na segunda (pt-BR)
+  const day = (x.getDay() + 6) % 7; // 0=segunda
+  x.setDate(x.getDate() - day);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function addDays(d: Date, delta: number): Date {
+  const x = new Date(d);
+  x.setDate(x.getDate() + delta);
+  return x;
+}
+
+function addMonths(d: Date, delta: number): Date {
+  const x = new Date(d);
+  x.setMonth(x.getMonth() + delta);
+  return x;
+}
+
+function monthKey(d: Date): string {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  return `${yyyy}-${mm}`;
+}
+
+function monthLabelPtBr(yyyyMm: string): string {
+  const [y, m] = yyyyMm.split("-").map((s) => Number(s));
+  const d = new Date(y, (m || 1) - 1, 1);
+  const mes = d.toLocaleDateString("pt-BR", { month: "short" }).replace(".", "");
+  const yy = String(y).slice(-2);
+  return `${mes[0].toUpperCase()}${mes.slice(1)}/${yy}`;
+}
+
+function dayLabelPtBr(isoDate: string): string {
+  // YYYY-MM-DD -> DD/MM
+  const [y, m, d] = isoDate.split("-").map((s) => Number(s));
+  const dt = new Date(y, (m || 1) - 1, d || 1);
+  const dd = String(dt.getDate()).padStart(2, "0");
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  return `${dd}/${mm}`;
+}
+
+function isoFromAny(iso: string): string {
+  // "2026-02-12" or "2026-02-12T..." -> date only
+  return String(iso).slice(0, 10);
+}
+
+function parcelaJurosRecebido(p: ParcelaRow): number {
+  // Heurística:
+  // - juros_atraso é explícito
+  // - se valor_pago veio preenchido, consideramos excedente acima do valor
+  const valor = safeNum(p.valor);
+  const jurosAtraso = safeNum(p.juros_atraso);
+  const valorPago = p.valor_pago_acumulado == null ? 0 : safeNum(p.valor_pago_acumulado);
+
+  if (valorPago <= 0) return jurosAtraso;
+  const excedente = Math.max(0, valorPago - valor);
+  return Math.max(excedente, jurosAtraso);
+}
+
+type Bucket = {
+  key: string; // machine key (YYYY-MM or YYYY-MM-DD)
+  label: string; // display
+  start: string; // date only ISO inclusive
+  end: string; // date only ISO inclusive
+};
+
+function makeBuckets(now: Date, range: DashboardRange): { buckets: Bucket[]; startISO: string } {
+  if (range === "30d") {
+    const end = toDateOnlyISO(now);
+    const start = toDateOnlyISO(addDays(now, -29));
+    const buckets: Bucket[] = [];
+    for (let i = 0; i < 30; i += 1) {
+      const d = addDays(new Date(start), i);
+      const iso = toDateOnlyISO(d);
+      buckets.push({ key: iso, label: dayLabelPtBr(iso), start: iso, end: iso });
+    }
+    return { buckets, startISO: start };
+  }
+
+  const monthsBack = range === "6m" ? 5 : 11; // inclui mês atual
+  const months: string[] = [];
+  for (let i = monthsBack; i >= 0; i -= 1) {
+    months.push(monthKey(addMonths(now, -i)));
+  }
+  const startISO = `${months[0]}-01`;
+
+  const buckets: Bucket[] = months.map((k) => {
+    const [y, m] = k.split("-").map((s) => Number(s));
+    const first = new Date(y, (m || 1) - 1, 1);
+    const last = new Date(y, (m || 1), 0); // last day of month
+    return {
+      key: k,
+      label: monthLabelPtBr(k),
+      start: toDateOnlyISO(first),
+      end: toDateOnlyISO(last),
+    };
+  });
+
+  return { buckets, startISO };
+}
+
+function isPaidByDate(p: ParcelaRow, dateISO: string): boolean {
+  if (!p.pago) return false;
+  const paidDate = p.pago_em ? isoFromAny(p.pago_em) : null;
+  if (!paidDate) return false;
+  return paidDate <= dateISO;
+}
+
+function buildEmptyDashboard(range: DashboardRange): DashboardData {
+  const title = range === "30d" ? "Últimos 30 dias" : range === "6m" ? "Últimos 6 meses" : "Últimos 12 meses";
+  const emptySeries = Array.from({ length: range === "30d" ? 6 : range === "6m" ? 6 : 12 }).map((_, i) => ({
+    label: String(i + 1),
+    emprestado: 0,
+    recebido: 0,
+    juros: 0,
+    inadimplencia: 0,
+    aVencer: 0,
+  })) as any;
+
+  return {
+    header: { title: "Dashboard", subtitle: title, roleLabel: "" },
+    weekCards: [
+      { label: "Emprestado", value: "R$ 0,00", hint: "0 contratos" },
+      { label: "Recebido", value: "R$ 0,00", hint: "0 parcelas pagas" },
+      { label: "Lucro", value: "R$ 0,00", hint: "lucro realizado" },
+    ],
+    charts: {
+      evolucao: { title: "Evolução", data: emptySeries, keys: ["emprestado", "recebido"] },
+      juros: { title: "Juros", data: emptySeries, keys: ["juros"] },
+      inadimplencia: { title: "Inadimplência", data: emptySeries, keys: ["inadimplencia"] },
+      aVencer: { title: "A vencer", data: emptySeries, keys: ["aVencer"] },
+    },
+    health: {
+      score: 0,
+      status: "Neutro",
+      desc: "Sem dados suficientes no período.",
+      bars: [
+        { label: "Ativos", value: "0" },
+        { label: "Pagos", value: "0" },
+        { label: "Atraso", value: "0" },
+      ],
+      noteTitle: "Dica",
+      noteDesc: "Cadastre empréstimos e baixas para ver indicadores.",
+    },
+  };
+}
+
+export async function getDashboardData(range: DashboardRange = "6m", opts?: { force?: boolean }): Promise<DashboardData> {
+  const force = Boolean(opts?.force);
+
+  // Fast path: serve fresh cache
+  if (!force) {
+    const cached = cacheByRange.get(range);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value;
+    }
+
+    const inflight = inflightByRange.get(range);
+    if (inflight) return inflight;
+
+    // Start a single in-flight fetch (de-dupe), cache the result, and return it.
+    const p = getDashboardData(range, { force: true });
+    inflightByRange.set(range, p);
+
+    try {
+      const value = await p;
+      cacheByRange.set(range, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+      return value;
+    } finally {
+      inflightByRange.delete(range);
+    }
+  }
+
+  // =========================
+  // Auth / Role
+  // =========================
+  const { data: authUserData, error: userErr } = await supabase.auth.getUser();
+  if (userErr) throw userErr;
+
+  const user = authUserData.user;
+  const email = user?.email || "";
+  const isOwner = await isOwnerUser();
+
+  const now = new Date();
+  const todayISO = toDateOnlyISO(now);
+  const tomorrowISO = toDateOnlyISO(addDays(now, 1));
+  const weekStartISO = toDateOnlyISO(startOfWeek(now));
+  const { buckets, startISO } = makeBuckets(now, range);
+
+  // =========================
+  // Base data (counts)
+  // =========================
+  const { count: clientesCount, error: clientesCountErr } = await supabase
+    .from("clientes")
+    .select("id", { count: "exact", head: true });
+  if (clientesCountErr) throw clientesCountErr;
+
+  // =========================
+  // Pull emprestimos + parcelas for the selected window
+  // =========================
+  let empQuery = supabase
+    .from("emprestimos")
+    .select("id, created_at, payload")
+    .gte("created_at", new Date(`${startISO}T00:00:00`).toISOString())
+    .order("created_at", { ascending: true });
+
+  // Staff: só os empréstimos que ele criou
+  if (!isOwner && user?.id) {
+    empQuery = empQuery.eq("created_by", user.id);
+  }
+
+  const { data: emprestimosData, error: empErr } = await empQuery;
+  if (empErr) throw empErr;
+
+  const emprestimos = (emprestimosData as EmprestimoRow[]) ?? [];
+
+  // Parcelas: precisamos de um pouco antes do start para calcular inadimplência acumulada
+  const backForArrears = range === "12m" ? 400 : range === "6m" ? 220 : 60;
+  const parcelasFromISO = toDateOnlyISO(addDays(new Date(startISO), -backForArrears));
+
+  let parcQuery = supabase
+    .from("parcelas")
+    .select("emprestimo_id, vencimento, valor, pago, pago_em, valor_pago_acumulado, juros_atraso")
+    .gte("vencimento", parcelasFromISO)
+    .order("vencimento", { ascending: true });
+
+  // Staff: restringe parcelas aos empréstimos retornados (se ele não tem empréstimos, dashboard vazio)
+  if (!isOwner && user?.id) {
+    const ids = emprestimos.map((e) => String(e.id));
+    if (ids.length === 0) return buildEmptyDashboard(range);
+    parcQuery = parcQuery.in("emprestimo_id", ids);
+  }
+
+  const { data: parcelasData, error: parcErr } = await parcQuery;
+  if (parcErr) throw parcErr;
+
+  const parcelas = ((parcelasData as ParcelaRow[] | null) ?? []) as ParcelaRow[];
+
+  // =========================
+  // Week cards (semana atual)
+  // =========================
+  const emprestimosSemana = emprestimos.filter((e) => isoFromAny(e.created_at) >= weekStartISO).length;
+
+  const capitalEmprestado = emprestimos.reduce((acc, e) => acc + safeNum(e.payload?.valor), 0);
+
+  const venceHoje = parcelas.filter((p) => !p.pago && String(p.vencimento) === todayISO).length;
+  const venceAmanha = parcelas.filter((p) => !p.pago && String(p.vencimento) === tomorrowISO).length;
+
+  const cobrancasSemana = parcelas.filter(
+    (p) => !p.pago && String(p.vencimento) >= weekStartISO && String(p.vencimento) <= todayISO
+  ).length;
+
+  const recebidoSemana = parcelas
+    .filter((p) => Boolean(p.pago) && (p.pago_em ? isoFromAny(p.pago_em) : "") >= weekStartISO)
+    .reduce((acc, p) => acc + (p.valor_pago_acumulado == null ? safeNum(p.valor) : safeNum(p.valor_pago_acumulado)), 0);
+
+  // =========================
+  // Chart series
+  // =========================
+  const evolucaoData: DashboardSeriesPoint[] = buckets.map((b) => ({
+    label: b.label,
+    emprestado: 0,
+    recebido: 0,
+  }));
+
+  const jurosData: DashboardSeriesPoint[] = buckets.map((b) => ({ label: b.label, juros: 0 }));
+
+  const inadimplenciaData: DashboardSeriesPoint[] = buckets.map((b) => ({
+    label: b.label,
+    inadimplencia: 0,
+  }));
+
+  const aVencerData: DashboardSeriesPoint[] = buckets.map((b) => ({
+    label: b.label,
+    aVencer: 0,
+  }));
+
+  // Map bucket key -> idx
+  const idxByKey = new Map<string, number>();
+  for (let i = 0; i < buckets.length; i += 1) idxByKey.set(buckets[i].key, i);
+
+  function bucketKeyForCreatedAt(createdAtISO: string): string {
+    const d = isoFromAny(createdAtISO);
+    return range === "30d" ? d : d.slice(0, 7);
+  }
+
+  function bucketKeyForDateOnly(dateISO: string): string {
+    return range === "30d" ? dateISO : dateISO.slice(0, 7);
+  }
+
+  for (const e of emprestimos) {
+    const key = bucketKeyForCreatedAt(e.created_at);
+    const idx = idxByKey.get(key);
+    if (idx == null) continue;
+    evolucaoData[idx].emprestado = safeNum(evolucaoData[idx].emprestado) + safeNum(safeNum(e.payload?.valor));
+  }
+
+  for (const p of parcelas) {
+    if (p.pago && p.pago_em) {
+      const paidDate = isoFromAny(p.pago_em);
+      const key = bucketKeyForDateOnly(paidDate);
+      const idx = idxByKey.get(key);
+      if (idx != null) {
+        evolucaoData[idx].recebido = safeNum(evolucaoData[idx].recebido) + safeNum(p.valor_pago_acumulado == null ? safeNum(p.valor) : safeNum(p.valor_pago_acumulado));
+        jurosData[idx].juros = safeNum(jurosData[idx].juros) + safeNum(parcelaJurosRecebido(p));
+      }
+    }
+  }
+
+  // Inadimplência por bucket (acumulada até o fim do bucket)
+  for (let i = 0; i < buckets.length; i += 1) {
+    const endISO = buckets[i].end;
+    const vencidas = parcelas.filter((p) => String(p.vencimento) <= endISO);
+    const totalDevidoLocal = vencidas.reduce((acc, p) => acc + safeNum(p.valor), 0);
+
+    const emAtraso = vencidas.filter((p) => String(p.vencimento) < endISO && !isPaidByDate(p, endISO));
+    const totalAtraso = emAtraso.reduce((acc, p) => acc + safeNum(p.valor), 0);
+
+    const rate = totalDevidoLocal > 0 ? totalAtraso / totalDevidoLocal : 0;
+    inadimplenciaData[i].inadimplencia = Math.round(rate * 1000) / 10; // % com 1 casa
+  }
+
+  // Parcelas a vencer (futuro): soma de parcelas não pagas com vencimento dentro do bucket e > hoje
+  const futureEndISO = buckets[buckets.length - 1].end;
+  const futuras = parcelas.filter(
+    (p) => !p.pago && String(p.vencimento) > todayISO && String(p.vencimento) <= futureEndISO
+  );
+
+  for (const p of futuras) {
+    const key = bucketKeyForDateOnly(String(p.vencimento));
+    const idx = idxByKey.get(key);
+    if (idx == null) continue;
+    aVencerData[idx].aVencer = safeNum(aVencerData[idx].aVencer) + safeNum(safeNum(p.valor));
+  }
+
+  // =========================
+  // Health (global até hoje)
+  // =========================
+  const vencidasAteHoje = parcelas.filter((p) => String(p.vencimento) <= todayISO);
+
+  const totalDevido = vencidasAteHoje.reduce((acc, p) => acc + safeNum(p.valor), 0);
+
+  const totalPago = vencidasAteHoje
+    .filter((p) => Boolean(p.pago))
+    .reduce((acc, p) => acc + (p.valor_pago_acumulado == null ? safeNum(p.valor) : safeNum(p.valor_pago_acumulado)), 0);
+
+  const atrasadasEmAberto = vencidasAteHoje.filter((p) => String(p.vencimento) < todayISO && !isPaidByDate(p, todayISO));
+  const totalAtrasadoEmAberto = atrasadasEmAberto.reduce((acc, p) => acc + safeNum(p.valor), 0);
+
+  const recebimentoRate = totalDevido > 0 ? totalPago / totalDevido : 1;
+  const inadimplenciaRate = totalDevido > 0 ? totalAtrasadoEmAberto / totalDevido : 0;
+
+  const healthScore = Math.round(100 * (0.7 * recebimentoRate + 0.3 * (1 - inadimplenciaRate)));
+
+  let status = "Excelente";
+  let noteTitle = "Tudo em ordem!";
+  let noteDesc = "Nenhum alerta no momento. Continue assim!";
+  if (healthScore < 85) {
+    status = "Bom";
+    noteTitle = "Boa operação";
+    noteDesc = "Há pequenos pontos para melhorar, mas está indo bem.";
+  }
+  if (healthScore < 70) {
+    status = "Atenção";
+    noteTitle = "Atenção";
+    noteDesc = "Existem parcelas em atraso. Revise cobranças e prazos.";
+  }
+  if (healthScore < 50) {
+    status = "Crítico";
+    noteTitle = "Risco elevado";
+    noteDesc = "Inadimplência alta. Priorize renegociação e cobranças.";
+  }
+
+  const weekCards: DashboardWeekCard[] = [
+    { label: "Cobranças", value: cobrancasSemana, hint: "esta semana" },
+    { label: "Recebido", value: brl(recebidoSemana), hint: "esta semana" },
+    { label: "Vence hoje", value: venceHoje, hint: "cobranças" },
+    { label: "Vence amanhã", value: venceAmanha, hint: "cobranças" },
+    { label: "Empréstimos", value: emprestimosSemana, hint: "esta semana" },
+    { label: "Produtos", value: 0, hint: "esta semana" },
+    { label: "Veículos", value: 0, hint: "esta semana" },
+    { label: "Contratos", value: emprestimos.length, hint: "total" },
+    { label: "Capital em mão", value: brl(capitalEmprestado), hint: "capital emprestado" },
+    { label: "Recebido", value: brl(totalPago), hint: "total recebido (vencidas)" },
+    { label: "Em atraso", value: brl(totalAtrasadoEmAberto), hint: "aberto" },
+    { label: "Clientes", value: clientesCount ?? 0, hint: "cadastrados" },
+  ];
+
+  const health: DashboardHealth = {
+    score: Math.max(0, Math.min(100, healthScore)),
+    status,
+    desc: "Baseado em sua taxa de recebimento, inadimplência e liquidez em caixa.",
+    bars: [
+      { label: "Taxa de recebimento", value: `${(recebimentoRate * 100).toFixed(1)}%` },
+      { label: "Inadimplência", value: `${(inadimplenciaRate * 100).toFixed(1)}%` },
+      { label: "Recebido", value: brl(totalPago) },
+      { label: "Em atraso", value: brl(totalAtrasadoEmAberto) },
+    ],
+    noteTitle,
+    noteDesc,
+  };
+
+  const rangeLabel = range === "30d" ? "últimos 30 dias" : range === "6m" ? "últimos 6 meses" : "últimos 12 meses";
+  const roleLabel = isOwner ? "Dono (acesso total)" : "Funcionário";
+
+  return {
+    header: {
+      title: email ? `Bem-vindo, ${email}` : "Bem-vindo de volta!",
+      subtitle: "Gerencie seu sistema financeiro",
+      roleLabel,
+    },
+    weekCards,
+    charts: {
+      evolucao: { title: `Evolução Financeira (${rangeLabel})`, data: evolucaoData, keys: ["emprestado", "recebido"] },
+      juros: { title: `Juros Recebidos (${rangeLabel})`, data: jurosData, keys: ["juros"] },
+      inadimplencia: { title: `Inadimplência (${rangeLabel})`, data: inadimplenciaData, keys: ["inadimplencia"] },
+      aVencer: { title: `Parcelas a vencer (${rangeLabel})`, data: aVencerData, keys: ["aVencer"] },
+    },
+    health,
+  };
+}
