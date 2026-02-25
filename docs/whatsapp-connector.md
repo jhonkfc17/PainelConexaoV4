@@ -1,28 +1,27 @@
 # Conector WhatsApp (Railway)
 
-Arquivos criados para ligar o painel ao connector de WhatsApp hospedado na Railway:
+Conjunto de funções/serviços para integrar o painel ao connector de WhatsApp rodando na Railway.
 
-- `supabase/functions/wa-auto-dispatch/*` â†’ Edge Function autenticada que envia mensagens para o connector.
-- `supabase/functions/wa-connector/*` â†’ Webhook pÃºblico para receber eventos/status do connector.
-- `src/services/whatsappDispatch.ts` â†’ Cliente usado pelo frontend (`sendWhatsAppFromPanel`) que chama a Edge Function.
+- `supabase/functions/wa-connector/*` ? Edge Function principal (autenticada) que faz proxy para o connector (`/whatsapp/init|status|qr|send`), validando o usuário Supabase e usando `WA_CONNECTOR_URL` + `WA_TOKEN`.
+- `supabase/functions/wa-auto-dispatch/*` ? Edge Function opcional de envio rápido (`/send`) pensada para automações; também forwarda para o connector.
+- `src/services/whatsappDispatch.ts` ? Cliente usado pelo frontend (`sendWhatsAppFromPanel`) que valida status/QR via `wa-connector` antes de enviar.
+- `src/services/whatsappConnector.ts` + `src/components/WhatsAppConnectorCard.tsx` ? UI de status/QR/ativação do WhatsApp.
 
-## VariÃ¡veis de ambiente necessÃ¡rias (Supabase Edge)
+## Variáveis de ambiente (Supabase Edge)
 
-Defina **pelo menos**:
+Obrigatórias para as funções acima:
 
-- `WA_CONNECTOR_URL` (ou `RAILWAY_WA_URL`) â€“ Base URL do connector, ex: `https://meu-whatsapp.up.railway.app`
-- `WA_CONNECTOR_TOKEN` (ou `RAILWAY_WA_TOKEN`) â€“ Bearer token aceito pelo connector para envio.
-- Opcional: `WA_WEBHOOK_SECRET` (ou `RAILWAY_WA_WEBHOOK_SECRET`) â€“ Segredo que o connector envia no header `x-connector-secret` para validar o webhook.
+- `WA_CONNECTOR_URL` (alias: `WA_URL`, `RAILWAY_WA_URL`, `RAILWAY_WHATSAPP_URL`) – URL base do connector na Railway.
+- `WA_TOKEN` (alias: `WA_CONNECTOR_TOKEN`, `RAILWAY_WA_TOKEN`, `RAILWAY_WHATSAPP_TOKEN`) – token aceito pelo connector (usa header `x-wa-token` e também `Authorization: Bearer`).
 
-## Deploy das funÃ§Ãµes
+## Deploy
 
-1) Configure as variÃ¡veis acima em **Supabase > Edge Functions > Environment variables**.  
-2) Rode no projeto (ou no CI):  
-   ```bash
-   supabase functions deploy wa-auto-dispatch
-   supabase functions deploy wa-connector
-   ```
-3) No connector Railway, aponte o webhook para:  
-   `https://<PROJECT>.supabase.co/functions/v1/wa-connector`
+```
+supabase functions deploy wa-connector
+supabase functions deploy wa-auto-dispatch
+```
 
-Com isso, o painel pode enviar mensagens via `sendWhatsAppFromPanel`, e o connector consegue devolver eventos via webhook seguro.
+Depois do deploy, a UI de Configurações ? WhatsApp já consegue:
+
+1. `wa-connector` ? init / status / qr / send.
+2. (Opcional) Automação/robôs podem usar `wa-auto-dispatch` chamando a Edge Function direta via `supabase.functions.invoke("wa-auto-dispatch", ...)`.
