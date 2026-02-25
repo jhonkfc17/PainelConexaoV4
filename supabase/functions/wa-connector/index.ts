@@ -92,6 +92,25 @@ async function forward(
   return { ok: true, data };
 }
 
+async function forwardWithFallback(
+  baseUrl: string,
+  token: string,
+  primary: { path: string; method: string; body?: any },
+  fallback?: { path: string; method: string; body?: any }
+) {
+  const first = await forward(baseUrl, token, primary.path, primary.method, primary.body);
+
+  if (first.ok) return first;
+
+  // Se o conector nÃ£o suportar o mÃ©todo/caminho (404/405), tenta fallback alternativo.
+  if (fallback && (first.status === 404 || first.status === 405)) {
+    const second = await forward(baseUrl, token, fallback.path, fallback.method, fallback.body);
+    return second.ok ? second : { ...second, firstError: first.error, firstStatus: first.status };
+  }
+
+  return first;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
@@ -147,12 +166,14 @@ Deno.serve(async (req) => {
     }
 
     if (action === "status") {
-      const r = await forward(
+      const r = await forwardWithFallback(
         WA_CONNECTOR_URL,
         WA_TOKEN,
-        "/whatsapp/status",
-        "POST",
-        { tenant_id }
+        { path: "/whatsapp/status", method: "POST", body: { tenant_id } },
+        {
+          path: `/whatsapp/status?tenant_id=${encodeURIComponent(tenant_id)}`,
+          method: "GET",
+        }
       );
 
       if (!r.ok) {
@@ -192,12 +213,14 @@ Deno.serve(async (req) => {
     }
 
     if (action === "qr") {
-      const r = await forward(
+      const r = await forwardWithFallback(
         WA_CONNECTOR_URL,
         WA_TOKEN,
-        "/whatsapp/qr",
-        "POST",
-        { tenant_id }
+        { path: "/whatsapp/qr", method: "POST", body: { tenant_id } },
+        {
+          path: `/whatsapp/qr?tenant_id=${encodeURIComponent(tenant_id)}`,
+          method: "GET",
+        }
       );
 
       if (!r.ok) {
