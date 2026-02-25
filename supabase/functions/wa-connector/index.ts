@@ -16,10 +16,9 @@ function json(data: Json, status = 200) {
   });
 }
 
-function forwardStatus(r: { ok: boolean; status?: number }) {
-  if (r.ok) return 200;
-  const s = Number(r.status || 0);
-  return s >= 400 && s <= 599 ? s : 502;
+function isProtocolTimeoutError(message: string | null | undefined) {
+  const m = String(message ?? "").toLowerCase();
+  return m.includes("runtime.callfunctionon timed out") || m.includes("protocoltimeout");
 }
 
 async function readJson(req: Request) {
@@ -28,13 +27,6 @@ async function readJson(req: Request) {
   } catch {
     return {};
   }
-}
-
-function normalizeBaseUrl(raw: string): string {
-  const trimmed = String(raw || "").trim();
-  if (!trimmed) return "";
-  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-  return withProtocol.replace(/\/+$/, "");
 }
 
 async function forward(
@@ -81,7 +73,7 @@ Deno.serve(async (req) => {
   try {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const WA_CONNECTOR_URL = normalizeBaseUrl(Deno.env.get("WA_CONNECTOR_URL") ?? "");
+    const WA_CONNECTOR_URL = Deno.env.get("WA_CONNECTOR_URL")!;
     const WA_TOKEN = Deno.env.get("WA_TOKEN")!;
 
     if (!SUPABASE_URL || !SERVICE_ROLE_KEY) return json({ error: "Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY" }, 500);
@@ -134,12 +126,34 @@ Deno.serve(async (req) => {
 
     if (action === "init") {
       const r = await forward(WA_CONNECTOR_URL, WA_TOKEN, "/whatsapp/init", "POST", { tenant_id });
-      return json(r.ok ? { ok: true, tenant_id, ...r.data } : { ok: false, tenant_id, ...r }, forwardStatus(r));
+      return json(r.ok ? { ok: true, tenant_id, ...r.data } : { ok: false, tenant_id, ...r }, r.ok ? 200 : 502);
     }
 
     if (action === "status") {
       const r = await forward(WA_CONNECTOR_URL, WA_TOKEN, `/whatsapp/status?tenant_id=${encodeURIComponent(tenant_id)}`, "GET");
-      if (!r.ok) return json({ ok: false, tenant_id, ...r }, forwardStatus(r));
+      if (!r.ok) {
+        // Alguns conectores retornam timeout do Puppeteer mesmo com sessao conectada.
+        // Nesses casos, convertemos para "ready" para nao quebrar a UX.
+        const msg = String((r as any)?.error ?? "");
+        const statusRaw = String((r as any)?.data?.status ?? "").toLowerCase();
+        const waStateRaw = String((r as any)?.data?.waState ?? "").toUpperCase();
+        const connectedByState = statusRaw === "ready" || waStateRaw === "CONNECTED";
+
+        if (isProtocolTimeoutError(msg) && connectedByState) {
+          return json({
+            ok: true,
+            tenant_id,
+            status: "ready",
+            connected: true,
+            connectedNumber: null,
+            qrUpdatedAt: null,
+            lastError: msg,
+            lastSeenAt: new Date().toISOString(),
+          });
+        }
+
+        return json({ ok: false, tenant_id, ...r }, 502);
+      }
 
       const status = (r.data?.status ?? "idle") as any;
       return json({
@@ -156,7 +170,26 @@ Deno.serve(async (req) => {
 
     if (action === "qr") {
       const r = await forward(WA_CONNECTOR_URL, WA_TOKEN, `/whatsapp/qr?tenant_id=${encodeURIComponent(tenant_id)}`, "GET");
-      if (!r.ok) return json({ ok: false, tenant_id, ...r }, forwardStatus(r));
+      if (!r.ok) {
+        const msg = String((r as any)?.error ?? "");
+        const statusRaw = String((r as any)?.data?.status ?? "").toLowerCase();
+        const waStateRaw = String((r as any)?.data?.waState ?? "").toUpperCase();
+        const connectedByState = statusRaw === "ready" || waStateRaw === "CONNECTED";
+
+        // Se a sessao esta conectada, timeout ao pedir QR nao deve virar erro fatal.
+        if (isProtocolTimeoutError(msg) && connectedByState) {
+          return json({
+            ok: true,
+            tenant_id,
+            hasQr: false,
+            status: "ready",
+            qr: undefined,
+            qrUpdatedAt: null,
+          });
+        }
+
+        return json({ ok: false, tenant_id, ...r }, 502);
+      }
 
       const qr = r.data?.qr ?? null;
       return json({
@@ -174,7 +207,7 @@ Deno.serve(async (req) => {
       if (!to || !message) return json({ error: "to and message required" }, 400);
 
       const r = await forward(WA_CONNECTOR_URL, WA_TOKEN, "/whatsapp/send", "POST", { tenant_id, to, message });
-      return json(r.ok ? { ok: true, ...r.data } : { ok: false, ...r }, forwardStatus(r));
+      return json(r.ok ? { ok: true, ...r.data } : { ok: false, ...r }, r.ok ? 200 : 502);
     }
 
     return json({ error: "Unknown action" }, 400);
