@@ -58,8 +58,23 @@ async function readErrorText(r: Response) {
   }
 }
 
+async function getAccessTokenOrThrow(): Promise<string> {
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw new Error(`Falha ao obter sessao: ${error.message}`);
+
+  const token = data.session?.access_token;
+  if (!token) {
+    throw new Error("Usuario nao autenticado. Faca login novamente.");
+  }
+  return token;
+}
+
 async function invokeEdge<T = any>(body: Record<string, any>): Promise<T> {
-  const { data, error } = await supabase.functions.invoke("wa-connector", { body });
+  const token = await getAccessTokenOrThrow();
+  const { data, error } = await supabase.functions.invoke("wa-connector", {
+    body,
+    headers: { Authorization: `Bearer ${token}` },
+  });
   if (!error) return data as T;
 
   // Diagnóstico mais claro: em alguns cenários o SDK retorna FunctionsFetchError
@@ -69,14 +84,11 @@ async function invokeEdge<T = any>(body: Record<string, any>): Promise<T> {
 
   if (sbUrl && sbKey) {
     try {
-      const { data: sess } = await supabase.auth.getSession();
-      const bearer = sess?.session?.access_token || sbKey;
-
       const r = await fetch(`${sbUrl.replace(/\/+$/, "")}/functions/v1/wa-connector`, {
         method: "POST",
         headers: {
           apikey: sbKey,
-          Authorization: `Bearer ${bearer}`,
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(body),
@@ -98,7 +110,8 @@ async function invokeEdge<T = any>(body: Record<string, any>): Promise<T> {
     }
   }
 
-  throw error;
+  const msg = typeof error === "object" && error && "message" in error ? String((error as any).message) : String(error);
+  throw new Error(`Edge Function wa-connector falhou: ${msg}`);
 }
 
 export async function waInit(tenant_id: string) {
