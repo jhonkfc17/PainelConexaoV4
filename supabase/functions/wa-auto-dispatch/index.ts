@@ -30,9 +30,13 @@ Deno.serve(async (req) => {
   }
 
   const connectorUrl =
-    getEnv("WA_CONNECTOR_URL") ?? getEnv("RAILWAY_WA_URL") ?? getEnv("RAILWAY_WHATSAPP_URL");
+    getEnv("WA_CONNECTOR_URL") ??
+    getEnv("WA_URL") ??
+    getEnv("RAILWAY_WA_URL") ??
+    getEnv("RAILWAY_WHATSAPP_URL");
   const connectorToken =
     getEnv("WA_CONNECTOR_TOKEN") ??
+    getEnv("WA_TOKEN") ??
     getEnv("RAILWAY_WA_TOKEN") ??
     getEnv("RAILWAY_WHATSAPP_TOKEN");
 
