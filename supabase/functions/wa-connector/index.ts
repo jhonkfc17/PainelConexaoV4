@@ -24,6 +24,13 @@ async function readJson(req: Request) {
   }
 }
 
+function normalizeBaseUrl(raw: string): string {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return "";
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  return withProtocol.replace(/\/+$/, "");
+}
+
 async function forward(
   baseUrl: string,
   token: string,
@@ -68,7 +75,7 @@ Deno.serve(async (req) => {
   try {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const WA_CONNECTOR_URL = Deno.env.get("WA_CONNECTOR_URL")!;
+    const WA_CONNECTOR_URL = normalizeBaseUrl(Deno.env.get("WA_CONNECTOR_URL") ?? "");
     const WA_TOKEN = Deno.env.get("WA_TOKEN")!;
 
     if (!SUPABASE_URL || !SERVICE_ROLE_KEY) return json({ error: "Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY" }, 500);
