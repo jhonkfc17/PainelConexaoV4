@@ -8,17 +8,6 @@ type Props = {
   tenantId?: string;
 };
 
-function isAuthErrorMessage(message: string): boolean {
-  const msg = message.toLowerCase();
-  return (
-    msg.includes("invalid jwt") ||
-    msg.includes("unauthorized") ||
-    msg.includes("nao autenticado") ||
-    msg.includes("sessao invalida") ||
-    msg.includes("sessao expirada")
-  );
-}
-
 export default function WhatsAppConnectorCard({ tenantId: tenantIdProp }: Props) {
   const tenantFromStore = useAuthStore((s) => s.tenantId);
   const tenantId = tenantIdProp ?? tenantFromStore ?? undefined;
@@ -34,14 +23,24 @@ export default function WhatsAppConnectorCard({ tenantId: tenantIdProp }: Props)
 
   const [loading, setLoading] = useState(true);
   const pollRef = useRef<number | null>(null);
-  const authBlockedRef = useRef(false);
 
   const isReady = useMemo(() => status === "ready", [status]);
   const isConfigured = !!tenantId;
 
+  function prettifyWaError(raw: unknown) {
+    const msg = String(raw ?? "");
+    const low = msg.toLowerCase();
+    if (low.includes("lid") || low.includes("número não encontrado no whatsapp") || low.includes("numero nao encontrado no whatsapp")) {
+      return "Número não encontrado no WhatsApp para esta sessão. Tente com DDI 55 (ex.: 5531999999999).";
+    }
+    if (low.includes("runtime.callfunctionon timed out") || low.includes("protocoltimeout")) {
+      return "Conexão ativa, mas o conector demorou para responder. Tente Atualizar em alguns segundos.";
+    }
+    return msg;
+  }
+
   async function refresh() {
     if (!tenantId) return;
-    authBlockedRef.current = false;
     try {
       const st = await waStatus(tenantId);
       setStatus(st.status);
@@ -56,15 +55,7 @@ export default function WhatsAppConnectorCard({ tenantId: tenantIdProp }: Props)
         setQrDataUrl(null);
       }
     } catch (e: any) {
-      const msg = String(e?.message || e);
-      setLastError(msg);
-      if (isAuthErrorMessage(msg)) {
-        authBlockedRef.current = true;
-        if (pollRef.current) {
-          window.clearInterval(pollRef.current);
-          pollRef.current = null;
-        }
-      }
+      setLastError(prettifyWaError(e?.message || e));
     } finally {
       setLoading(false);
     }
@@ -72,19 +63,10 @@ export default function WhatsAppConnectorCard({ tenantId: tenantIdProp }: Props)
 
   async function initIfNeeded() {
     if (!tenantId) return;
-    authBlockedRef.current = false;
     try {
       await waInit(tenantId);
     } catch (e: any) {
-      const msg = String(e?.message || e);
-      setLastError(msg);
-      if (isAuthErrorMessage(msg)) {
-        authBlockedRef.current = true;
-        if (pollRef.current) {
-          window.clearInterval(pollRef.current);
-          pollRef.current = null;
-        }
-      }
+      setLastError(String(e?.message || e));
     }
   }
 
@@ -105,7 +87,6 @@ export default function WhatsAppConnectorCard({ tenantId: tenantIdProp }: Props)
 
       await refresh();
       if (!mounted) return;
-      if (authBlockedRef.current) return;
 
       if (pollRef.current) window.clearInterval(pollRef.current);
       pollRef.current = window.setInterval(() => {
@@ -128,7 +109,7 @@ export default function WhatsAppConnectorCard({ tenantId: tenantIdProp }: Props)
       await waSend(tenantId, to, msg);
       alert("Mensagem enviada ✅");
     } catch (e: any) {
-      setLastError(String(e?.message || e));
+      setLastError(prettifyWaError(e?.message || e));
       alert("Falha ao enviar ❌ (veja o erro no card)");
     } finally {
       setSending(false);
