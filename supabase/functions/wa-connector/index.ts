@@ -21,6 +21,23 @@ function isProtocolTimeoutError(message: string | null | undefined) {
   return m.includes("runtime.callfunctionon timed out") || m.includes("protocoltimeout");
 }
 
+function onlyDigits(value: string) {
+  return String(value || "").replace(/\D+/g, "");
+}
+
+function normalizeToWhatsAppBR(raw: string) {
+  const digits = onlyDigits(raw);
+  if (!digits) return "";
+
+  // Ja veio com DDI 55
+  if (digits.startsWith("55")) return digits;
+
+  // Formato nacional com DDD (10 ou 11 digitos): prefixa 55
+  if (digits.length === 10 || digits.length === 11) return `55${digits}`;
+
+  return digits;
+}
+
 async function readJson(req: Request) {
   try {
     return (await req.json()) as Json;
@@ -202,12 +219,17 @@ Deno.serve(async (req) => {
     }
 
     if (action === "send") {
-      const to = String(body?.to ?? "").trim();
+      const to = normalizeToWhatsAppBR(String(body?.to ?? "").trim());
       const message = String(body?.message ?? "").trim();
       if (!to || !message) return json({ error: "to and message required" }, 400);
 
       const r = await forward(WA_CONNECTOR_URL, WA_TOKEN, "/whatsapp/send", "POST", { tenant_id, to, message });
-      return json(r.ok ? { ok: true, ...r.data } : { ok: false, ...r }, r.ok ? 200 : 502);
+      if (!r.ok) {
+        const status = typeof r.status === "number" && r.status >= 400 && r.status < 500 ? r.status : 502;
+        return json({ ok: false, ...r }, status);
+      }
+
+      return json({ ok: true, ...r.data });
     }
 
     return json({ error: "Unknown action" }, 400);
