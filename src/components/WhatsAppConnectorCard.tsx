@@ -2,16 +2,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { QrCode, RefreshCw, Send, Smartphone, AlertTriangle } from "lucide-react";
 import { waInit, waQr, waSend, waStatus } from "../services/whatsappConnector";
-import { useAuthStore } from "../store/useAuthStore";
 
-type Props = {
-  tenantId?: string;
-};
-
-export default function WhatsAppConnectorCard({ tenantId: tenantIdProp }: Props) {
-  const tenantFromStore = useAuthStore((s) => s.tenantId);
-  const tenantId = tenantIdProp ?? tenantFromStore ?? undefined;
-
+export default function WhatsAppConnectorCard() {
   const [status, setStatus] = useState<string>("idle");
   const [connectedNumber, setConnectedNumber] = useState<string | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
@@ -25,12 +17,19 @@ export default function WhatsAppConnectorCard({ tenantId: tenantIdProp }: Props)
   const pollRef = useRef<number | null>(null);
 
   const isReady = useMemo(() => status === "ready", [status]);
-  const isConfigured = !!tenantId;
 
   function prettifyWaError(raw: unknown) {
     const msg = String(raw ?? "");
     const low = msg.toLowerCase();
-    if (low.includes("lid") || low.includes("número não encontrado no whatsapp") || low.includes("numero nao encontrado no whatsapp")) {
+
+    if (low.includes("missing authorization") || low.includes("unauthorized") || low.includes("jwt")) {
+      return "Sessão expirada ou usuário não autenticado. Faça logout/login e tente novamente.";
+    }
+    if (
+      low.includes("lid") ||
+      low.includes("número não encontrado no whatsapp") ||
+      low.includes("numero nao encontrado no whatsapp")
+    ) {
       return "Número não encontrado no WhatsApp para esta sessão. Tente com DDI 55 (ex.: 5531999999999).";
     }
     if (low.includes("runtime.callfunctionon timed out") || low.includes("protocoltimeout")) {
@@ -40,15 +39,14 @@ export default function WhatsAppConnectorCard({ tenantId: tenantIdProp }: Props)
   }
 
   async function refresh() {
-    if (!tenantId) return;
     try {
-      const st = await waStatus(tenantId);
+      const st = await waStatus();
       setStatus(st.status);
       setConnectedNumber(st.connectedNumber);
       setLastError(st.lastError);
 
       if (st.status !== "ready") {
-        const qr = await waQr(tenantId);
+        const qr = await waQr();
         if (qr.hasQr && qr.qr) setQrDataUrl(qr.qr);
         else setQrDataUrl(null);
       } else {
@@ -62,11 +60,10 @@ export default function WhatsAppConnectorCard({ tenantId: tenantIdProp }: Props)
   }
 
   async function initIfNeeded() {
-    if (!tenantId) return;
     try {
-      await waInit(tenantId);
+      await waInit();
     } catch (e: any) {
-      setLastError(String(e?.message || e));
+      setLastError(prettifyWaError(e?.message || e));
     }
   }
 
@@ -76,11 +73,6 @@ export default function WhatsAppConnectorCard({ tenantId: tenantIdProp }: Props)
     (async () => {
       setLoading(true);
       setLastError(null);
-
-      if (!tenantId) {
-        setLoading(false);
-        return;
-      }
 
       await initIfNeeded();
       if (!mounted) return;
@@ -99,14 +91,13 @@ export default function WhatsAppConnectorCard({ tenantId: tenantIdProp }: Props)
       if (pollRef.current) window.clearInterval(pollRef.current);
       pollRef.current = null;
     };
-  }, [tenantId]);
+  }, []);
 
   async function onSend() {
-    if (!tenantId) return;
     setSending(true);
     setLastError(null);
     try {
-      await waSend(tenantId, to, msg);
+      await waSend(to, msg);
       alert("Mensagem enviada ✅");
     } catch (e: any) {
       setLastError(prettifyWaError(e?.message || e));
@@ -125,7 +116,7 @@ export default function WhatsAppConnectorCard({ tenantId: tenantIdProp }: Props)
           </div>
           <div>
             <div className="text-xl font-semibold">WhatsApp Connector</div>
-            <div className="text-sm text-slate-400">Conecte um WhatsApp por tenant (sessão dedicada)</div>
+            <div className="text-sm text-slate-400">Cada usuário conecta o próprio WhatsApp (sessão dedicada)</div>
           </div>
         </div>
 
@@ -140,108 +131,97 @@ export default function WhatsAppConnectorCard({ tenantId: tenantIdProp }: Props)
         </button>
       </div>
 
-      {!isConfigured ? (
+      {lastError && lastError.toLowerCase().includes("não autenticado") ? (
         <div className="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100">
           <div className="flex items-start gap-2">
             <AlertTriangle size={16} className="mt-0.5" />
             <div>
-              <div className="font-semibold">Tenant não identificado</div>
-              <div className="mt-1 text-amber-100/80">
-                Faça login novamente ou confirme se o usuário possui{" "}
-                <code className="px-1 py-0.5 rounded bg-black/20">tenant_id</code>.
-              </div>
+              <div className="font-semibold">Sessão inválida</div>
+              <div className="mt-1 text-amber-100/80">Faça logout/login e tente novamente.</div>
             </div>
           </div>
         </div>
-      ) : (
-        <>
-          <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
-            <span className="text-slate-300">Status:</span>
-            <span
-              className={
-                "rounded-full border px-3 py-1 text-xs " +
-                (isReady
-                  ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-200"
-                  : "border-white/10 bg-white/5 text-slate-200/80")
-              }
+      ) : null}
+
+      <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-slate-300">Status:</span>
+        <span
+          className={
+            "rounded-full border px-3 py-1 text-xs " +
+            (isReady
+              ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-200"
+              : "border-white/10 bg-white/5 text-slate-200/80")
+          }
+        >
+          {loading ? "carregando..." : status}
+          {isReady ? " ✅" : ""}
+        </span>
+        {connectedNumber ? <span className="text-slate-400">({connectedNumber})</span> : null}
+      </div>
+
+      {lastError ? (
+        <div className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-100">
+          <b>Erro:</b> {lastError}
+        </div>
+      ) : null}
+
+      <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div className="flex items-center gap-2 text-sm text-slate-200">
+            <QrCode size={16} />
+            <span className="font-semibold">QR Code</span>
+          </div>
+
+          <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3 min-h-[240px] flex items-center justify-center">
+            {qrDataUrl ? (
+              <img src={qrDataUrl} alt="QR Code" className="max-h-[220px] max-w-full rounded-lg" />
+            ) : (
+              <span className="text-slate-400 text-sm">{isReady ? "Conectado ✅" : "Gerando QR..."}</span>
+            )}
+          </div>
+
+          <div className="mt-3 text-xs text-slate-400">
+            Dica: se o QR não aparecer, clique em <b>Atualizar</b>.
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div className="flex items-center gap-2 text-sm text-slate-200">
+            <Send size={16} />
+            <span className="font-semibold">Enviar mensagem (teste)</span>
+          </div>
+
+          <div className="mt-3 space-y-3">
+            <div>
+              <div className="text-xs text-slate-400 mb-1">Número (com DDD)</div>
+              <input
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                placeholder="Ex: 5599999999999"
+                className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white/90 outline-none"
+              />
+            </div>
+
+            <div>
+              <div className="text-xs text-slate-400 mb-1">Mensagem</div>
+              <textarea
+                value={msg}
+                onChange={(e) => setMsg(e.target.value)}
+                rows={4}
+                className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white/90 outline-none"
+              />
+            </div>
+
+            <button
+              onClick={onSend}
+              disabled={sending}
+              className="w-full rounded-xl bg-emerald-600/80 hover:bg-emerald-600 text-white text-sm py-2 disabled:opacity-50"
             >
-              {loading ? "carregando..." : status}
-              {isReady ? " ✅" : ""}
-            </span>
-            {connectedNumber ? <span className="text-slate-400">({connectedNumber})</span> : null}
+              {sending ? "Enviando..." : "Enviar"}
+            </button>
           </div>
-
-          {lastError ? (
-            <div className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-100">
-              <b>Erro:</b> {lastError}
-            </div>
-          ) : null}
-
-          <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-              <div className="flex items-center gap-2">
-                <QrCode size={16} className="text-emerald-200" />
-                <div className="text-sm font-semibold">QR Code</div>
-              </div>
-              <div className="mt-1 text-xs text-slate-400">Escaneie com o WhatsApp para conectar.</div>
-
-              <div className="mt-4 rounded-xl border border-white/10 bg-slate-950/40 p-3 flex items-center justify-center min-h-[280px]">
-                {qrDataUrl ? (
-                  <img src={qrDataUrl} alt="QR Code" className="max-h-[260px] w-auto rounded-lg" />
-                ) : (
-                  <div className="text-sm text-slate-400 text-center">{isReady ? "Conectado ✅" : "Gerando QR..."}</div>
-                )}
-              </div>
-
-              <div className="mt-3 text-xs text-slate-400">
-                Dica: se o QR não aparecer, clique em <b>Atualizar</b>.
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-              <div className="text-sm font-semibold">Enviar mensagem (teste)</div>
-              <div className="mt-1 text-xs text-slate-400">Use apenas para validar a conexão do tenant.</div>
-
-              <div className="mt-4 grid gap-3">
-                <div>
-                  <div className="text-xs text-slate-300">Número (com DDD)</div>
-                  <input
-                    value={to}
-                    onChange={(e) => setTo(e.target.value)}
-                    placeholder="Ex: 5599999999999"
-                    className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm outline-none focus:border-emerald-500/35"
-                  />
-                </div>
-
-                <div>
-                  <div className="text-xs text-slate-300">Mensagem</div>
-                  <textarea
-                    value={msg}
-                    onChange={(e) => setMsg(e.target.value)}
-                    rows={5}
-                    className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm outline-none focus:border-emerald-500/35"
-                  />
-                </div>
-
-                <button
-                  onClick={onSend}
-                  disabled={!isReady || sending || !to.trim() || !msg.trim()}
-                  className="rounded-xl bg-emerald-500 text-slate-950 px-4 py-3 text-sm font-semibold hover:opacity-95 disabled:opacity-60"
-                >
-                  <span className="inline-flex items-center justify-center gap-2">
-                    <Send size={16} />
-                    {sending ? "Enviando..." : "Enviar"}
-                  </span>
-                </button>
-
-                <div className="text-xs text-slate-400">
-                  {isReady ? "Pronto para enviar." : "Conecte o WhatsApp para habilitar o envio."}
-                </div>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
+        </div>
+      </div>
     </div>
   );
 }

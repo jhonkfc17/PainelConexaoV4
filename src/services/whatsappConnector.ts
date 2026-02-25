@@ -1,261 +1,256 @@
-// src/services/whatsappConnector.ts
-import { supabase } from "@/lib/supabaseClient";
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "@supabase/supabase-js";
 
-/**
- * WhatsApp Connector (SEGURANÇA)
- * - Não usa mais token no front.
- * - Chama Edge Function `wa-connector` que mantém WA_TOKEN e WA_CONNECTOR_URL como secrets.
- *
- * Para compatibilidade local (opcional), se você definir VITE_WA_CONNECTOR_URL + VITE_WA_TOKEN,
- * ainda é possível cair no modo direto.
- */
+type Json = Record<string, any>;
 
-// Fallback opcional (DEV/local)
-const DIRECT_WA_URL =
-  (import.meta.env.VITE_WA_CONNECTOR_URL as string) ||
-  (import.meta.env.VITE_WA_URL as string) ||
-  "";
-
-const DIRECT_WA_TOKEN = (import.meta.env.VITE_WA_TOKEN as string) || "";
-
-type WAStatus = {
-  ok: boolean;
-  tenant_id: string;
-  status: "idle" | "connecting" | "qr" | "ready" | "auth_failure" | "disconnected";
-  connected: boolean;
-  connectedNumber: string | null;
-  qrUpdatedAt: string | null;
-  lastError: string | null;
-  lastSeenAt: string | null;
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-type WAQr = {
-  ok: boolean;
-  tenant_id: string;
-  hasQr: boolean;
-  status: WAStatus["status"];
-  qr?: string; // dataUrl
-  qrUpdatedAt?: string;
-};
-
-function canUseDirect() {
-  return Boolean(DIRECT_WA_URL && DIRECT_WA_TOKEN);
+function json(data: Json, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 }
 
-function authHeaders() {
-  return {
-    Authorization: `Bearer ${DIRECT_WA_TOKEN}`,
-    "Content-Type": "application/json",
+function isProtocolTimeoutError(message: string | null | undefined) {
+  const m = String(message ?? "").toLowerCase();
+  return m.includes("runtime.callfunctionon timed out") || m.includes("protocoltimeout");
+}
+
+function onlyDigits(value: string) {
+  return String(value || "").replace(/\D+/g, "");
+}
+
+function normalizeToWhatsAppBR(raw: string) {
+  const digits = onlyDigits(raw);
+  if (!digits) return "";
+
+  // Já veio com DDI 55
+  if (digits.startsWith("55")) return digits;
+
+  // Formato nacional com DDD (10 ou 11 dígitos): prefixa 55
+  if (digits.length === 10 || digits.length === 11) return `55${digits}`;
+
+  return digits;
+}
+
+async function readJson(req: Request) {
+  try {
+    return (await req.json()) as Json;
+  } catch {
+    return {};
+  }
+}
+
+async function forward(
+  baseUrl: string,
+  token: string,
+  path: string,
+  method: string,
+  body?: any
+) {
+  const url = `${baseUrl}${path}`;
+
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    // alguns conectores usam x-wa-token (novo)
+    "x-wa-token": token,
+    // outros usam Authorization Bearer (legado)
+    Authorization: `Bearer ${token}`,
   };
-}
 
-async function readErrorText(r: Response) {
+  const upper = method.toUpperCase();
+  const canHaveBody = upper !== "GET" && upper !== "HEAD";
+
+  const resp = await fetch(url, {
+    method: upper,
+    headers,
+    body: canHaveBody && body !== undefined ? JSON.stringify(body) : undefined,
+  });
+
+  const text = await resp.text();
+  let data: any = {};
   try {
-    const text = await r.text();
-    return text || `${r.status} ${r.statusText}`;
+    data = text ? JSON.parse(text) : {};
   } catch {
-    return `${r.status} ${r.statusText}`;
-  }
-}
-
-const EXPECTED_SUPABASE_HOST = (() => {
-  try {
-    const raw = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? "";
-    return raw ? new URL(raw).host : "";
-  } catch {
-    return "";
-  }
-})();
-
-type JwtPayload = {
-  iss?: string;
-  aud?: string;
-  exp?: number;
-};
-
-function decodeJwtPayload(token: string): JwtPayload | null {
-  try {
-    const parts = token.split(".");
-    if (parts.length !== 3) return null;
-    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-    const json = atob(padded);
-    return JSON.parse(json) as JwtPayload;
-  } catch {
-    return null;
-  }
-}
-
-function validateTokenForCurrentProject(token: string): { ok: true } | { ok: false; reason: string } {
-  const payload = decodeJwtPayload(token);
-  if (!payload) return { ok: false, reason: "token nao esta em formato JWT valido" };
-
-  const nowSec = Math.floor(Date.now() / 1000);
-  if (typeof payload.exp === "number" && payload.exp <= nowSec) {
-    return { ok: false, reason: "token expirado" };
+    data = { raw: text };
   }
 
-  if (EXPECTED_SUPABASE_HOST && payload.iss && !String(payload.iss).includes(EXPECTED_SUPABASE_HOST)) {
+  if (!resp.ok) {
     return {
       ok: false,
-      reason: `token pertence a outro projeto (iss=${String(payload.iss)})`,
+      status: resp.status,
+      error: data?.error ?? text ?? resp.statusText,
+      data,
     };
   }
 
-  return { ok: true };
+  return { ok: true, data };
 }
 
-async function getAccessTokenOrThrow(): Promise<string> {
-  const { data, error } = await supabase.auth.getSession();
-  if (error) throw new Error(`Falha ao obter sessao: ${error.message}`);
-
-  const token = data.session?.access_token;
-  if (!token) {
-    throw new Error("Usuario nao autenticado. Faca login novamente.");
-  }
-  const validation = validateTokenForCurrentProject(token);
-  if (!validation.ok) {
-    try {
-      await supabase.auth.signOut({ scope: "local" });
-    } catch {}
-    throw new Error(`Sessao invalida (${validation.reason}). Faca login novamente.`);
-  }
-  return token;
-}
-
-async function refreshAccessTokenOrThrow(): Promise<string> {
-  const { data, error } = await supabase.auth.refreshSession();
-  if (error) {
-    throw new Error(`Falha ao atualizar sessao: ${error.message}. Faca login novamente.`);
-  }
-
-  const token = data.session?.access_token;
-  if (!token) {
-    throw new Error("Sessao expirada. Faca login novamente.");
-  }
-  const validation = validateTokenForCurrentProject(token);
-  if (!validation.ok) {
-    try {
-      await supabase.auth.signOut({ scope: "local" });
-    } catch {}
-    throw new Error(`Sessao invalida apos refresh (${validation.reason}). Faca login novamente.`);
-  }
-  return token;
-}
-
-function isInvalidJwtErrorMessage(message: string): boolean {
-  const msg = message.toLowerCase();
-  return msg.includes("invalid jwt") || (msg.includes("jwt") && msg.includes("invalid"));
-}
-
-async function invokeEdgeWithToken<T = any>(body: Record<string, any>, token: string): Promise<T> {
-  const { data, error } = await supabase.functions.invoke("wa-connector", {
-    body,
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!error) return data as T;
-
-  let msg = typeof error === "object" && error && "message" in error ? String((error as any).message) : String(error);
-  const rawBody = (error as any)?.context?.body;
-  if (typeof rawBody === "string" && rawBody.trim()) {
-    msg = rawBody;
-  } else if (rawBody && typeof rawBody === "object") {
-    msg = JSON.stringify(rawBody);
-  }
-
-  throw new Error(`Edge Function wa-connector falhou: ${msg}`);
-}
-
-async function invokeEdge<T = any>(body: Record<string, any>): Promise<T> {
-  let token = await getAccessTokenOrThrow();
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   try {
-    return await invokeEdgeWithToken<T>(body, token);
-  } catch (e: any) {
-    const firstMsg = String(e?.message || e);
-    if (!isInvalidJwtErrorMessage(firstMsg)) throw e;
+    // Supabase reserva prefixo SUPABASE_* na UI; deixe cair para SERVICE_ROLE_KEY se for o que estiver setado.
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || Deno.env.get("PROJECT_URL") || "";
+    const SERVICE_ROLE_KEY =
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SERVICE_ROLE_KEY") || "";
+    const WA_CONNECTOR_URL = Deno.env.get("WA_CONNECTOR_URL") || "";
+    const WA_TOKEN = Deno.env.get("WA_TOKEN") || "";
 
-    token = await refreshAccessTokenOrThrow();
-    try {
-      return await invokeEdgeWithToken<T>(body, token);
-    } catch (secondErr: any) {
-      const secondMsg = String(secondErr?.message || secondErr);
-      throw new Error(
-        `Falha de autenticacao na Edge Function (JWT invalido apos refresh). Faca logout/login e tente novamente. Detalhe: ${secondMsg}`
+    if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
+      return json({ error: "Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY" }, 500);
+    }
+    if (!WA_CONNECTOR_URL || !WA_TOKEN) {
+      return json({ error: "Missing WA_CONNECTOR_URL / WA_TOKEN" }, 500);
+    }
+
+    const authHeader = req.headers.get("authorization") ?? req.headers.get("Authorization") ?? "";
+    if (!authHeader.startsWith("Bearer ")) return json({ error: "Missing Authorization Bearer token" }, 401);
+
+    const jwt = authHeader.replace("Bearer ", "").trim();
+    if (!jwt) return json({ error: "Missing bearer token" }, 401);
+
+    // Client "user" (valida token) usando service role, mas com Authorization do usuário.
+    const userClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+      global: { headers: { Authorization: `Bearer ${jwt}` } },
+      auth: { persistSession: false },
+    });
+
+    const { data: userRes, error: userErr } = await userClient.auth.getUser();
+    const caller = userRes?.user ?? null;
+
+    if (userErr || !caller?.id) {
+      return json({ error: "Unauthorized", details: userErr?.message ?? "Invalid token" }, 401);
+    }
+
+    // ✅ 1 usuário = 1 WhatsApp session
+    const tenant_id = caller.id;
+
+    const body = await readJson(req);
+    const action = String(body?.action ?? "").trim();
+
+    if (!action) return json({ error: "Missing action" }, 400);
+
+    if (action === "init") {
+      const r = await forward(WA_CONNECTOR_URL, WA_TOKEN, "/whatsapp/init", "POST", { tenant_id });
+      return json(
+        r.ok ? { ok: true, tenant_id, ...r.data } : { ok: false, tenant_id, ...r },
+        r.ok ? 200 : 502
       );
     }
+
+    if (action === "status") {
+      const r = await forward(
+        WA_CONNECTOR_URL,
+        WA_TOKEN,
+        `/whatsapp/status?tenant_id=${encodeURIComponent(tenant_id)}`,
+        "GET"
+      );
+
+      if (!r.ok) {
+        const msg = String((r as any)?.error ?? "");
+        const statusRaw = String((r as any)?.data?.status ?? "").toLowerCase();
+        const waStateRaw = String((r as any)?.data?.waState ?? "").toUpperCase();
+        const connectedByState = statusRaw === "ready" || waStateRaw === "CONNECTED";
+
+        // Se der timeout mas estiver conectado, não quebra UX.
+        if (isProtocolTimeoutError(msg) && connectedByState) {
+          return json({
+            ok: true,
+            tenant_id,
+            status: "ready",
+            connected: true,
+            connectedNumber: null,
+            qrUpdatedAt: null,
+            lastError: msg,
+            lastSeenAt: new Date().toISOString(),
+          });
+        }
+
+        return json({ ok: false, tenant_id, ...r }, 502);
+      }
+
+      const status = (r.data?.status ?? "idle") as any;
+      return json({
+        ok: true,
+        tenant_id,
+        status,
+        connected: status === "ready",
+        connectedNumber: null,
+        qrUpdatedAt: null,
+        lastError: r.data?.lastError ?? null,
+        lastSeenAt: r.data?.lastEventAt ? new Date(r.data.lastEventAt).toISOString() : null,
+      });
+    }
+
+    if (action === "qr") {
+      const r = await forward(
+        WA_CONNECTOR_URL,
+        WA_TOKEN,
+        `/whatsapp/qr?tenant_id=${encodeURIComponent(tenant_id)}`,
+        "GET"
+      );
+
+      if (!r.ok) {
+        const msg = String((r as any)?.error ?? "");
+        const statusRaw = String((r as any)?.data?.status ?? "").toLowerCase();
+        const waStateRaw = String((r as any)?.data?.waState ?? "").toUpperCase();
+        const connectedByState = statusRaw === "ready" || waStateRaw === "CONNECTED";
+
+        // Se a sessão está conectada, timeout ao pedir QR não deve virar erro fatal.
+        if (isProtocolTimeoutError(msg) && connectedByState) {
+          return json({
+            ok: true,
+            tenant_id,
+            hasQr: false,
+            status: "ready",
+            qr: undefined,
+            qrUpdatedAt: null,
+          });
+        }
+
+        return json({ ok: false, tenant_id, ...r }, 502);
+      }
+
+      const qr = r.data?.qr ?? null;
+      return json({
+        ok: true,
+        tenant_id,
+        hasQr: Boolean(qr),
+        status: qr ? "qr" : "idle",
+        qr: qr || undefined,
+      });
+    }
+
+    if (action === "send") {
+      const to = normalizeToWhatsAppBR(String(body?.to ?? "").trim());
+      const message = String(body?.message ?? "").trim();
+      if (!to || !message) return json({ error: "to and message required" }, 400);
+
+      const r = await forward(WA_CONNECTOR_URL, WA_TOKEN, "/whatsapp/send", "POST", {
+        tenant_id,
+        to,
+        message,
+      });
+
+      if (!r.ok) {
+        const status =
+          typeof r.status === "number" && r.status >= 400 && r.status < 500 ? r.status : 502;
+        return json({ ok: false, tenant_id, ...r }, status);
+      }
+
+      return json({ ok: true, tenant_id, ...r.data });
+    }
+
+    return json({ error: "Unknown action" }, 400);
+  } catch (e: any) {
+    return json({ error: e?.message || String(e) }, 500);
   }
-}
-
-export async function waInit(tenant_id: string) {
-  if (canUseDirect()) {
-    const r = await fetch(`${DIRECT_WA_URL}/whatsapp/init`, {
-      method: "POST",
-      headers: authHeaders(),
-      body: JSON.stringify({ tenant_id }),
-    });
-    if (!r.ok) throw new Error(await readErrorText(r));
-    return r.json();
-  }
-
-  return invokeEdge({ action: "init", tenant_id });
-}
-
-export async function waStatus(tenant_id: string): Promise<WAStatus> {
-  if (canUseDirect()) {
-    const r = await fetch(`${DIRECT_WA_URL}/whatsapp/status?tenant_id=${encodeURIComponent(tenant_id)}`, {
-      headers: authHeaders(),
-    });
-    if (!r.ok) throw new Error(await readErrorText(r));
-    const data = (await r.json()) as any;
-    const status = (data?.status ?? "idle") as WAStatus["status"];
-    return {
-      ok: true,
-      tenant_id,
-      status,
-      connected: status === "ready",
-      connectedNumber: null,
-      qrUpdatedAt: null,
-      lastError: data?.lastError ?? null,
-      lastSeenAt: data?.lastEventAt ? new Date(data.lastEventAt).toISOString() : null,
-    };
-  }
-
-  return invokeEdge<WAStatus>({ action: "status", tenant_id });
-}
-
-export async function waQr(tenant_id: string): Promise<WAQr> {
-  if (canUseDirect()) {
-    const r = await fetch(`${DIRECT_WA_URL}/whatsapp/qr?tenant_id=${encodeURIComponent(tenant_id)}`, {
-      headers: authHeaders(),
-    });
-    if (!r.ok) throw new Error(await readErrorText(r));
-    const data = (await r.json()) as any;
-    const qr = data?.qr ?? null;
-    return {
-      ok: true,
-      tenant_id,
-      hasQr: !!qr,
-      status: qr ? "qr" : "idle",
-      qr: qr || undefined,
-    };
-  }
-
-  return invokeEdge<WAQr>({ action: "qr", tenant_id });
-}
-
-export async function waSend(tenant_id: string, to: string, message: string) {
-  if (canUseDirect()) {
-    const r = await fetch(`${DIRECT_WA_URL}/whatsapp/send`, {
-      method: "POST",
-      headers: authHeaders(),
-      body: JSON.stringify({ tenant_id, to, message }),
-    });
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error((data as any)?.error || JSON.stringify(data) || "send failed");
-    return data;
-  }
-
-  return invokeEdge({ action: "send", tenant_id, to, message });
-}
-
+});
