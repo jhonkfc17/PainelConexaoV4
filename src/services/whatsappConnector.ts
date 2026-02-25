@@ -58,6 +58,53 @@ async function readErrorText(r: Response) {
   }
 }
 
+const EXPECTED_SUPABASE_HOST = (() => {
+  try {
+    const raw = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? "";
+    return raw ? new URL(raw).host : "";
+  } catch {
+    return "";
+  }
+})();
+
+type JwtPayload = {
+  iss?: string;
+  aud?: string;
+  exp?: number;
+};
+
+function decodeJwtPayload(token: string): JwtPayload | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    const json = atob(padded);
+    return JSON.parse(json) as JwtPayload;
+  } catch {
+    return null;
+  }
+}
+
+function validateTokenForCurrentProject(token: string): { ok: true } | { ok: false; reason: string } {
+  const payload = decodeJwtPayload(token);
+  if (!payload) return { ok: false, reason: "token nao esta em formato JWT valido" };
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (typeof payload.exp === "number" && payload.exp <= nowSec) {
+    return { ok: false, reason: "token expirado" };
+  }
+
+  if (EXPECTED_SUPABASE_HOST && payload.iss && !String(payload.iss).includes(EXPECTED_SUPABASE_HOST)) {
+    return {
+      ok: false,
+      reason: `token pertence a outro projeto (iss=${String(payload.iss)})`,
+    };
+  }
+
+  return { ok: true };
+}
+
 async function getAccessTokenOrThrow(): Promise<string> {
   const { data, error } = await supabase.auth.getSession();
   if (error) throw new Error(`Falha ao obter sessao: ${error.message}`);
@@ -65,6 +112,13 @@ async function getAccessTokenOrThrow(): Promise<string> {
   const token = data.session?.access_token;
   if (!token) {
     throw new Error("Usuario nao autenticado. Faca login novamente.");
+  }
+  const validation = validateTokenForCurrentProject(token);
+  if (!validation.ok) {
+    try {
+      await supabase.auth.signOut({ scope: "local" });
+    } catch {}
+    throw new Error(`Sessao invalida (${validation.reason}). Faca login novamente.`);
   }
   return token;
 }
@@ -78,6 +132,13 @@ async function refreshAccessTokenOrThrow(): Promise<string> {
   const token = data.session?.access_token;
   if (!token) {
     throw new Error("Sessao expirada. Faca login novamente.");
+  }
+  const validation = validateTokenForCurrentProject(token);
+  if (!validation.ok) {
+    try {
+      await supabase.auth.signOut({ scope: "local" });
+    } catch {}
+    throw new Error(`Sessao invalida apos refresh (${validation.reason}). Faca login novamente.`);
   }
   return token;
 }

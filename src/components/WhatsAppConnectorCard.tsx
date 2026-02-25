@@ -34,12 +34,14 @@ export default function WhatsAppConnectorCard({ tenantId: tenantIdProp }: Props)
 
   const [loading, setLoading] = useState(true);
   const pollRef = useRef<number | null>(null);
+  const authBlockedRef = useRef(false);
 
   const isReady = useMemo(() => status === "ready", [status]);
   const isConfigured = !!tenantId;
 
   async function refresh() {
     if (!tenantId) return;
+    authBlockedRef.current = false;
     try {
       const st = await waStatus(tenantId);
       setStatus(st.status);
@@ -56,9 +58,12 @@ export default function WhatsAppConnectorCard({ tenantId: tenantIdProp }: Props)
     } catch (e: any) {
       const msg = String(e?.message || e);
       setLastError(msg);
-      if (isAuthErrorMessage(msg) && pollRef.current) {
-        window.clearInterval(pollRef.current);
-        pollRef.current = null;
+      if (isAuthErrorMessage(msg)) {
+        authBlockedRef.current = true;
+        if (pollRef.current) {
+          window.clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
       }
     } finally {
       setLoading(false);
@@ -67,14 +72,18 @@ export default function WhatsAppConnectorCard({ tenantId: tenantIdProp }: Props)
 
   async function initIfNeeded() {
     if (!tenantId) return;
+    authBlockedRef.current = false;
     try {
       await waInit(tenantId);
     } catch (e: any) {
       const msg = String(e?.message || e);
       setLastError(msg);
-      if (isAuthErrorMessage(msg) && pollRef.current) {
-        window.clearInterval(pollRef.current);
-        pollRef.current = null;
+      if (isAuthErrorMessage(msg)) {
+        authBlockedRef.current = true;
+        if (pollRef.current) {
+          window.clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
       }
     }
   }
@@ -96,6 +105,7 @@ export default function WhatsAppConnectorCard({ tenantId: tenantIdProp }: Props)
 
       await refresh();
       if (!mounted) return;
+      if (authBlockedRef.current) return;
 
       if (pollRef.current) window.clearInterval(pollRef.current);
       pollRef.current = window.setInterval(() => {

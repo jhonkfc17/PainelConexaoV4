@@ -41,9 +41,24 @@ export const useAuthStore = create<AuthState>()((set) => ({
     set({ loading: true, error: null });
     try {
       const { data } = await supabase.auth.getSession();
-      const u = data.session?.user ?? null;
+      let session = data.session ?? null;
+      let u = session?.user ?? null;
+
+      if (session?.access_token) {
+        const { data: userData, error: userErr } = await supabase.auth.getUser(session.access_token);
+        if (userErr || !userData?.user) {
+          try {
+            await supabase.auth.signOut({ scope: "local" });
+          } catch {}
+          session = null;
+          u = null;
+        } else {
+          u = userData.user;
+        }
+      }
+
       const claims = extractTenant(u);
-      set({ session: data.session ?? null, user: u, ...claims });
+      set({ session, user: u, ...claims });
 
       supabase.auth.onAuthStateChange((_event, session) => {
         const u = session?.user ?? null;
