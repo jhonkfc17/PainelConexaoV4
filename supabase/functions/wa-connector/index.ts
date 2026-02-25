@@ -1,49 +1,19 @@
-// src/services/whatsappConnector.ts
-import { supabase } from "@/lib/supabaseClient";
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "@supabase/supabase-js";
 
-/**
- * WhatsApp Connector (SEGURANÇA)
- * - Não usa mais token no front.
- * - Chama Edge Function `wa-connector` que mantém WA_TOKEN e WA_CONNECTOR_URL como secrets.
- *
- * Para compatibilidade local (opcional), se você definir VITE_WA_CONNECTOR_URL + VITE_WA_TOKEN,
- * ainda é possível cair no modo direto.
- */
+type Json = Record<string, any>;
 
-// Fallback opcional (DEV/local)
-const DIRECT_WA_URL =
-  (import.meta.env.VITE_WA_CONNECTOR_URL as string) ||
-  (import.meta.env.VITE_WA_URL as string) ||
-  "";
-
-const DIRECT_WA_TOKEN = (import.meta.env.VITE_WA_TOKEN as string) || "";
-
-type WAStatus = {
-  ok: boolean;
-  tenant_id: string;
-  status: "idle" | "connecting" | "qr" | "ready" | "auth_failure" | "disconnected";
-  connected: boolean;
-  connectedNumber: string | null;
-  qrUpdatedAt: string | null;
-  lastError: string | null;
-  lastSeenAt: string | null;
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-type WAQr = {
-  ok: boolean;
-  tenant_id: string;
-  hasQr: boolean;
-  status: WAStatus["status"];
-  qr?: string; // dataUrl
-  qrUpdatedAt?: string;
-};
-
-function parseJsonSafe(text: string) {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
+function json(data: Json, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 }
 
 function isProtocolTimeoutError(message: string | null | undefined) {
@@ -51,186 +21,222 @@ function isProtocolTimeoutError(message: string | null | undefined) {
   return m.includes("runtime.callfunctionon timed out") || m.includes("protocoltimeout");
 }
 
-function canUseDirect() {
-  // Em producao (ex.: Vercel), nunca usar conector direto por variaveis VITE_*.
-  // Isso evita chamadas para localhost e erros de CORS.
-  const host =
-    typeof window !== "undefined" && window?.location?.hostname
-      ? window.location.hostname
-      : "";
-  const isLocalHost =
-    host === "localhost" || host === "127.0.0.1" || host === "[::1]";
-  const forceDirect =
-    String(import.meta.env.VITE_WA_DIRECT_MODE ?? "").toLowerCase() === "true";
-
-  return Boolean(DIRECT_WA_URL && DIRECT_WA_TOKEN && (isLocalHost || forceDirect));
+function onlyDigits(value: string) {
+  return String(value || "").replace(/\D+/g, "");
 }
 
-function authHeaders() {
-  return {
-    Authorization: `Bearer ${DIRECT_WA_TOKEN}`,
-    "Content-Type": "application/json",
-  };
+function normalizeToWhatsAppBR(raw: string) {
+  const digits = onlyDigits(raw);
+  if (!digits) return "";
+
+  // Ja veio com DDI 55
+  if (digits.startsWith("55")) return digits;
+
+  // Formato nacional com DDD (10 ou 11 digitos): prefixa 55
+  if (digits.length === 10 || digits.length === 11) return `55${digits}`;
+
+  return digits;
 }
 
-async function readErrorText(r: Response) {
+async function readJson(req: Request) {
   try {
-    const text = await r.text();
-    return text || `${r.status} ${r.statusText}`;
+    return (await req.json()) as Json;
   } catch {
-    return `${r.status} ${r.statusText}`;
+    return {};
   }
 }
 
-async function invokeEdge<T = any>(body: Record<string, any>): Promise<T> {
-  const { data, error } = await supabase.functions.invoke("wa-connector", { body });
-  if (!error) return data as T;
+async function forward(
+  baseUrl: string,
+  token: string,
+  path: string,
+  method: string,
+  body?: any
+) {
+  const url = `${baseUrl}${path}`;
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    // alguns conectores usam x-wa-token (novo)
+    "x-wa-token": token,
+    // outros usam Authorization Bearer (legado)
+    Authorization: `Bearer ${token}`,
+  };
 
-  // Diagnóstico mais claro: em alguns cenários o SDK retorna FunctionsFetchError
-  // sem detalhar que a função não está implantada (404).
-  const sbUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? "";
-  const sbKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? "";
+  const resp = await fetch(url, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
 
-  if (sbUrl && sbKey) {
-    try {
-      const { data: sess } = await supabase.auth.getSession();
-      const bearer = sess?.session?.access_token || sbKey;
+  const text = await resp.text();
+  let data: any = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { raw: text };
+  }
 
-      const r = await fetch(`${sbUrl.replace(/\/+$/, "")}/functions/v1/wa-connector`, {
-        method: "POST",
-        headers: {
-          apikey: sbKey,
-          Authorization: `Bearer ${bearer}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      });
+  if (!resp.ok) {
+    return { ok: false, status: resp.status, error: data?.error ?? text ?? resp.statusText, data };
+  }
 
-      if (r.status === 404) {
-        throw new Error("Edge Function wa-connector não encontrada (HTTP 404). Faça deploy no projeto Supabase.");
-      }
+  return { ok: true, data };
+}
 
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
+
+  try {
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+    const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const WA_CONNECTOR_URL = Deno.env.get("WA_CONNECTOR_URL")!;
+    const WA_TOKEN = Deno.env.get("WA_TOKEN")!;
+
+    if (!SUPABASE_URL || !SERVICE_ROLE_KEY) return json({ error: "Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY" }, 500);
+    if (!WA_CONNECTOR_URL || !WA_TOKEN) return json({ error: "Missing WA_CONNECTOR_URL / WA_TOKEN" }, 500);
+
+    const authHeader = req.headers.get("authorization") ?? req.headers.get("Authorization") ?? "";
+    if (!authHeader.startsWith("Bearer ")) return json({ error: "Missing Authorization Bearer token" }, 401);
+
+    const jwt = authHeader.replace("Bearer ", "").trim();
+    if (!jwt) return json({ error: "Missing bearer token" }, 401);
+
+    // client "user" (valida token) usando service role, mas com Authorization do usuário.
+    const userClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+      global: { headers: { Authorization: `Bearer ${jwt}` } },
+      auth: { persistSession: false },
+    });
+
+    const { data: userRes, error: userErr } = await userClient.auth.getUser();
+    const caller = userRes?.user ?? null;
+
+    const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+
+    // resolve tenant
+    const tenantIdFromToken = caller ? (caller.app_metadata as any)?.tenant_id ?? null : null;
+    const tenantId = tenantIdFromToken ?? (caller ? caller.id : String((await readJson(req))?.tenant_id ?? ""));
+
+    if (!tenantId) {
+      // Se não conseguiu resolver tenant e não há caller, rejeita.
+      if (userErr || !caller) return json({ error: "Unauthorized", details: userErr?.message ?? "Invalid token" }, 401);
+    }
+
+    // staff: exige ativo (e opcionalmente role admin para ações destrutivas)
+    if (tenantIdFromToken && caller) {
+      const { data: staffRow, error: staffErr } = await admin
+        .from("staff_members")
+        .select("role, active")
+        .eq("tenant_id", tenantId)
+        .eq("auth_user_id", caller.id)
+        .maybeSingle();
+
+      if (staffErr) return json({ error: "staff lookup failed", details: staffErr.message }, 500);
+      if (!staffRow?.active) return json({ error: "Forbidden", details: "Caller is not active" }, 403);
+    }
+
+    const body = await readJson(req);
+    const action = String(body?.action ?? "").trim();
+    const tenant_id = String(body?.tenant_id ?? tenantId).trim();
+
+    // nunca permitir operar outro tenant
+    if (tenant_id !== tenantId) return json({ error: "Forbidden", details: "tenant mismatch" }, 403);
+
+    if (!action) return json({ error: "Missing action" }, 400);
+
+    if (action === "init") {
+      const r = await forward(WA_CONNECTOR_URL, WA_TOKEN, "/whatsapp/init", "POST", { tenant_id });
+      return json(r.ok ? { ok: true, tenant_id, ...r.data } : { ok: false, tenant_id, ...r }, r.ok ? 200 : 502);
+    }
+
+    if (action === "status") {
+      const r = await forward(WA_CONNECTOR_URL, WA_TOKEN, `/whatsapp/status?tenant_id=${encodeURIComponent(tenant_id)}`, "GET");
       if (!r.ok) {
-        const txt = await readErrorText(r);
-        const parsed = parseJsonSafe(txt);
-        const statusCode = Number(parsed?.status ?? r.status);
-        const errText = String(parsed?.error ?? parsed?.message ?? txt);
-        const details = String(parsed?.data?.details ?? "").trim();
-        const statusRaw = String(parsed?.data?.status ?? parsed?.status ?? "").toLowerCase();
-        const waStateRaw = String(parsed?.data?.waState ?? "").toUpperCase();
+        // Alguns conectores retornam timeout do Puppeteer mesmo com sessao conectada.
+        // Nesses casos, convertemos para "ready" para nao quebrar a UX.
+        const msg = String((r as any)?.error ?? "");
+        const statusRaw = String((r as any)?.data?.status ?? "").toLowerCase();
+        const waStateRaw = String((r as any)?.data?.waState ?? "").toUpperCase();
         const connectedByState = statusRaw === "ready" || waStateRaw === "CONNECTED";
 
-        // Fallback defensivo: alguns conectores retornam timeout de protocolo mesmo conectados.
-        if ((body?.action === "status" || body?.action === "qr") && isProtocolTimeoutError(errText) && connectedByState) {
-          if (body?.action === "status") {
-            return {
-              ok: true,
-              tenant_id: String(body?.tenant_id ?? ""),
-              status: "ready",
-              connected: true,
-              connectedNumber: null,
-              qrUpdatedAt: null,
-              lastError: errText,
-              lastSeenAt: new Date().toISOString(),
-            } as T;
-          }
-
-          return {
+        if (isProtocolTimeoutError(msg) && connectedByState) {
+          return json({
             ok: true,
-            tenant_id: String(body?.tenant_id ?? ""),
-            hasQr: false,
+            tenant_id,
             status: "ready",
-          } as T;
+            connected: true,
+            connectedNumber: null,
+            qrUpdatedAt: null,
+            lastError: msg,
+            lastSeenAt: new Date().toISOString(),
+          });
         }
 
-        if (body?.action === "send" && statusCode === 422) {
-          const hint = details ? ` (${details})` : "";
-          throw new Error(`Número não encontrado no WhatsApp ou sem LID resolvido${hint}`);
-        }
-
-        throw new Error(`Edge Function wa-connector respondeu [${statusCode}] ${errText}`);
+        return json({ ok: false, tenant_id, ...r }, 502);
       }
 
-      const parsed = (await r.json()) as T;
-      return parsed;
-    } catch (probeErr: any) {
-      throw new Error(String(probeErr?.message || probeErr));
+      const status = (r.data?.status ?? "idle") as any;
+      return json({
+        ok: true,
+        tenant_id,
+        status,
+        connected: status === "ready",
+        connectedNumber: null,
+        qrUpdatedAt: null,
+        lastError: r.data?.lastError ?? null,
+        lastSeenAt: r.data?.lastEventAt ? new Date(r.data.lastEventAt).toISOString() : null,
+      });
     }
+
+    if (action === "qr") {
+      const r = await forward(WA_CONNECTOR_URL, WA_TOKEN, `/whatsapp/qr?tenant_id=${encodeURIComponent(tenant_id)}`, "GET");
+      if (!r.ok) {
+        const msg = String((r as any)?.error ?? "");
+        const statusRaw = String((r as any)?.data?.status ?? "").toLowerCase();
+        const waStateRaw = String((r as any)?.data?.waState ?? "").toUpperCase();
+        const connectedByState = statusRaw === "ready" || waStateRaw === "CONNECTED";
+
+        // Se a sessao esta conectada, timeout ao pedir QR nao deve virar erro fatal.
+        if (isProtocolTimeoutError(msg) && connectedByState) {
+          return json({
+            ok: true,
+            tenant_id,
+            hasQr: false,
+            status: "ready",
+            qr: undefined,
+            qrUpdatedAt: null,
+          });
+        }
+
+        return json({ ok: false, tenant_id, ...r }, 502);
+      }
+
+      const qr = r.data?.qr ?? null;
+      return json({
+        ok: true,
+        tenant_id,
+        hasQr: Boolean(qr),
+        status: qr ? "qr" : "idle",
+        qr: qr || undefined,
+      });
+    }
+
+    if (action === "send") {
+      const to = normalizeToWhatsAppBR(String(body?.to ?? "").trim());
+      const message = String(body?.message ?? "").trim();
+      if (!to || !message) return json({ error: "to and message required" }, 400);
+
+      const r = await forward(WA_CONNECTOR_URL, WA_TOKEN, "/whatsapp/send", "POST", { tenant_id, to, message });
+      if (!r.ok) {
+        const status = typeof r.status === "number" && r.status >= 400 && r.status < 500 ? r.status : 502;
+        return json({ ok: false, ...r }, status);
+      }
+
+      return json({ ok: true, ...r.data });
+    }
+
+    return json({ error: "Unknown action" }, 400);
+  } catch (e: any) {
+    return json({ error: e?.message || String(e) }, 500);
   }
-
-  throw error;
-}
-
-export async function waInit(tenant_id: string) {
-  if (canUseDirect()) {
-    const r = await fetch(`${DIRECT_WA_URL}/whatsapp/init`, {
-      method: "POST",
-      headers: authHeaders(),
-      body: JSON.stringify({ tenant_id }),
-    });
-    if (!r.ok) throw new Error(await readErrorText(r));
-    return r.json();
-  }
-
-  return invokeEdge({ action: "init", tenant_id });
-}
-
-export async function waStatus(tenant_id: string): Promise<WAStatus> {
-  if (canUseDirect()) {
-    const r = await fetch(`${DIRECT_WA_URL}/whatsapp/status?tenant_id=${encodeURIComponent(tenant_id)}`, {
-      headers: authHeaders(),
-    });
-    if (!r.ok) throw new Error(await readErrorText(r));
-    const data = (await r.json()) as any;
-    const status = (data?.status ?? "idle") as WAStatus["status"];
-    return {
-      ok: true,
-      tenant_id,
-      status,
-      connected: status === "ready",
-      connectedNumber: null,
-      qrUpdatedAt: null,
-      lastError: data?.lastError ?? null,
-      lastSeenAt: data?.lastEventAt ? new Date(data.lastEventAt).toISOString() : null,
-    };
-  }
-
-  return invokeEdge<WAStatus>({ action: "status", tenant_id });
-}
-
-export async function waQr(tenant_id: string): Promise<WAQr> {
-  if (canUseDirect()) {
-    const r = await fetch(`${DIRECT_WA_URL}/whatsapp/qr?tenant_id=${encodeURIComponent(tenant_id)}`, {
-      headers: authHeaders(),
-    });
-    if (!r.ok) throw new Error(await readErrorText(r));
-    const data = (await r.json()) as any;
-    const qr = data?.qr ?? null;
-    return {
-      ok: true,
-      tenant_id,
-      hasQr: !!qr,
-      status: qr ? "qr" : "idle",
-      qr: qr || undefined,
-    };
-  }
-
-  return invokeEdge<WAQr>({ action: "qr", tenant_id });
-}
-
-export async function waSend(tenant_id: string, to: string, message: string) {
-  if (canUseDirect()) {
-    const r = await fetch(`${DIRECT_WA_URL}/whatsapp/send`, {
-      method: "POST",
-      headers: authHeaders(),
-      body: JSON.stringify({ tenant_id, to, message }),
-    });
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error((data as any)?.error || JSON.stringify(data) || "send failed");
-    return data;
-  }
-
-  return invokeEdge({ action: "send", tenant_id, to, message });
-}
-
-
+});
