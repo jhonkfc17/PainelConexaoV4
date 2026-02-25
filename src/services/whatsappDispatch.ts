@@ -45,7 +45,7 @@ export async function sendWhatsAppFromPanel(opts: SendOpts) {
   }
 
   if (!opts.skipStatusCheck) {
-    const st = await waStatus(tenant_id);
+    const st = await waStatus();
     if (st.status !== "ready") {
       throw new Error(
         `WhatsApp não está pronto para enviar (status: ${st.status}). Vá em Configurações > WhatsApp e conecte o QR.`
@@ -53,5 +53,5 @@ export async function sendWhatsAppFromPanel(opts: SendOpts) {
     }
   }
 
-  return waSend(tenant_id, to, message);
+  return waSend(to, message);
 }
