@@ -1,57 +1,48 @@
-// src/services/whatsappDispatch.ts
+import { supabase } from "../lib/supabaseClient";
 
-import { waSend, waStatus } from "./whatsappConnector";
-
-/**
- * Normaliza telefone para formato aceito pelo connector (apenas dígitos).
- * - Se vier com 10/11 dígitos (DDD + número), prefixa 55
- * - Se já vier com 55, mantém
- */
-export function normalizeToE164BR(raw: string) {
-  const digits = String(raw ?? "").replace(/\D/g, "");
-  if (!digits) return "";
-  if (digits.startsWith("55") && digits.length >= 12) return digits;
-  if (digits.length === 10 || digits.length === 11) return `55${digits}`;
-  return digits;
-}
-
-type SendOpts = {
+export type SendWhatsAppPayload = {
   tenant_id: string;
-  to: string; // raw phone (any format) OR already-sanitized digits
+  to: string;
   message: string;
-  /**
-   * Se true, não faz chamada extra para /status antes de enviar.
-   * (default: false)
-   */
-  skipStatusCheck?: boolean;
+  media_url?: string;
 };
 
-/**
- * Envio direto pelo WhatsApp Connector (sem abrir WhatsApp Web).
- * - Valida tenant_id
- * - Normaliza telefone
- * - Confere se o tenant está "ready" antes de enviar
- */
-export async function sendWhatsAppFromPanel(opts: SendOpts) {
-  const tenant_id = String(opts.tenant_id ?? "").trim();
-  if (!tenant_id) throw new Error("Tenant não identificado. Faça login novamente.");
+async function extractEdgeErrorDetails(error: any): Promise<string> {
+  const body = error?.context?.body;
 
-  const message = String(opts.message ?? "").trim();
-  if (!message) throw new Error("Mensagem vazia.");
-
-  const to = normalizeToE164BR(opts.to);
-  if (!to || to.length < 12) {
-    throw new Error("Número inválido. Envie com DDD (ex: 5599999999999)");
-  }
-
-  if (!opts.skipStatusCheck) {
-    const st = await waStatus(tenant_id);
-    if (st.status !== "ready") {
-      throw new Error(
-        `WhatsApp não está pronto para enviar (status: ${st.status}). Vá em Configurações > WhatsApp e conecte o QR.`
-      );
+  if (typeof body === "string") {
+    try {
+      const parsed = JSON.parse(body);
+      return parsed?.error || parsed?.message || parsed?.details || body;
+    } catch {
+      return body;
     }
   }
 
-  return waSend(tenant_id, to, message);
+  if (body && typeof body === "object") {
+    return body?.error || body?.message || body?.details || JSON.stringify(body);
+  }
+
+  return error?.message || "Erro ao chamar Edge Function";
+}
+
+export async function sendWhatsAppFromPanel(payload: SendWhatsAppPayload) {
+  const { data, error: sessErr } = await supabase.auth.getSession();
+  if (sessErr) throw sessErr;
+
+  const token = data.session?.access_token;
+  if (!token) throw new Error("Sessão inválida. Faça login novamente.");
+
+  const { data: resp, error } = await supabase.functions.invoke("wa-auto-dispatch", {
+    headers: { Authorization: `Bearer ${token}` },
+    body: payload,
+  });
+
+  if (error) {
+    const msg = await extractEdgeErrorDetails(error);
+    console.error("[wa-auto-dispatch] error details:", error);
+    throw new Error(msg);
+  }
+
+  return resp;
 }
