@@ -69,8 +69,25 @@ async function getAccessTokenOrThrow(): Promise<string> {
   return token;
 }
 
-async function invokeEdge<T = any>(body: Record<string, any>): Promise<T> {
-  const token = await getAccessTokenOrThrow();
+async function refreshAccessTokenOrThrow(): Promise<string> {
+  const { data, error } = await supabase.auth.refreshSession();
+  if (error) {
+    throw new Error(`Falha ao atualizar sessao: ${error.message}. Faca login novamente.`);
+  }
+
+  const token = data.session?.access_token;
+  if (!token) {
+    throw new Error("Sessao expirada. Faca login novamente.");
+  }
+  return token;
+}
+
+function isInvalidJwtErrorMessage(message: string): boolean {
+  const msg = message.toLowerCase();
+  return msg.includes("invalid jwt") || (msg.includes("jwt") && msg.includes("invalid"));
+}
+
+async function invokeEdgeWithToken<T = any>(body: Record<string, any>, token: string): Promise<T> {
   const { data, error } = await supabase.functions.invoke("wa-connector", {
     body,
     headers: { Authorization: `Bearer ${token}` },
@@ -112,6 +129,27 @@ async function invokeEdge<T = any>(body: Record<string, any>): Promise<T> {
 
   const msg = typeof error === "object" && error && "message" in error ? String((error as any).message) : String(error);
   throw new Error(`Edge Function wa-connector falhou: ${msg}`);
+}
+
+async function invokeEdge<T = any>(body: Record<string, any>): Promise<T> {
+  let token = await getAccessTokenOrThrow();
+
+  try {
+    return await invokeEdgeWithToken<T>(body, token);
+  } catch (e: any) {
+    const firstMsg = String(e?.message || e);
+    if (!isInvalidJwtErrorMessage(firstMsg)) throw e;
+
+    token = await refreshAccessTokenOrThrow();
+    try {
+      return await invokeEdgeWithToken<T>(body, token);
+    } catch (secondErr: any) {
+      const secondMsg = String(secondErr?.message || secondErr);
+      throw new Error(
+        `Falha de autenticacao na Edge Function (JWT invalido apos refresh). Faca logout/login e tente novamente. Detalhe: ${secondMsg}`
+      );
+    }
+  }
 }
 
 export async function waInit(tenant_id: string) {

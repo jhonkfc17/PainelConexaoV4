@@ -8,6 +8,17 @@ type Props = {
   tenantId?: string;
 };
 
+function isAuthErrorMessage(message: string): boolean {
+  const msg = message.toLowerCase();
+  return (
+    msg.includes("invalid jwt") ||
+    msg.includes("unauthorized") ||
+    msg.includes("nao autenticado") ||
+    msg.includes("sessao invalida") ||
+    msg.includes("sessao expirada")
+  );
+}
+
 export default function WhatsAppConnectorCard({ tenantId: tenantIdProp }: Props) {
   const tenantFromStore = useAuthStore((s) => s.tenantId);
   const tenantId = tenantIdProp ?? tenantFromStore ?? undefined;
@@ -43,7 +54,12 @@ export default function WhatsAppConnectorCard({ tenantId: tenantIdProp }: Props)
         setQrDataUrl(null);
       }
     } catch (e: any) {
-      setLastError(String(e?.message || e));
+      const msg = String(e?.message || e);
+      setLastError(msg);
+      if (isAuthErrorMessage(msg) && pollRef.current) {
+        window.clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
     } finally {
       setLoading(false);
     }
@@ -54,7 +70,12 @@ export default function WhatsAppConnectorCard({ tenantId: tenantIdProp }: Props)
     try {
       await waInit(tenantId);
     } catch (e: any) {
-      setLastError(String(e?.message || e));
+      const msg = String(e?.message || e);
+      setLastError(msg);
+      if (isAuthErrorMessage(msg) && pollRef.current) {
+        window.clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
     }
   }
 
