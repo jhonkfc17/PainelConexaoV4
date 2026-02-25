@@ -151,27 +151,50 @@ Deno.serve(async (req) => {
     }
 
     if (action === "status") {
-      const r = await forward(WA_CONNECTOR_URL, WA_TOKEN, `/whatsapp/status?tenant_id=${encodeURIComponent(tenant_id)}`, "GET");
-      if (!r.ok) {
-        // Alguns conectores retornam timeout do Puppeteer mesmo com sessao conectada.
-        // Nesses casos, convertemos para "ready" para nao quebrar a UX.
-        const msg = String((r as any)?.error ?? "");
-        const statusRaw = String((r as any)?.data?.status ?? "").toLowerCase();
-        const waStateRaw = String((r as any)?.data?.waState ?? "").toUpperCase();
-        const connectedByState = statusRaw === "ready" || waStateRaw === "CONNECTED";
+  // usa o mesmo padrão do resto (forward), e com GET (status não é POST)
+  const r = await forward(
+    WA_CONNECTOR_URL,
+    WA_TOKEN,
+    `/whatsapp/status?tenant_id=${encodeURIComponent(tenant_id)}`,
+    "GET"
+  );
 
-        if (isProtocolTimeoutError(msg) && connectedByState) {
-          return json({
-            ok: true,
-            tenant_id,
-            status: "ready",
-            connected: true,
-            connectedNumber: null,
-            qrUpdatedAt: null,
-            lastError: msg,
-            lastSeenAt: new Date().toISOString(),
-          });
-        }
+  if (!r.ok) {
+    // Alguns conectores retornam timeout do Puppeteer mesmo com sessao conectada.
+    // Nesses casos, convertemos para "ready" para nao quebrar a UX.
+    const msg = String((r as any)?.error ?? "");
+    const statusRaw = String((r as any)?.data?.status ?? "").toLowerCase();
+    const waStateRaw = String((r as any)?.data?.waState ?? "").toUpperCase();
+    const connectedByState = statusRaw === "ready" || waStateRaw === "CONNECTED";
+
+    if (isProtocolTimeoutError(msg) && connectedByState) {
+      return json({
+        ok: true,
+        tenant_id,
+        status: "ready",
+        connected: true,
+        connectedNumber: null,
+        qrUpdatedAt: null,
+        lastError: msg,
+        lastSeenAt: new Date().toISOString(),
+      });
+    }
+
+    return json({ ok: false, tenant_id, ...r }, 502);
+  }
+
+  const status = (r.data?.status ?? "idle") as any;
+  return json({
+    ok: true,
+    tenant_id,
+    status,
+    connected: status === "ready",
+    connectedNumber: null,
+    qrUpdatedAt: null,
+    lastError: r.data?.lastError ?? null,
+    lastSeenAt: r.data?.lastEventAt ? new Date(r.data.lastEventAt).toISOString() : null,
+  });
+}
 
         return json({ ok: false, tenant_id, ...r }, 502);
       }
