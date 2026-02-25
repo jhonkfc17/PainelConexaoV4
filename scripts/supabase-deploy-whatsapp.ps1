@@ -24,7 +24,7 @@ supabase secrets set `
   WA_TOKEN="$WaToken"
 
 Write-Host "==> Deploy Edge Functions"
-supabase functions deploy wa-connector --project-ref $ProjectRef
+supabase functions deploy wa-connector --project-ref $ProjectRef --no-verify-jwt
 supabase functions deploy wa-auto-dispatch --project-ref $ProjectRef
 supabase functions deploy staff-admin --project-ref $ProjectRef
 
