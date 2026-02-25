@@ -88,8 +88,9 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   try {
-    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-    const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    // Supabase reserva prefixo SUPABASE_* na UI; deixe cair para SERVICE_ROLE_KEY se for o que estiver setado.
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || Deno.env.get("PROJECT_URL") || "";
+    const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SERVICE_ROLE_KEY") || "";
     const WA_CONNECTOR_URL = Deno.env.get("WA_CONNECTOR_URL")!;
     const WA_TOKEN = Deno.env.get("WA_TOKEN")!;
 
