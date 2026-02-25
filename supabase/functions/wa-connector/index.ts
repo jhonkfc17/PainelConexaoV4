@@ -16,6 +16,12 @@ function json(data: Json, status = 200) {
   });
 }
 
+function forwardStatus(r: { ok: boolean; status?: number }) {
+  if (r.ok) return 200;
+  const s = Number(r.status || 0);
+  return s >= 400 && s <= 599 ? s : 502;
+}
+
 async function readJson(req: Request) {
   try {
     return (await req.json()) as Json;
@@ -128,12 +134,12 @@ Deno.serve(async (req) => {
 
     if (action === "init") {
       const r = await forward(WA_CONNECTOR_URL, WA_TOKEN, "/whatsapp/init", "POST", { tenant_id });
-      return json(r.ok ? { ok: true, tenant_id, ...r.data } : { ok: false, tenant_id, ...r }, r.ok ? 200 : 502);
+      return json(r.ok ? { ok: true, tenant_id, ...r.data } : { ok: false, tenant_id, ...r }, forwardStatus(r));
     }
 
     if (action === "status") {
       const r = await forward(WA_CONNECTOR_URL, WA_TOKEN, `/whatsapp/status?tenant_id=${encodeURIComponent(tenant_id)}`, "GET");
-      if (!r.ok) return json({ ok: false, tenant_id, ...r }, 502);
+      if (!r.ok) return json({ ok: false, tenant_id, ...r }, forwardStatus(r));
 
       const status = (r.data?.status ?? "idle") as any;
       return json({
@@ -150,7 +156,7 @@ Deno.serve(async (req) => {
 
     if (action === "qr") {
       const r = await forward(WA_CONNECTOR_URL, WA_TOKEN, `/whatsapp/qr?tenant_id=${encodeURIComponent(tenant_id)}`, "GET");
-      if (!r.ok) return json({ ok: false, tenant_id, ...r }, 502);
+      if (!r.ok) return json({ ok: false, tenant_id, ...r }, forwardStatus(r));
 
       const qr = r.data?.qr ?? null;
       return json({
@@ -168,7 +174,7 @@ Deno.serve(async (req) => {
       if (!to || !message) return json({ error: "to and message required" }, 400);
 
       const r = await forward(WA_CONNECTOR_URL, WA_TOKEN, "/whatsapp/send", "POST", { tenant_id, to, message });
-      return json(r.ok ? { ok: true, ...r.data } : { ok: false, ...r }, r.ok ? 200 : 502);
+      return json(r.ok ? { ok: true, ...r.data } : { ok: false, ...r }, forwardStatus(r));
     }
 
     return json({ error: "Unknown action" }, 400);

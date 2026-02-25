@@ -155,40 +155,14 @@ async function invokeEdgeWithToken<T = any>(body: Record<string, any>, token: st
   });
   if (!error) return data as T;
 
-  // Diagnóstico mais claro: em alguns cenários o SDK retorna FunctionsFetchError
-  // sem detalhar que a função não está implantada (404).
-  const sbUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? "";
-  const sbKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? "";
-
-  if (sbUrl && sbKey) {
-    try {
-      const r = await fetch(`${sbUrl.replace(/\/+$/, "")}/functions/v1/wa-connector`, {
-        method: "POST",
-        headers: {
-          apikey: sbKey,
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      });
-
-      if (r.status === 404) {
-        throw new Error("Edge Function wa-connector não encontrada (HTTP 404). Faça deploy no projeto Supabase.");
-      }
-
-      if (!r.ok) {
-        const txt = await readErrorText(r);
-        throw new Error(`Edge Function wa-connector respondeu ${txt}`);
-      }
-
-      const parsed = (await r.json()) as T;
-      return parsed;
-    } catch (probeErr: any) {
-      throw new Error(String(probeErr?.message || probeErr));
-    }
+  let msg = typeof error === "object" && error && "message" in error ? String((error as any).message) : String(error);
+  const rawBody = (error as any)?.context?.body;
+  if (typeof rawBody === "string" && rawBody.trim()) {
+    msg = rawBody;
+  } else if (rawBody && typeof rawBody === "object") {
+    msg = JSON.stringify(rawBody);
   }
 
-  const msg = typeof error === "object" && error && "message" in error ? String((error as any).message) : String(error);
   throw new Error(`Edge Function wa-connector falhou: ${msg}`);
 }
 
@@ -284,3 +258,4 @@ export async function waSend(tenant_id: string, to: string, message: string) {
 
   return invokeEdge({ action: "send", tenant_id, to, message });
 }
+
