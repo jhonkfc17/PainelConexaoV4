@@ -150,8 +150,9 @@ Deno.serve(async (req) => {
       const r = await forward(
         WA_CONNECTOR_URL,
         WA_TOKEN,
-        `/whatsapp/status?tenant_id=${encodeURIComponent(tenant_id)}`,
-        "GET"
+        "/whatsapp/status",
+        "POST",
+        { tenant_id }
       );
 
       if (!r.ok) {
@@ -194,8 +195,9 @@ Deno.serve(async (req) => {
       const r = await forward(
         WA_CONNECTOR_URL,
         WA_TOKEN,
-        `/whatsapp/qr?tenant_id=${encodeURIComponent(tenant_id)}`,
-        "GET"
+        "/whatsapp/qr",
+        "POST",
+        { tenant_id }
       );
 
       if (!r.ok) {
