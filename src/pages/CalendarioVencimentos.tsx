@@ -87,8 +87,7 @@ export default function CalendarioVencimentos() {
         if (!alive) return;
         setErro(e?.message ?? "Falha ao carregar dados");
       } finally {
-        if (!alive) return;
-        setLoading(false);
+	      if (alive) setLoading(false);
       }
     })();
     return () => {

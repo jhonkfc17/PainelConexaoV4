@@ -33,7 +33,7 @@ function onlyDigits(s: string) {
 
 // normaliza pra padrão WhatsApp BR: 55 + DDD + numero
 function normalizeBR(phoneRaw: string) {
-  let d = onlyDigits(phoneRaw);
+  const d = onlyDigits(phoneRaw);
   if (!d) return "";
   if (d.startsWith("55")) return d;
   if (d.length >= 10) return "55" + d;
@@ -47,6 +47,24 @@ function formatBRL(n: number | null) {
 
 function applyTemplate(tpl: string, data: Record<string, string>) {
   return tpl.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key) => data[key] ?? "");
+}
+
+function connectorHeaders(token: string) {
+  return {
+    "content-type": "application/json",
+    "x-wa-token": token,
+    Authorization: `Bearer ${token}`,
+  };
+}
+
+async function readJsonSafe(resp: Response) {
+  const txt = await resp.text();
+  if (!txt) return {};
+  try {
+    return JSON.parse(txt);
+  } catch {
+    return { raw: txt };
+  }
 }
 
 serve(async () => {
@@ -192,54 +210,95 @@ serve(async () => {
 
     totalQueued += inserted?.length ?? 0;
 
-    // ✅ payload correto do seu connector: { items: [{to, message}] }
-    const payload = {
-      items: (inserted ?? []).map((r: any) => ({
+    const insertedRows = (inserted ?? []) as Array<{ id: string; to_phone: string; message: string }>;
+
+    // 1) Tenta endpoint em lote (se existir no connector externo)
+    const batchPayload = {
+      items: insertedRows.map((r) => ({
         to: r.to_phone,
         message: r.message,
       })),
     };
 
-    let connectorOk = false;
-    let connectorResp: any = null;
-
+    let batchOk = false;
+    let batchStatus = 0;
+    let batchResp: any = null;
     try {
       const resp = await fetch(`${WA_CONNECTOR_URL}/send-batch`, {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-wa-token": WA_TOKEN,
-        },
-        body: JSON.stringify(payload),
+        headers: connectorHeaders(WA_TOKEN),
+        body: JSON.stringify(batchPayload),
       });
-
-      connectorResp = await resp.json().catch(() => ({}));
-      connectorOk = resp.ok;
+      batchStatus = resp.status;
+      batchResp = await readJsonSafe(resp);
+      batchOk = resp.ok;
     } catch (e) {
-      connectorOk = false;
-      connectorResp = { error: String(e) };
+      batchResp = { error: String(e) };
     }
 
-    if (!connectorOk) {
-      totalFailed += inserted?.length ?? 0;
+    const sentIds: string[] = [];
+    const failedRows: Array<{ id: string; error: string }> = [];
+
+    if (batchOk) {
+      for (const row of insertedRows) sentIds.push(row.id);
+    } else {
+      // 2) Fallback compatível com conector de referência: envia um por um em /whatsapp/send
+      for (const row of insertedRows) {
+        try {
+          const resp = await fetch(`${WA_CONNECTOR_URL}/whatsapp/send`, {
+            method: "POST",
+            headers: connectorHeaders(WA_TOKEN),
+            body: JSON.stringify({
+              tenant_id: tenantId,
+              to: row.to_phone,
+              message: row.message,
+            }),
+          });
+
+          const payload = await readJsonSafe(resp);
+          if (resp.ok) {
+            sentIds.push(row.id);
+          } else {
+            failedRows.push({
+              id: row.id,
+              error: `HTTP ${resp.status}: ${JSON.stringify(payload).slice(0, 300)}`,
+            });
+          }
+        } catch (e) {
+          failedRows.push({ id: row.id, error: String(e).slice(0, 300) });
+        }
+      }
+    }
+
+    const failedIds = failedRows.map((x) => x.id);
+    totalSent += sentIds.length;
+    totalFailed += failedIds.length;
+
+    if (sentIds.length > 0) {
+      await sb.from("wa_message_log").update({ status: "sent", error: null }).in("id", sentIds);
+    }
+
+    if (failedIds.length > 0) {
+      const errText =
+        failedRows.map((x) => `${x.id}: ${x.error}`).join(" | ").slice(0, 900) ||
+        JSON.stringify({ batchStatus, batchResp }).slice(0, 900);
 
       await sb
         .from("wa_message_log")
-        .update({ status: "failed", error: JSON.stringify(connectorResp).slice(0, 900) })
-        .in("id", (inserted ?? []).map((r: any) => r.id));
-
-      perTenant[tenantId] = { ok: false, queued: inserted?.length ?? 0, sent: 0, failed: inserted?.length ?? 0, connectorResp };
-      continue;
+        .update({ status: "failed", error: errText })
+        .in("id", failedIds);
     }
 
-    totalSent += inserted?.length ?? 0;
-
-    await sb
-      .from("wa_message_log")
-      .update({ status: "sent", error: null })
-      .in("id", (inserted ?? []).map((r: any) => r.id));
-
-    perTenant[tenantId] = { ok: true, queued: inserted?.length ?? 0, sent: inserted?.length ?? 0, failed: 0, connectorResp };
+    perTenant[tenantId] = {
+      ok: failedIds.length === 0,
+      queued: insertedRows.length,
+      sent: sentIds.length,
+      failed: failedIds.length,
+      connectorResp: {
+        batch: { ok: batchOk, status: batchStatus, data: batchResp },
+        fallback_single_send_used: !batchOk,
+      },
+    };
   }
 
   return new Response(

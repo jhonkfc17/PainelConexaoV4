@@ -30,9 +30,26 @@ function diffDaysISO(aISO: string, bISO: string) {
 
 function getJurosConfig(emprestimo: any) {
   const payload = (emprestimo?.payload ?? {}) as any;
-  const aplicar = Boolean(payload.aplicarJurosAtraso ?? emprestimo?.aplicarJurosAtraso ?? false);
-  const tipo = String(payload.jurosAtrasoTipo ?? emprestimo?.jurosAtrasoTipo ?? 'valor_por_dia');
-  const taxa = Number(payload.jurosAtrasoTaxa ?? emprestimo?.jurosAtrasoTaxa ?? 0);
+  const cfg = payload?.juros_atraso_config ?? null;
+
+  const aplicar = Boolean(
+    cfg?.aplicar ??
+      payload?.aplicarJurosAtraso ?? // legado
+      (emprestimo?.aplicarJurosAtraso ?? false)
+  );
+
+  const tipo = String(
+    cfg?.tipo ??
+      payload?.jurosAtrasoTipo ?? // legado
+      (emprestimo?.jurosAtrasoTipo ?? "valor_por_dia")
+  );
+
+  const taxa = Number(
+    cfg?.taxa ??
+      payload?.jurosAtrasoTaxa ?? // legado
+      (emprestimo?.jurosAtrasoTaxa ?? 0)
+  );
+
   return { aplicar, tipo, taxa };
 }
 

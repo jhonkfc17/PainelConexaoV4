@@ -66,6 +66,14 @@ function SidebarContent({ onLogout }: { onLogout: () => void }) {
   const startRealtime = useEmprestimosStore((s) => s.startRealtime);
   const stopRealtime = useEmprestimosStore((s) => s.stopRealtime);
 
+  // Mantém o realtime do painel ativo enquanto o layout estiver montado.
+  useEffect(() => {
+    startRealtime?.();
+    return () => {
+      stopRealtime?.();
+    };
+  }, [startRealtime, stopRealtime]);
+
   return (
     <>
       <div className="h-14 px-3 sm:px-4 flex items-center gap-2 border-b border-emerald-500/10">

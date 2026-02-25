@@ -87,7 +87,6 @@ export default function WhatsAppConnectorCard({ tenantId: tenantIdProp }: Props)
       if (pollRef.current) window.clearInterval(pollRef.current);
       pollRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
 
   async function onSend() {

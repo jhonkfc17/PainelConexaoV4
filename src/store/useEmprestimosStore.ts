@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { calcularTotais } from "@/components/emprestimos/emprestimoCalculos";
 import type { NovoEmprestimoPayload } from "@/components/emprestimos/emprestimoTipos";
 import type { Cliente } from "@/components/clientes/clienteTipos";
+import { ajustarParaDiaCobravel, fromISODate, gerarVencimentosParcelas, toISODate } from "@/utils/datasCobranca";
 
 import {
   createEmprestimo,
@@ -11,6 +12,7 @@ import {
   listPagamentosByEmprestimoDb,
   registrarPagamentoDbV2,
   estornarPagamentoDbV2,
+  atualizarDataPagamentoDb,
   type PagamentoTipo,
   type PagamentoDb,
   type Emprestimo as EmprestimoModel,
@@ -49,6 +51,7 @@ type State = {
     flags?: Record<string, any>;
   }) => Promise<void>;
   estornarPagamento: (p: { emprestimoId: string; pagamentoId: string; motivo?: string; isAdmin?: boolean }) => Promise<void>;
+  atualizarDataPagamento: (p: { emprestimoId: string; pagamentoId: string; dataPagamento: string }) => Promise<void>;
 
   // Compat (modal antigo)
   pagarParcela: (p: {
@@ -65,6 +68,199 @@ type State = {
 
 function todayYmd() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function mapModalidadeCronograma(modalidade: string): "mensal" | "quinzenal" | "semanal" | "diario" {
+  const m = String(modalidade ?? "").toLowerCase();
+  if (m === "diario") return "diario";
+  if (m === "semanal") return "semanal";
+  if (m === "quinzenal") return "quinzenal";
+  return "mensal";
+}
+
+function diffDaysIso(aISO: string, bISO: string) {
+  const a = fromISODate(aISO);
+  const b = fromISODate(bISO);
+  return Math.floor((a.getTime() - b.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+async function renovarContratoPreservandoConfiguracao(emprestimoId: string, dataBaseISO: string) {
+  const row = await getEmprestimoById(emprestimoId);
+  if (!row) throw new Error("Empréstimo não encontrado para renovar.");
+
+  const mapped = mapEmprestimoDb(row as any);
+  const payload = ((row as any)?.payload ?? {}) as Record<string, any>;
+
+  const numeroParcelas = Math.max(
+    1,
+    Number(
+      mapped?.numeroParcelas ??
+      payload?.parcelas ??
+      payload?.numeroParcelas ??
+      ((row as any)?.parcelas?.length ?? 1)
+    )
+  );
+
+  const modalidade = String(mapped?.modalidade ?? payload?.modalidade ?? "parcelado_mensal");
+  const jurosAplicado = (mapped?.jurosAplicado ?? payload?.jurosAplicado ?? payload?.juros_aplicado ?? "fixo") as any;
+  const taxaJuros = Number(mapped?.taxaJuros ?? payload?.taxaJuros ?? payload?.taxa_juros ?? 0);
+  const valorEmprestado = Number(mapped?.valor ?? payload?.valor ?? 0);
+
+  const totais = calcularTotais({
+    valor: valorEmprestado,
+    taxaJuros,
+    parcelas: numeroParcelas,
+    jurosAplicado,
+    modalidade: modalidade as any,
+  });
+
+  let totalReceber = Number(
+    payload?.totalReceber ??
+    payload?.total_receber ??
+    mapped?.totalReceber ??
+    totais?.totalAReceber ??
+    0
+  );
+  if (!(totalReceber > 0)) totalReceber = Number(totais?.totalAReceber ?? 0);
+
+  const valorParcela = Number(
+    (
+      Number(payload?.valorParcela ?? payload?.valor_parcela ?? 0) ||
+      Number(totais?.valorParcela ?? 0) ||
+      (totalReceber / numeroParcelas)
+    )
+  );
+
+  const modalidadeCron = mapModalidadeCronograma(modalidade);
+  const normalizaIsoDia = (v: any) => String(v ?? "").slice(0, 10);
+
+  const prazoDiasInformado = Number(
+    payload?.prazoDias ??
+      payload?.prazo_dias ??
+      payload?.prazo ??
+      0
+  );
+
+  const dataContratoOriginal = normalizaIsoDia(
+    payload?.dataContrato ??
+      payload?.data_contrato ??
+      mapped?.dataContrato
+  );
+  const primeiraParcelaOriginal = normalizaIsoDia(
+    payload?.primeiraParcela ??
+      payload?.primeira_parcela ??
+      mapped?.primeiraParcela ??
+      (Array.isArray(payload?.vencimentos) ? payload.vencimentos?.[0] : "")
+  );
+
+  const prazoDiasDerivado =
+    dataContratoOriginal && primeiraParcelaOriginal
+      ? diffDaysIso(primeiraParcelaOriginal, dataContratoOriginal)
+      : 0;
+
+  const prazoPadraoModalidade =
+    modalidadeCron === "diario"
+      ? 1
+      : modalidadeCron === "semanal"
+        ? 7
+        : modalidadeCron === "quinzenal"
+          ? 14
+          : 30;
+
+  const prazoDiasOriginal = Math.max(
+    0,
+    Number.isFinite(prazoDiasInformado) && prazoDiasInformado > 0
+      ? prazoDiasInformado
+      : prazoDiasDerivado > 0
+        ? prazoDiasDerivado
+        : prazoPadraoModalidade
+  );
+
+  const basePrimeira = fromISODate(dataBaseISO);
+  basePrimeira.setDate(basePrimeira.getDate() + prazoDiasOriginal);
+  const primeiraParcelaReferencia = toISODate(basePrimeira);
+
+  const cobrarSabado = payload?.cobrarSabado !== false;
+  const cobrarDomingo = payload?.cobrarDomingo !== false;
+  const cobrarFeriados = payload?.cobrarFeriados !== false;
+  const usarDiaFixoSemana = Boolean(payload?.usarDiaFixoSemana ?? payload?.usar_dia_fixo_semana ?? false);
+  const diaSemanaCobranca = Number(payload?.diaSemanaCobranca ?? payload?.dia_semana_cobranca ?? 1);
+
+  const primeiraParcelaAjustada = ajustarParaDiaCobravel({
+    dataISO: primeiraParcelaReferencia,
+    cobrarSabado,
+    cobrarDomingo,
+    cobrarFeriados,
+  });
+
+  const primeiraParcelaParaCronograma =
+    (modalidadeCron === "semanal" || modalidadeCron === "quinzenal") && !usarDiaFixoSemana
+      ? primeiraParcelaReferencia
+      : primeiraParcelaAjustada;
+
+  const vencimentos = gerarVencimentosParcelas({
+    primeiraParcelaISO: primeiraParcelaParaCronograma,
+    numeroParcelas,
+    cobrarSabado,
+    cobrarDomingo,
+    cobrarFeriados,
+    modalidade: modalidadeCron,
+    diaFixoSemana:
+      (modalidadeCron === "semanal" || modalidadeCron === "quinzenal") && usarDiaFixoSemana
+        ? diaSemanaCobranca
+        : undefined,
+  });
+
+  const { data: authData } = await supabase.auth.getUser();
+  const uid = authData?.user?.id ?? null;
+
+  const { error: delErr } = await supabase.from("parcelas").delete().eq("emprestimo_id", emprestimoId);
+  if (delErr) throw delErr;
+
+  const parcelasRows = vencimentos.map((venc, i) => ({
+    emprestimo_id: emprestimoId,
+    numero: i + 1,
+    vencimento: venc,
+    valor: Number(valorParcela || 0),
+    pago: false,
+    valor_pago: 0,
+    valor_pago_acumulado: 0,
+    juros_atraso: 0,
+    saldo_restante: Number(valorParcela || 0),
+    pago_em: null,
+    ...(uid ? { user_id: uid } : {}),
+  }));
+
+  const { error: insErr } = await supabase.from("parcelas").insert(parcelasRows);
+  if (insErr) throw insErr;
+
+  const novoPayload = {
+    ...payload,
+    dataContrato: dataBaseISO,
+    data_contrato: dataBaseISO,
+    prazoDias: prazoDiasOriginal,
+    prazo_dias: prazoDiasOriginal,
+    primeiraParcela: vencimentos[0] ?? primeiraParcelaAjustada,
+    primeira_parcela: vencimentos[0] ?? primeiraParcelaAjustada,
+    vencimentos,
+    parcelas: numeroParcelas,
+    numeroParcelas: numeroParcelas,
+    valorParcela: Number(valorParcela || 0),
+    valor_parcela: Number(valorParcela || 0),
+    totalReceber: Number(totalReceber || 0),
+    total_receber: Number(totalReceber || 0),
+  };
+
+  const { error: upErr } = await supabase
+    .from("emprestimos")
+    .update({
+      status: "ativo",
+      quitado_em: null,
+      payload: novoPayload,
+    })
+    .eq("id", emprestimoId);
+
+  if (upErr) throw upErr;
 }
 
 // Realtime (auto atualização)
@@ -216,6 +412,8 @@ async function getEmprestimoById(emprestimoId: string) {
             valor_pago,
             valor_pago_acumulado,
             juros_atraso,
+            multa_valor,
+            acrescimos,
             saldo_restante,
             pago_em,
             created_at,
@@ -418,10 +616,13 @@ stopRealtime:
   criarEmprestimo: async (payload, cliente) => {
     set({ loading: true, error: null });
     try {
+      const uid = (await supabase.auth.getUser())?.data?.user?.id ?? null;
+
       // IMPORTANTE:
       // O schema atual do Supabase para `emprestimos` possui colunas enxutas.
       // Tudo que for específico do contrato fica dentro de `payload` (jsonb).
       const insert: any = {
+        ...(uid ? { user_id: uid } : {}),
         cliente_id: payload.clienteId,
         cliente_nome: cliente?.nomeCompleto ?? "",
         cliente_contato: cliente?.telefone ?? "",
@@ -438,7 +639,6 @@ stopRealtime:
 
       // Gera e grava parcelas no banco (tabela `parcelas`).
       // IMPORTANTE: os cards e comprovantes dependem dessas parcelas para calcular valores e vencimentos.
-      const uid = (await supabase.auth.getUser())?.data?.user?.id ?? null;
 
       const totais = calcularTotais({
         valor: Number(payload.valor ?? 0),
@@ -451,7 +651,7 @@ stopRealtime:
       const vencs: string[] =
         Array.isArray(payload.vencimentos) && payload.vencimentos.length === Number(payload.parcelas)
           ? (payload.vencimentos as string[])
-          : Array.from({ length: Math.max(1, Number(payload.parcelas ?? 1)) }, (_, i) => (payload.primeiraParcela || todayYmd()));
+          : Array.from({ length: Math.max(1, Number(payload.parcelas ?? 1)) }, () => payload.primeiraParcela || todayYmd());
 
       const parcelasRows = vencs.map((venc, i) => ({
         emprestimo_id: created.id,
@@ -495,6 +695,8 @@ stopRealtime:
             valor_pago,
             valor_pago_acumulado,
             juros_atraso,
+            multa_valor,
+            acrescimos,
             saldo_restante,
             pago_em,
             created_at,
@@ -556,8 +758,25 @@ stopRealtime:
     set({ loading: true, error: null });
     try {
       await registrarPagamentoDbV2({ emprestimoId, tipo, dataPagamento, valor, parcelaNumero, jurosAtraso, flags });
+
+      let erroRenovacao: any = null;
+      if (Boolean((flags as any)?.reiniciar_contrato)) {
+        try {
+          await renovarContratoPreservandoConfiguracao(emprestimoId, dataPagamento || todayYmd());
+        } catch (e: any) {
+          erroRenovacao = e;
+        }
+      }
+
       await get().fetchEmprestimos();
       await get().fetchPagamentos(emprestimoId);
+
+      if (erroRenovacao) {
+        throw new Error(
+          `Pagamento registrado, mas falhou ao renovar o contrato: ${erroRenovacao?.message ?? "erro desconhecido"}`
+        );
+      }
+
       set({ loading: false });
     } catch (e: any) {
       set({ error: e?.message ?? "Falha ao registrar pagamento", loading: false });
@@ -573,6 +792,18 @@ stopRealtime:
       set({ loading: false });
     } catch (e: any) {
       set({ error: e?.message ?? "Falha ao estornar pagamento", loading: false });
+    }
+  },
+
+  atualizarDataPagamento: async ({ emprestimoId, pagamentoId, dataPagamento }) => {
+    set({ loading: true, error: null });
+    try {
+      await atualizarDataPagamentoDb({ pagamentoId, dataPagamento });
+      await get().fetchEmprestimos();
+      await get().fetchPagamentos(emprestimoId);
+      set({ loading: false });
+    } catch (e: any) {
+      set({ error: e?.message ?? "Falha ao atualizar data do pagamento", loading: false });
     }
   },
 
@@ -597,7 +828,15 @@ stopRealtime:
     }
   },
 
-  renovarEmprestimo: async () => {
-    return;
+  renovarEmprestimo: async (emprestimoId) => {
+    set({ loading: true, error: null });
+    try {
+      await renovarContratoPreservandoConfiguracao(emprestimoId, todayYmd());
+      await get().fetchEmprestimos();
+      await get().fetchPagamentos(emprestimoId);
+      set({ loading: false });
+    } catch (e: any) {
+      set({ error: e?.message ?? "Falha ao renovar empréstimo", loading: false });
+    }
   },
 }));

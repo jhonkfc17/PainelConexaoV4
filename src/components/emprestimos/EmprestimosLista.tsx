@@ -4,6 +4,7 @@ import type { Emprestimo } from "@/store/useEmprestimosStore";
 import RenegociarDividaModal from "./RenegociarDividaModal";
 import JurosAtrasoConfigModal from "./JurosAtrasoConfigModal";
 import AplicarMultaModal from "./AplicarMultaModal";
+import PagamentosSidepanel from "./PagamentosSidepanel";
 import { useEmprestimosStore } from "../../store/useEmprestimosStore";
 
 type Props = {
@@ -100,7 +101,7 @@ function sumParcelasValor(parcelas: any[]): number {
 // - pago=false: considera valor_pago_acumulado (se existir)
 function sumRecebido(parcelas: any[]): number {
   return (parcelas ?? []).reduce((acc: number, p: any) => {
-    const pago = Boolean(p?.pago);
+    const pago = p?.pago === true;
     const valor = Number(p?.valor ?? 0);
     const valorPago = Number(p?.valor_pago ?? 0);
     const acumulado = Number(p?.valor_pago_acumulado ?? 0);
@@ -112,46 +113,68 @@ function sumRecebido(parcelas: any[]): number {
   }, 0);
 }
 
-function saldoPendenteParcela(p: any): number {
-  // Já paga: nada pendente
-  if (Boolean(p?.pago)) return 0;
+function saldoPendenteParcela(p: any) {
+  if (p?.pago === true) return 0;
 
   const valor = Number(p?.valor ?? 0);
-  const multa = Number(p?.multa_valor ?? 0);
-  const juros = Number(p?.juros_atraso ?? 0);
-  const acrescimos = Number(p?.acrescimos ?? 0);
+  const multa = Number(p?.multa_valor ?? p?.multaValor ?? 0);
+  const juros = Number(p?.juros_atraso ?? p?.jurosAtraso ?? 0);
+  const acrescimos = Number(p?.acrescimos ?? p?.acrescimos_valor ?? 0);
 
-  // Total real da parcela (principal + adicionais)
   const totalDevido = Math.max(0, valor + multa + juros + acrescimos);
 
-  // Se houver pagamento parcial acumulado, desconta do total devido
   const acumulado = Number(p?.valor_pago_acumulado ?? 0);
   const pendenteCalculado = Math.max(0, totalDevido - Math.max(0, acumulado));
 
-  /**
-   * Se o banco estiver mantendo saldo_restante, você pode preferir ele,
-   * mas só se for um número válido (não null/NaN).
-   *
-   * Importante: NÃO use "if (saldoRestante > 0)" porque o saldo pode ser 0
-   * quando já quitou, e você quer respeitar isso também.
-   */
   const saldoRestante = p?.saldo_restante;
-  const saldoRestanteNum = saldoRestante === null || saldoRestante === undefined ? null : Number(saldoRestante);
+  const saldoRestanteNum =
+    saldoRestante === null || saldoRestante === undefined
+      ? null
+      : Number(saldoRestante);
 
-  if (saldoRestanteNum !== null && Number.isFinite(saldoRestanteNum)) {
-    // Se o banco mandou saldo_restante, respeita ele,
-    // MAS garante que multa/juros não "sumam" caso o banco não esteja atualizando.
-    // Então usamos o maior entre o calculado e o saldo_restante.
-    // (se você tiver certeza que saldo_restante é sempre correto, pode retornar saldoRestanteNum direto)
-    return Math.max(0, Math.max(saldoRestanteNum, pendenteCalculado));
+  /**
+   * Regra:
+   * - Prioriza cálculo pelo detalhamento da parcela (valor/multa/juros/acréscimos),
+   *   para refletir imediatamente multa manual aplicada e evitar saldo inflado.
+   * - Usa saldo_restante apenas como fallback quando não há base calculada.
+   */
+
+  if (acumulado > 0) {
+    return pendenteCalculado;
   }
 
-  // Fallback seguro (sempre reflete multa/juros/acréscimos + parcial)
+  if (pendenteCalculado > 0) {
+    return pendenteCalculado;
+  }
+
+  if (saldoRestanteNum !== null && Number.isFinite(saldoRestanteNum)) {
+    return Math.max(0, saldoRestanteNum);
+  }
+
   return pendenteCalculado;
 }
 
 function sumRestante(parcelas: any[]): number {
-  return (parcelas ?? []).reduce((acc: number, p: any) => acc + saldoPendenteParcela(p), 0);
+  return (parcelas ?? [])
+    .filter((p: any) => !p?.pago)
+    .reduce((acc: number, p: any) => acc + saldoPendenteParcela(p), 0);
+}
+
+function saldoPendenteParcelaSemMulta(p: any) {
+  if (p?.pago === true) return 0;
+
+  const valor = Number(p?.valor ?? 0);
+  const juros = Number(p?.juros_atraso ?? p?.jurosAtraso ?? 0);
+  const acrescimos = Number(p?.acrescimos ?? p?.acrescimos_valor ?? 0);
+  const acumulado = Number(p?.valor_pago_acumulado ?? 0);
+
+  return Math.max(0, valor + juros + acrescimos - Math.max(0, acumulado));
+}
+
+function sumRestanteSemMulta(parcelas: any[]): number {
+  return (parcelas ?? [])
+    .filter((p: any) => !p?.pago)
+    .reduce((acc: number, p: any) => acc + saldoPendenteParcelaSemMulta(p), 0);
 }
 
 function fmtShort(iso?: string) {
@@ -379,6 +402,7 @@ function EmprestimoCardPasta({
   const [renegociarAberto, setRenegociarAberto] = useState(false);
   const [jurosCfgAberto, setJurosCfgAberto] = useState(false);
   const [multaAberto, setMultaAberto] = useState(false);
+  const [historicoAberto, setHistoricoAberto] = useState(false);
 
   const refetchEmprestimos = useEmprestimosStore((s) => s.fetchEmprestimos);
   const safeRefetch = () => { void refetchEmprestimos(); };
@@ -438,9 +462,15 @@ const jurosAplicado = (parcelas ?? []).reduce((acc: number, p: any) => {
   return acc + Number(p?.juros_atraso ?? 0);
 }, 0);
 
-const multaExtra = Math.max(0, Number(multa.total ?? 0) - Math.max(0, multaAplicada));
-const jurosExtra = Math.max(0, Number(atraso.total ?? 0) - Math.max(0, jurosAplicado));
-const restanteExibido = Math.max(0, Number(restante ?? 0) + multaExtra + jurosExtra);
+const restanteSemMulta = sumRestanteSemMulta(parcelas);
+const multaJaRefletidaNoRestante = Math.max(0, Number(restante ?? 0) - Number(restanteSemMulta ?? 0));
+const multaManualFaltante = Math.max(0, Math.max(0, multaAplicada) - Math.max(0, multaJaRefletidaNoRestante));
+
+const multaConfigurada = Math.max(0, Number(multa.total ?? 0));
+const jurosConfigurado = Math.max(0, Number(atraso.total ?? 0));
+const multaExtra = Math.max(0, multaConfigurada - Math.max(0, multaAplicada, multaJaRefletidaNoRestante));
+const jurosExtra = Math.max(0, jurosConfigurado - Math.max(0, jurosAplicado));
+const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante + multaExtra + jurosExtra);
   const proximaAberta = proximaParcelaAberta(emprestimo);
   const modalidadeLabel = String((emprestimo as any).modalidade ?? "mensal").toUpperCase();
   const proximoVenc = proximoVencimentoEmprestimo(emprestimo);
@@ -506,6 +536,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaExtra + jurosEx
       <RenegociarDividaModal open={renegociarAberto} onClose={() => { setRenegociarAberto(false); safeRefetch(); }} emprestimo={emprestimoModal} />
       <JurosAtrasoConfigModal open={jurosCfgAberto} onClose={() => { setJurosCfgAberto(false); safeRefetch(); }} onSaved={() => safeRefetch()} emprestimo={emprestimo} />
       <AplicarMultaModal open={multaAberto} onClose={() => { setMultaAberto(false); safeRefetch(); }} onSaved={() => safeRefetch()} emprestimo={emprestimo} />
+      <PagamentosSidepanel open={historicoAberto} onClose={() => setHistoricoAberto(false)} emprestimo={emprestimo} />
 
       <div className="p-4">
         <div className="rounded-xl border border-white/10 bg-black/25 px-4 py-2 text-center">
@@ -577,6 +608,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaExtra + jurosEx
           <div className="mt-1 text-xs text-white/60">
             restante a receber
             {jurosExtra > 0 ? <span className="text-red-200/90"> {`(inclui +${brl(jurosExtra)} juros atraso)`}</span> : null}
+            {multaAplicada > 0 ? <span className="text-amber-200/90"> {`(multa aplicada ${brl(multaAplicada)})`}</span> : null}
             {multaExtra > 0 ? <span className="text-amber-200/90"> {`(inclui +${brl(multaExtra)} multa)`}</span> : null}
           </div>
         </div>
@@ -696,10 +728,16 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaExtra + jurosEx
                   </div>
                   <div className="mt-0.5 font-semibold text-red-100">+{brl(atraso.total)}</div>
                 </div>
-                {multa.total > 0 ? (
+                {multaAplicada > 0 ? (
                   <div className="col-span-2">
-                    <div className="text-white/60">Multa aplicada</div>
-                    <div className="mt-0.5 font-semibold text-amber-100">+{brl(multa.total)}</div>
+                    <div className="text-white/60">Multa aplicada (manual)</div>
+                    <div className="mt-0.5 font-semibold text-amber-100">+{brl(multaAplicada)}</div>
+                  </div>
+                ) : null}
+                {multaExtra > 0 ? (
+                  <div className="col-span-2">
+                    <div className="text-white/60">Multa pendente (config)</div>
+                    <div className="mt-0.5 font-semibold text-amber-100">+{brl(multaExtra)}</div>
                   </div>
                 ) : null}
               </div>
@@ -803,7 +841,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaExtra + jurosEx
                 {(cronogramaParcelas.length > 0 ? cronogramaParcelas : (proximaAberta ? [proximaAberta] : [])).map((p: any, idx: number) => {
                   const venc = String(p?.vencimento ?? "");
                   const hoje = todayISO();
-                  const statusParcela = Boolean(p?.pago)
+				  const statusParcela = p?.pago === true
                     ? { text: "Paga", tone: "border-emerald-500/25 bg-emerald-500/10 text-emerald-100" }
                     : venc && venc < hoje
                       ? { text: "Atrasada", tone: "border-red-500/25 bg-red-500/10 text-red-100" }
@@ -959,6 +997,14 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaExtra + jurosEx
                 title="WhatsApp"
               >
                 💬
+              </button>
+              <button
+                type="button"
+                onClick={() => setHistoricoAberto(true)}
+                className="h-9 w-9 rounded-xl border border-emerald-500/25 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/15"
+                title="Ver histórico de pagamentos (pode excluir pagamentos errados)"
+              >
+                ↺
               </button>
             </div>
 
@@ -1198,8 +1244,12 @@ export default function EmprestimosLista({ viewMode = "grid", lista, onRemover, 
             <div className="min-w-0">
               <div className="truncate text-white font-semibold">{pastaAberta.clienteNome}</div>
               <div className="text-[12px] text-white/60">
-                {pastaAberta.emprestimos.length} empréstimos • Restante:{" "}
-                <span className="text-emerald-200 font-semibold">{brl(restante)}</span>
+	                {pastaAberta.emprestimos.length} empréstimos • Receber:{" "}
+	                <span className="text-white/90 font-semibold">{brl(totalReceber)}</span>
+	                <span className="mx-1">•</span>
+	                Pago: <span className="text-white/90 font-semibold">{brl(totalPago)}</span>
+	                <span className="mx-1">•</span>
+	                Restante: <span className="text-emerald-200 font-semibold">{brl(restante)}</span>
               </div>
             </div>
           </div>

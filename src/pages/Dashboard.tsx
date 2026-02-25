@@ -121,7 +121,6 @@ export default function Dashboard() {
     // Revalidate after paint for freshest metrics
     const t = window.setTimeout(() => load({ force: true }), 0);
     return () => window.clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [range]);
 
   useEffect(() => {
@@ -150,7 +149,6 @@ export default function Dashboard() {
       if (refreshTimer.current) window.clearTimeout(refreshTimer.current);
       supabase.removeChannel(channel);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [range]);
   
 

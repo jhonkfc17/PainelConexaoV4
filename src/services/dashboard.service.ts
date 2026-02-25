@@ -167,7 +167,6 @@ type Bucket = {
 
 function makeBuckets(now: Date, range: DashboardRange): { buckets: Bucket[]; startISO: string } {
   if (range === "30d") {
-    const end = toDateOnlyISO(now);
     const start = toDateOnlyISO(addDays(now, -29));
     const buckets: Bucket[] = [];
     for (let i = 0; i < 30; i += 1) {

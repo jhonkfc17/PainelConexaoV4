@@ -393,3 +393,15 @@ entrypoint = "./functions/wa-auto-dispatch/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/wa-auto-dispatch/*.html" ]
+
+[functions.wa-connector]
+enabled = true
+verify_jwt = true
+import_map = "./functions/wa-connector/deno.json"
+entrypoint = "./functions/wa-connector/index.ts"
+
+[functions.staff-admin]
+enabled = true
+verify_jwt = true
+import_map = "./functions/staff-admin/deno.json"
+entrypoint = "./functions/staff-admin/index.ts"

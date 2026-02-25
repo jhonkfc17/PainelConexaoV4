@@ -21,7 +21,12 @@ export enum PagamentoTipoLegacy {
 }
 
 // Novo modelo (aceite do vídeo)
-export type PagamentoTipo = "PARCELA_INTEGRAL" | "ADIANTAMENTO_MANUAL" | "SALDO_PARCIAL" | "QUITACAO_TOTAL";
+export type PagamentoTipo =
+  | "PARCELA_INTEGRAL"
+  | "ADIANTAMENTO_MANUAL"
+  | "SALDO_PARCIAL"
+  | "QUITACAO_TOTAL"
+  | "DESCONTO";
 
 export type PagamentoDb = {
   id: string;
@@ -224,6 +229,8 @@ export async function listEmprestimos() {
           valor_pago,
           valor_pago_acumulado,
           juros_atraso,
+          multa_valor,
+          acrescimos,
           saldo_restante,
           pago_em,
           created_at,
@@ -273,6 +280,8 @@ export async function listEmprestimos() {
             pago,
             valor_pago_acumulado,
             juros_atraso,
+            multa_valor,
+            acrescimos,
             valor_pago_acumulado,
             saldo_restante,
             pago_em,
@@ -330,6 +339,8 @@ export async function listEmprestimosByCliente(clienteId: string) {
           valor_pago,
           valor_pago_acumulado,
           juros_atraso,
+          multa_valor,
+          acrescimos,
           saldo_restante,
           pago_em,
           created_at,
@@ -380,6 +391,8 @@ export async function listEmprestimosByCliente(clienteId: string) {
               pago,
               valor_pago_acumulado,
               juros_atraso,
+              multa_valor,
+              acrescimos,
               valor_pago_acumulado,
               saldo_restante,
               pago_em,
@@ -465,6 +478,8 @@ export async function getEmprestimoById(emprestimoId: string) {
           valor_pago,
           valor_pago_acumulado,
           juros_atraso,
+          multa_valor,
+          acrescimos,
           saldo_restante,
           pago_em,
           created_at,
@@ -512,6 +527,8 @@ export async function getEmprestimoById(emprestimoId: string) {
         pago,
         valor_pago_acumulado,
         juros_atraso,
+        multa_valor,
+        acrescimos,
         valor_pago_acumulado,
         saldo_restante,
         pago_em,
@@ -639,6 +656,50 @@ export async function estornarPagamentoDbV2(args: {
   const r2 = await supabase.rpc("revert_payment", { p_pagamento_id: pagamentoId });
   if (r2.error) throw r2.error;
   return r2.data;
+}
+
+export async function atualizarDataPagamentoDb(args: {
+  pagamentoId: string;
+  dataPagamento: string;
+}) {
+  const { pagamentoId, dataPagamento } = args;
+
+  const { data: pay, error: payErr } = await supabase
+    .from("pagamentos")
+    .select("id, emprestimo_id, parcela_id, tipo, estornado_em")
+    .eq("id", pagamentoId)
+    .maybeSingle();
+  if (payErr) throw payErr;
+  if (!pay) throw new Error("Pagamento não encontrado.");
+  if (pay.estornado_em) throw new Error("Não é possível editar data de pagamento estornado.");
+
+  const { error: updErr } = await supabase
+    .from("pagamentos")
+    .update({ data_pagamento: dataPagamento })
+    .eq("id", pagamentoId);
+  if (updErr) throw updErr;
+
+  // Mantém consistência básica de datas exibidas no contrato/parcela.
+  if (pay.tipo === "QUITACAO_TOTAL") {
+    await supabase
+      .from("emprestimos")
+      .update({ quitado_em: `${dataPagamento}T00:00:00` })
+      .eq("id", pay.emprestimo_id);
+
+    await supabase
+      .from("parcelas")
+      .update({ pago_em: dataPagamento })
+      .eq("emprestimo_id", pay.emprestimo_id)
+      .eq("pago", true);
+  } else if (pay.parcela_id) {
+    await supabase
+      .from("parcelas")
+      .update({ pago_em: dataPagamento })
+      .eq("id", pay.parcela_id)
+      .eq("pago", true);
+  }
+
+  return true;
 }
 
 // =============================

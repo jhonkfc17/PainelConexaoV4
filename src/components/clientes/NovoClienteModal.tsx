@@ -147,7 +147,6 @@ export default function NovoClienteModal({ open, onClose, onCreate, initialData 
       // modo novo
       resetAll();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialData?.id]);
 
   function resetAll() {

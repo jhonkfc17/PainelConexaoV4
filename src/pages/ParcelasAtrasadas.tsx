@@ -61,8 +61,7 @@ export default function ParcelasAtrasadas() {
         if (!alive) return;
         setError(e?.message || "Falha ao carregar parcelas atrasadas.");
       } finally {
-        if (!alive) return;
-        setLoading(false);
+	      if (alive) setLoading(false);
       }
     })();
 

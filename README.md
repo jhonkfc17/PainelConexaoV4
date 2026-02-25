@@ -96,3 +96,9 @@ No Supabase:
 
 Para o staff conseguir **ver/cadastrar clientes**, suas policies das tabelas principais precisam usar
 `current_tenant_id()` (exemplo dentro do SQL).
+
+## WhatsApp Connector (setup atual)
+
+Guia completo em:
+
+- `docs/WHATSAPP_CONNECTOR_SETUP.md`

@@ -48,7 +48,7 @@ export function ajustarParaDiaCobravel(params: {
   cobrarDomingo: boolean;
   cobrarFeriados: boolean;
 }) {
-  let d = fromISODate(params.dataISO);
+  const d = fromISODate(params.dataISO);
 
   while (true) {
     const iso = toISODate(d);

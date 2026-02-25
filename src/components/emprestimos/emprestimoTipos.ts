@@ -24,12 +24,18 @@ export type NovoEmprestimoPayload = {
 
   dataContrato: string;    // YYYY-MM-DD
   primeiraParcela: string; // YYYY-MM-DD
+  prazoDias?: number;
+  prazo_dias?: number;
 
   observacoes?: string;
 
   cobrarSabado?: boolean;
   cobrarDomingo?: boolean;
   cobrarFeriados?: boolean;
+  usarDiaFixoSemana?: boolean;
+  usar_dia_fixo_semana?: boolean;
+  diaSemanaCobranca?: number;
+  dia_semana_cobranca?: number;
 
   aplicarJurosAtraso?: boolean;
   notificarWhatsapp?: boolean;

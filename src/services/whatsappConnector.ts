@@ -60,8 +60,45 @@ async function readErrorText(r: Response) {
 
 async function invokeEdge<T = any>(body: Record<string, any>): Promise<T> {
   const { data, error } = await supabase.functions.invoke("wa-connector", { body });
-  if (error) throw error;
-  return data as T;
+  if (!error) return data as T;
+
+  // Diagnóstico mais claro: em alguns cenários o SDK retorna FunctionsFetchError
+  // sem detalhar que a função não está implantada (404).
+  const sbUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? "";
+  const sbKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? "";
+
+  if (sbUrl && sbKey) {
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const bearer = sess?.session?.access_token || sbKey;
+
+      const r = await fetch(`${sbUrl.replace(/\/+$/, "")}/functions/v1/wa-connector`, {
+        method: "POST",
+        headers: {
+          apikey: sbKey,
+          Authorization: `Bearer ${bearer}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (r.status === 404) {
+        throw new Error("Edge Function wa-connector não encontrada (HTTP 404). Faça deploy no projeto Supabase.");
+      }
+
+      if (!r.ok) {
+        const txt = await readErrorText(r);
+        throw new Error(`Edge Function wa-connector respondeu ${txt}`);
+      }
+
+      const parsed = (await r.json()) as T;
+      return parsed;
+    } catch (probeErr: any) {
+      throw new Error(String(probeErr?.message || probeErr));
+    }
+  }
+
+  throw error;
 }
 
 export async function waInit(tenant_id: string) {

@@ -48,10 +48,9 @@ export default function Clientes() {
   const [clienteEditando, setClienteEditando] = useState<Cliente | null>(null);
   const [importOpen, setImportOpen] = useState(false);
 
-  
   const [scoreLoading, setScoreLoading] = useState(false);
   const [scoreById, setScoreById] = useState<Record<string, ClienteScore>>({});
-const { clientes, loading, error, fetchClientes, saveCliente, removeCliente } = useClientesStore();
+	  const { clientes, loading, error, fetchClientes, saveCliente, removeCliente } = useClientesStore();
 
   useEffect(() => {
     fetchClientes();
@@ -185,6 +184,9 @@ useEffect(() => {
 
       <div className="mt-4">
         <ClientesToolbar busca={busca} onChangeBusca={setBusca} />
+	        {scoreLoading ? (
+	          <div className="mt-2 text-[11px] text-white/50">Atualizando score dos clientes…</div>
+	        ) : null}
       </div>
 
       {error ? (

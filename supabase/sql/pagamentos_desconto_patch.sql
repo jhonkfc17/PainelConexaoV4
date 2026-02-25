@@ -62,7 +62,7 @@ begin
   if not found then
     raise exception 'Empréstimo não encontrado';
   end if;
-  v_tenant := v_emprestimo.tenant_id;
+  v_tenant := v_emprestimo.user_id;
 
   if p_tipo not in ('PARCELA_INTEGRAL','ADIANTAMENTO_MANUAL','SALDO_PARCIAL','QUITACAO_TOTAL','DESCONTO') then
     raise exception 'Tipo inválido: %', p_tipo;
@@ -91,6 +91,7 @@ begin
 
   -- grava pagamento (DESCONTO entra com valor NEGATIVO)
   insert into public.pagamentos (
+    user_id,
     tenant_id,
     emprestimo_id,
     parcela_id,
@@ -104,6 +105,7 @@ begin
     snapshot_emprestimo,
     snapshot_parcelas
   ) values (
+    v_tenant,
     v_tenant,
     p_emprestimo_id,
     case when p_tipo = 'QUITACAO_TOTAL' then null else v_parcela.id end,

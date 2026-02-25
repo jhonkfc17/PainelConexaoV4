@@ -46,13 +46,15 @@ export default function ClienteDetalhe() {
   const [pagarOpen, setPagarOpen] = useState(false);
   const [emprestimoSelecionado, setEmprestimoSelecionado] = useState<any | null>(null);
 
+  const { emprestimos, fetchEmprestimos, removerEmprestimo, mudarStatus } = useEmprestimosStore();
+  const [empLoading, setEmpLoading] = useState(false);
+
   // ✅ mantém o empréstimo selecionado sincronizado com o store (para atualizar totais após pagamentos)
   useEffect(() => {
     const idSel = emprestimoSelecionado?.id;
     if (!idSel) return;
     const atual = emprestimos.find((e: any) => e.id === idSel);
     if (atual) setEmprestimoSelecionado(atual);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [emprestimos]);
 
   const [confirmacaoOpen, setConfirmacaoOpen] = useState(false);
@@ -92,9 +94,6 @@ export default function ClienteDetalhe() {
   async function onMudarStatus(id: string, status: string) {
     await mudarStatus(id, status);
   }
-
-  const { emprestimos, fetchEmprestimos, removerEmprestimo, mudarStatus } = useEmprestimosStore();
-  const [empLoading, setEmpLoading] = useState(false);
 
   useEffect(() => {
     let alive = true;

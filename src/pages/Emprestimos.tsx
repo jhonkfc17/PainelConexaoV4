@@ -55,7 +55,6 @@ export default function Emprestimos() {
     if (!idSel) return;
     const atual = emprestimos.find((e) => e.id === idSel) ?? null;
     if (atual) setEmprestimoSelecionado(atual);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [emprestimos]);
 
   useEffect(() => {
@@ -77,7 +76,6 @@ export default function Emprestimos() {
     next.delete("novo");
     next.delete("cliente");
     setSearchParams(next, { replace: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const emprestimosFiltrados = useMemo(() => {
