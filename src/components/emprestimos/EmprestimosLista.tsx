@@ -595,19 +595,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
     const texto = mensagem ?? montarMensagemPadraoWhatsApp();
     const url = `https://wa.me/${waPhone}${texto ? `?text=${encodeURIComponent(texto)}` : ""}`;
     const opened = window.open(url, "_blank", "noopener,noreferrer");
-    // Não redireciona a aba principal (mesmo se o navegador bloquear o popup)
-    if (!opened) {
-      try {
-        navigator.clipboard?.writeText?.(url);
-      } catch {
-        // ignore
-      }
-      alert(
-        "Seu navegador bloqueou a abertura em nova aba.\n\n" +
-          "Copiamos o link do WhatsApp (ou tente copiar manualmente):\n" +
-          url
-      );
-    }
+    if (!opened) window.location.href = url;
   };
 
   const emprestimoModal = useMemo(() => {

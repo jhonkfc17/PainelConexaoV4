@@ -110,18 +110,8 @@ export default function EmprestimoDetalhe() {
 
       // abre em nova aba/janela; se bloqueado, tenta mesma aba
       const opened = window.open(url, "_blank", "noopener,noreferrer");
-      // não redireciona a aba principal
       if (!opened) {
-        try {
-          navigator.clipboard?.writeText?.(url);
-        } catch {
-          // ignore
-        }
-        alert(
-          "Seu navegador bloqueou a abertura em nova aba.\n\n" +
-            "Copiamos o link do WhatsApp (ou tente copiar manualmente):\n" +
-            url
-        );
+        window.location.href = url;
       }
     } catch (e: any) {
       alert(String(e?.message || e) || "Falha ao abrir WhatsApp");

@@ -130,7 +130,7 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
   const [parcelas, setParcelas] = useState(1);
 
   const [modalidade, setModalidade] = useState<Modalidade>("parcelado_mensal");
-  const [jurosAplicado, setJurosAplicado] = useState<JurosAplicado>("fixo");
+  const [jurosAplicado, setJurosAplicado] = useState<JurosAplicado>("por_parcela");
 
   const [taxaJuros, setTaxaJuros] = useState(0);
 
@@ -1224,5 +1224,4 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
 }
 
 export default NovoEmprestimoModal;
-
 
