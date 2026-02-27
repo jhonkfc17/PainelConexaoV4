@@ -89,6 +89,14 @@ function safeNum(v: any): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function valorPagoAcumulado(p: ParcelaRow): number {
+  // valor_pago_acumulado (quando presente) representa o histórico consolidado.
+  // valor_pago é o campo padrão de pagamento único; use-o como fallback.
+  // Se nenhum deles vier preenchido, assuma 0.
+  const bruto = p.valor_pago_acumulado ?? p.valor_pago ?? 0;
+  return safeNum(bruto);
+}
+
 function toDateOnlyISO(d: Date): string {
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
@@ -151,7 +159,7 @@ function parcelaJurosRecebido(p: ParcelaRow): number {
   // - se valor_pago veio preenchido, consideramos excedente acima do valor
   const valor = safeNum(p.valor);
   const jurosAtraso = safeNum(p.juros_atraso);
-  const valorPago = p.valor_pago_acumulado == null ? 0 : safeNum(p.valor_pago_acumulado);
+  const valorPago = valorPagoAcumulado(p);
 
   if (valorPago <= 0) return jurosAtraso;
   const excedente = Math.max(0, valorPago - valor);
@@ -200,7 +208,7 @@ function makeBuckets(now: Date, range: DashboardRange): { buckets: Bucket[]; sta
 }
 
 function isPaidByDate(p: ParcelaRow, dateISO: string): boolean {
-  const valorPago = safeNum(p.valor_pago_acumulado);
+  const valorPago = valorPagoAcumulado(p);
   const marcadoPago = Boolean(p.pago);
   const paidDate = p.pago_em ? isoFromAny(p.pago_em) : null;
 
@@ -361,7 +369,7 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
 
   const recebidoSemana = parcelas
     .filter((p) => {
-      const valorPago = safeNum(p.valor_pago_acumulado);
+      const valorPago = valorPagoAcumulado(p);
       const pagoFlag = Boolean(p.pago);
       if (!pagoFlag && !(valorPago > 0)) return false;
 
@@ -369,7 +377,7 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
       return paidDate >= weekStartISO && paidDate <= todayISO;
     })
     .reduce((acc, p) => {
-      const valorPago = p.valor_pago_acumulado == null ? safeNum(p.valor) : safeNum(p.valor_pago_acumulado);
+      const valorPago = valorPagoAcumulado(p) || safeNum(p.valor);
       return acc + valorPago;
     }, 0);
 
@@ -420,7 +428,8 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
       const key = bucketKeyForDateOnly(paidDate);
       const idx = idxByKey.get(key);
       if (idx != null) {
-        evolucaoData[idx].recebido = safeNum(evolucaoData[idx].recebido) + safeNum(p.valor_pago_acumulado == null ? safeNum(p.valor) : safeNum(p.valor_pago_acumulado));
+        const pago = valorPagoAcumulado(p) || safeNum(p.valor);
+        evolucaoData[idx].recebido = safeNum(evolucaoData[idx].recebido) + pago;
         jurosData[idx].juros = safeNum(jurosData[idx].juros) + safeNum(parcelaJurosRecebido(p));
       }
     }
@@ -461,11 +470,11 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
 
   const totalPago = vencidasAteHoje
     .filter((p) => {
-      const valorPago = safeNum(p.valor_pago_acumulado);
+      const valorPago = valorPagoAcumulado(p);
       return Boolean(p.pago) || valorPago > 0;
     })
     .reduce((acc, p) => {
-      const valorPago = p.valor_pago_acumulado == null ? safeNum(p.valor) : safeNum(p.valor_pago_acumulado);
+      const valorPago = valorPagoAcumulado(p) || safeNum(p.valor);
       return acc + valorPago;
     }, 0);
 
