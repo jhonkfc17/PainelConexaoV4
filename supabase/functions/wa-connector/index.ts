@@ -272,40 +272,52 @@ Deno.serve(async (req) => {
     // SEND
     // ---------------------------
     if (action === "send") {
-      const to = normalizeToWhatsAppBR(String(body?.to ?? "").trim());
-      const message = String(body?.message ?? "").trim();
-      if (!to || !message) return json({ error: "to and message required" }, 400);
+  const to = normalizeToWhatsAppBR(String(body?.to ?? "").trim());
+  const message = String(body?.message ?? "").trim();
+  if (!to || !message) return json({ error: "to and message required" }, 400);
 
-      const r = await forward(WA_CONNECTOR_URL, WA_TOKEN, "/whatsapp/send", "POST", { tenant_id, to, message });
+  const r = await forward(WA_CONNECTOR_URL, WA_TOKEN, "/whatsapp/send", "POST", {
+    tenant_id,
+    to,
+    message,
+  });
 
-      if (!r.ok) {
-        const msg =
-          String((r as any)?.error ?? "") ||
-          String((r as any)?.data?.error ?? "") ||
-          String((r as any)?.data?.lastError ?? "");
+  if (!r.ok) {
+    const msg =
+      String((r as any)?.error ?? "") ||
+      String((r as any)?.data?.error ?? "") ||
+      String((r as any)?.data?.lastError ?? "");
 
-        const statusRaw = String((r as any)?.data?.status ?? "").toLowerCase();
-        const waStateRaw = String((r as any)?.data?.waState ?? "").toUpperCase();
-        const connectedByState = statusRaw === "ready" || waStateRaw === "CONNECTED";
+    const statusRaw = String((r as any)?.data?.status ?? "").toLowerCase();
+    const waStateRaw = String((r as any)?.data?.waState ?? "").toUpperCase();
+    const connectedByState = statusRaw === "ready" || waStateRaw === "CONNECTED";
 
-        // Se deu erro de puppeteer mas sessão está CONNECTED, devolve OK (UX)
-        if ((isProtocolTimeoutError(msg) || isExecutionContextDestroyed(msg)) && connectedByState) {
-          return json({
-            ok: true,
-            tenant_id,
-            warning: "Erro interno do Chromium ignorado (sessão conectada)",
-          });
-        }
-
-        const status = typeof r.status === "number" && r.status >= 400 && r.status < 500 ? r.status : 502;
-        return json({ ok: false, tenant_id, ...r }, status);
-      }
-
-      return json({ ok: true, tenant_id, ...r.data });
+    // ✅ NO SEND: erro de puppeteer NÃO pode virar sucesso.
+    // Se a sessão está conectada, devolvemos erro "retryable" para o painel tentar de novo,
+    // evitando falso positivo de "Mensagem enviada".
+    if ((isProtocolTimeoutError(msg) || isExecutionContextDestroyed(msg)) && connectedByState) {
+      return json(
+        {
+          ok: false,
+          tenant_id,
+          error: "Timeout interno do Chromium ao enviar. Tente novamente.",
+          details: msg,
+          retryable: true,
+          status: "ready",
+          connected: true,
+          lastSeenAt: new Date().toISOString(),
+        },
+        504
+      );
     }
 
-    return json({ error: "Unknown action" }, 400);
-  } catch (e: any) {
-    return json({ error: e?.message || String(e) }, 500);
+    // mantém status real quando vier 4xx; caso contrário 502
+    const status = typeof r.status === "number" && r.status >= 400 && r.status < 500 ? r.status : 502;
+    return json({ ok: false, tenant_id, ...r }, status);
   }
-});
+
+  // ✅ Sucesso real (apenas aqui pode mostrar "Mensagem enviada")
+  return json({ ok: true, tenant_id, ...r.data });
+}
+
+return json({ error: "Unknown action" }, 400);

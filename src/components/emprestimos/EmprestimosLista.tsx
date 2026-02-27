@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Emprestimo } from "@/store/useEmprestimosStore";
 import RenegociarDividaModal from "./RenegociarDividaModal";
+import EditarEmprestimoModal from "./EditarEmprestimoModal";
 import JurosAtrasoConfigModal from "./JurosAtrasoConfigModal";
 import AplicarMultaModal from "./AplicarMultaModal";
 import PagamentosSidepanel from "./PagamentosSidepanel";
@@ -424,6 +425,7 @@ function EmprestimoCardPasta({
   const [jurosCfgAberto, setJurosCfgAberto] = useState(false);
   const [multaAberto, setMultaAberto] = useState(false);
   const [historicoAberto, setHistoricoAberto] = useState(false);
+  const [editarAberto, setEditarAberto] = useState(false);
 
   const refetchEmprestimos = useEmprestimosStore((s) => s.fetchEmprestimos);
   const safeRefetch = () => { void refetchEmprestimos(); };
@@ -558,6 +560,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
       <JurosAtrasoConfigModal open={jurosCfgAberto} onClose={() => { setJurosCfgAberto(false); safeRefetch(); }} onSaved={() => safeRefetch()} emprestimo={emprestimo} />
       <AplicarMultaModal open={multaAberto} onClose={() => { setMultaAberto(false); safeRefetch(); }} onSaved={() => safeRefetch()} emprestimo={emprestimo} />
       <PagamentosSidepanel open={historicoAberto} onClose={() => setHistoricoAberto(false)} emprestimo={emprestimo} />
+      <EditarEmprestimoModal open={editarAberto} onClose={() => setEditarAberto(false)} onSaved={() => safeRefetch()} emprestimo={emprestimo} />
 
       <div className="p-4">
         <div className="rounded-xl border border-white/10 bg-black/25 px-4 py-2 text-center">
@@ -1009,7 +1012,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
               </button>
               <button
                 type="button"
-                onClick={irDetalhes}
+                onClick={() => setEditarAberto(true)}
                 className="h-9 w-9 rounded-xl border border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
                 title="Editar empréstimo e vencimentos"
               >
