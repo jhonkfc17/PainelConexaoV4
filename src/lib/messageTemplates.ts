@@ -1,4 +1,4 @@
-// src/lib/messageTemplates.ts
+﻿// src/lib/messageTemplates.ts
 export type MessageTemplateKey =
   | "novo_contrato"
   | "cobranca_mensal"
@@ -37,7 +37,7 @@ export const DEFAULT_MESSAGE_TEMPLATES: Record<MessageTemplateKey, string> = {
     "💰 *Valor emprestado:* {VALOR_EMPRESTADO}",
     "📈 *Total a receber:* {TOTAL}",
     "🧾 *Parcelas:* {PARCELAS}x de {VALOR_PARCELA}",
-    "🗓 *Contrato:* {DATA_CONTRATO}",
+    "🗒 *Contrato:* {DATA_CONTRATO}",
     "📆 *1º vencimento:* {PRIMEIRO_VENCIMENTO}",
     "",
     "{PIX}",
@@ -45,8 +45,9 @@ export const DEFAULT_MESSAGE_TEMPLATES: Record<MessageTemplateKey, string> = {
     "{ASSINATURA}",
   ].join("\n"),
 
+  // Mensal usa o mesmo texto do semanal por padrão
   cobranca_mensal: [
-    "📌 *Olá {CLIENTE}!*",
+    "📄 *Olá {CLIENTE}!*",
     "",
     "Passando para lembrar da sua parcela (semanal).",
     "",
@@ -60,7 +61,7 @@ export const DEFAULT_MESSAGE_TEMPLATES: Record<MessageTemplateKey, string> = {
   ].join("\n"),
 
   cobranca_semanal: [
-    "📌 *Olá {CLIENTE}!*",
+    "📄 *Olá {CLIENTE}!*",
     "",
     "Passando para lembrar da sua parcela (semanal).",
     "",
@@ -104,7 +105,7 @@ export const DEFAULT_MESSAGE_TEMPLATES: Record<MessageTemplateKey, string> = {
   ].join("\n"),
 
   vence_hoje: [
-    "📌 *Olá {CLIENTE}!*",
+    "📄 *Olá {CLIENTE}!*",
     "",
     "Hoje é o vencimento da sua parcela.",
     "",
