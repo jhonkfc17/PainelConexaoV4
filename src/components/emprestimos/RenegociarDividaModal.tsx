@@ -95,7 +95,7 @@ function totalDaParcela(emprestimo: any, p: ReturnType<typeof normalizeParcela>,
   const multa = Number((p as any).multa_valor ?? 0);
   const acrescimos = Number((p as any).acrescimos ?? 0);
 
-  // juros de atraso calculado na data do pagamento (fonte: config do emprÃ©stimo)
+  // juros de atraso calculado na data do pagamento (fonte: config do empréstimo)
   const jurosCalc = calcJurosAtraso(emprestimo, p, dataPagamentoISO);
 
   return Math.max(principal + multa + acrescimos + jurosCalc, 0);
@@ -191,7 +191,7 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
     return totalDaParcela(emprestimo, parcelasSelecionadas[0], dataPagamento);
   }, [parcelasSelecionadas, tab, emprestimo, dataPagamento]);
 
-  // ===== Preview de amortizaÃ§Ã£o (estimativa visual)
+  // ===== Preview de amortização (estimativa visual)
   const amortPreview = useMemo(() => {
     if (!amortizar) return null;
     if (!(valor > 0)) return null;
@@ -199,7 +199,7 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
     const principalOriginal = Number(emprestimo?.valor ?? 0);
     if (principalOriginal <= 0) return null;
 
-    // usamos o "restante" atual (somatÃ³rio das parcelas em aberto) como base do total
+    // usamos o "restante" atual (somatório das parcelas em aberto) como base do total
     const totalAtual = Number(totalQuitar ?? 0);
     const jurosAtual = Math.max(totalAtual - principalOriginal, 0);
 
@@ -263,8 +263,8 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
         if (!(valor > 0)) return alert("Informe o valor pago.");
         const compJuros = MODO_JUROS ? composicaoJurosDaParcela(p) : null;
         const saldo = MODO_JUROS ? Number(compJuros?.totalComposto ?? 0) : totalDaParcela(emprestimo, p, dataPagamento);
-        if (saldo <= 0) return alert("Esta parcela nÃ£o possui saldo pendente.");
-        if (valor > saldo) return alert("O valor nÃ£o pode ser maior que o saldo pendente.");
+        if (saldo <= 0) return alert("Esta parcela não possui saldo pendente.");
+        if (valor > saldo) return alert("O valor não pode ser maior que o saldo pendente.");
 
         await registrarPagamento({
           emprestimoId: emprestimo.id,
@@ -308,7 +308,7 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
       }
 
       if (tab === "TOTAL") {
-        if (totalQuitar <= 0) return alert("NÃ£o hÃ¡ valores pendentes para quitar.");
+        if (totalQuitar <= 0) return alert("Não há valores pendentes para quitar.");
         await registrarPagamento({
           emprestimoId: emprestimo.id,
           tipo: "QUITACAO_TOTAL" as PagamentoTipo,
@@ -344,11 +344,11 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
         }
       }
 
-      // âœ… avisa a tela pai para atualizar totais/listas
+      // ✅ avisa a tela pai para atualizar totais/listas
       try {
         onSaved?.();
       } catch {
-        // nÃ£o bloqueia o fechamento do modal
+        // não bloqueia o fechamento do modal
       }
 
       onClose();
@@ -368,9 +368,9 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
 
       {/*
-        âœ… Scroll do modal:
-        - MantÃ©m o header visÃ­vel
-        - O conteÃºdo do formulÃ¡rio rola dentro do modal
+        ✅ Scroll do modal:
+        - Mantém o header visível
+        - O conteúdo do formulário rola dentro do modal
       */}
       <div className="relative z-10 w-[92vw] max-w-[560px] max-h-[92vh] overflow-hidden rounded-2xl border border-white/10 bg-[#0B1312] shadow-2xl flex flex-col">
         {/* Header (fixo) */}
@@ -380,11 +380,11 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
             <p className="mt-1 text-sm text-white/60 truncate">{clienteNome}</p>
           </div>
           <button onClick={onClose} className="rounded-lg px-3 py-1 text-white/70 hover:bg-white/10">
-            âœ•
+            ✕
           </button>
         </div>
 
-        {/* ConteÃºdo rolÃ¡vel */}
+        {/* Conteúdo rolável */}
         <div className="px-5 sm:px-6 pb-5 sm:pb-6 overflow-y-auto">
 
         {/* resumo */}
@@ -400,7 +400,7 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
               <div className="text-sm text-white/80 truncate">{clienteNome}</div>
               <div className="text-xs text-white/50">
                 {MODO_JUROS ? (
-                  <>Juros + multa + diferenÃ§a: <b className="text-white">{brl(parcelasAbertas.reduce((acc, p) => acc + composicaoJurosDaParcela(p).totalComposto, 0))}</b></>
+                  <>Juros + multa + diferença: <b className="text-white">{brl(parcelasAbertas.reduce((acc, p) => acc + composicaoJurosDaParcela(p).totalComposto, 0))}</b></>
                 ) : (
                   <>Restante: <b className="text-white">{brl(totalQuitar)}</b></>
                 )}
@@ -411,15 +411,15 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
           <div className="mt-3 text-xs text-white/60">
             {tab === "PARCELA" ? (
               <>
-                Parcelas selecionadas: <b className="text-white">{selectedParcelas.length || 0}</b> â€¢ Total: <b className="text-white">{brl(saldoSelecionado)}</b>
+                Parcelas selecionadas: <b className="text-white">{selectedParcelas.length || 0}</b> • Total: <b className="text-white">{brl(saldoSelecionado)}</b>
               </>
             ) : tab === "TOTAL" ? (
               <>
-                QuitaÃ§Ã£o total: <b className="text-white">{brl(totalQuitar)}</b>
+                Quitação total: <b className="text-white">{brl(totalQuitar)}</b>
               </>
             ) : (
               <>
-                Parcela: <b className="text-white">{selectedParcelas[0] ? `${selectedParcelas[0]}/${parcelasTotal}` : "-"}</b> â€¢ Saldo: <b className="text-white">{brl(saldoSelecionado)}</b>
+                Parcela: <b className="text-white">{selectedParcelas[0] ? `${selectedParcelas[0]}/${parcelasTotal}` : "-"}</b> • Saldo: <b className="text-white">{brl(saldoSelecionado)}</b>
               </>
             )}
           </div>
@@ -458,13 +458,13 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
           </div>
         </div>
 
-        {/* seleÃ§Ã£o de parcelas */}
+        {/* seleção de parcelas */}
         {tab !== "TOTAL" ? (
           <div className="mt-4">
             <div className="text-sm text-white/70">Referente a qual Parcela?</div>
             <div className="mt-2 rounded-2xl border border-white/10 bg-black/15 overflow-hidden">
               <div className="px-4 py-2 text-xs text-white/40 border-b border-white/10">
-                Clique para selecionar {tab === "PARCELA" || tab === "DESCONTO" ? "mÃºltiplas parcelas" : "uma parcela"}
+                Clique para selecionar {tab === "PARCELA" || tab === "DESCONTO" ? "múltiplas parcelas" : "uma parcela"}
               </div>
               <div className="max-h-[240px] overflow-y-auto">
                 {parcelasAbertas.length === 0 ? (
@@ -513,7 +513,7 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
             {parcelaRef ? (
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                 <div className="flex items-center justify-between text-sm text-white/80">
-                  <span>{MODO_JUROS ? "Juros + multa + diferenÃ§a:" : "Valor base:"}</span>
+                  <span>{MODO_JUROS ? "Juros + multa + diferença:" : "Valor base:"}</span>
                   <b className="text-white">{brl(MODO_JUROS ? Number(composicaoJurosRef?.totalComposto ?? 0) : saldoDaParcela(parcelaRef))}</b>
                 </div>
                 {MODO_JUROS ? (
@@ -527,7 +527,7 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
                       <b className="text-white">{brl(Number(composicaoJurosRef?.multaAplicada ?? 0))}</b>
                     </div>
                     <div className="mt-1 flex items-center justify-between text-sm text-white/70">
-                      <span>DiferenÃ§a sobre emprestado</span>
+                      <span>Diferença sobre emprestado</span>
                       <b className="text-white">{brl(Number(composicaoJurosRef?.diferencaEmprestado ?? 0))}</b>
                     </div>
                   </>
@@ -551,8 +551,8 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
                 className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
               />
               <div className="mt-1 text-xs text-white/45">
-                MÃ¡x: {brl(saldoSelecionado)} â€¢ Digite qualquer valor atÃ© {brl(saldoSelecionado)}
-                {MODO_JUROS ? " â€¢ Ao registrar, o contrato reinicia na data do pagamento." : ""}
+                Máx: {brl(saldoSelecionado)} • Digite qualquer valor até {brl(saldoSelecionado)}
+                {MODO_JUROS ? " • Ao registrar, o contrato reinicia na data do pagamento." : ""}
               </div>
             </div>
 
@@ -585,15 +585,15 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
 
                   {amortPreview ? (
                     <div className="mt-3 rounded-2xl border border-white/10 bg-black/25 p-3">
-                      <div className="text-[11px] uppercase tracking-wide text-white/40">SituaÃ§Ã£o atual</div>
+                      <div className="text-[11px] uppercase tracking-wide text-white/40">Situação atual</div>
                       <div className="mt-2 grid grid-cols-1 gap-1 text-sm text-white/80">
-                        <div className="flex items-center justify-between"><span>EmprÃ©stimo (estim.):</span><b className="text-white">{brl(amortPreview.totalAtual)}</b></div>
+                        <div className="flex items-center justify-between"><span>Empréstimo (estim.):</span><b className="text-white">{brl(amortPreview.totalAtual)}</b></div>
                         <div className="flex items-center justify-between"><span>Saldo devedor:</span><b className="text-white">{brl(amortPreview.principalOriginal)} principal + {brl(amortPreview.jurosAtual)} juros</b></div>
                       </div>
 
-                      <div className="mt-3 text-[11px] uppercase tracking-wide text-emerald-300/80">ApÃ³s amortizaÃ§Ã£o</div>
+                      <div className="mt-3 text-[11px] uppercase tracking-wide text-emerald-300/80">Após amortização</div>
                       <div className="mt-2 grid grid-cols-1 gap-1 text-sm text-white/80">
-                        <div className="flex items-center justify-between"><span>AmortizaÃ§Ã£o:</span><b className="text-orange-200">-{brl(amortPreview.amort)}</b></div>
+                        <div className="flex items-center justify-between"><span>Amortização:</span><b className="text-orange-200">-{brl(amortPreview.amort)}</b></div>
                         <div className="flex items-center justify-between"><span>Novo principal:</span><b className="text-emerald-200">{brl(amortPreview.novoPrincipal)}</b></div>
                         <div className="flex items-center justify-between"><span>Novos juros (estim.):</span><b className="text-emerald-200">{brl(amortPreview.novoJuros)}</b></div>
                         <div className="flex items-center justify-between"><span>Economia de juros:</span><b className="text-emerald-200">{brl(amortPreview.economiaJuros)}</b></div>
@@ -628,7 +628,7 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <div className="text-sm font-semibold text-amber-200">Adiantamento de pagamento</div>
-                      <div className="mt-1 text-xs text-white/50">Subtrai do saldo e mantÃ©m o mesmo vencimento</div>
+                      <div className="mt-1 text-xs text-white/50">Subtrai do saldo e mantém o mesmo vencimento</div>
                     </div>
                     <div className={"h-6 w-11 rounded-full border transition-all " + (adiantamento ? "bg-amber-500/60 border-amber-400/50" : "bg-black/30 border-white/15")}>
                       <div className={"h-5 w-5 rounded-full bg-white transition-all mt-[2px] " + (adiantamento ? "translate-x-5" : "translate-x-0")}></div>
@@ -637,12 +637,12 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
 
                   {adiantamento && parcelaRef ? (
                     <div className="mt-3 text-xs text-white/55">
-                      Ativado â€” o restante <b className="text-white">({brl(Math.max(saldoDaParcela(parcelaRef) - (valor || 0), 0))})</b> continuarÃ¡ vencendo em <b className="text-white">{parcelaRef.vencimento || "-"}</b>
+                      Ativado — o restante <b className="text-white">({brl(Math.max(saldoDaParcela(parcelaRef) - (valor || 0), 0))})</b> continuará vencendo em <b className="text-white">{parcelaRef.vencimento || "-"}</b>
                     </div>
                   ) : null}
                 </button>
 
-                {/* Nova data de vencimento (somente quando NÃƒO Ã© adiantamento) */}
+                {/* Nova data de vencimento (somente quando NÃO é adiantamento) */}
                 {!adiantamento ? (
                   <div>
                     <label className="mb-1 block text-sm text-white/80">Nova Data de Vencimento</label>
@@ -652,7 +652,7 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
                       onChange={(e) => setNovaDataVencimento(e.target.value)}
                       className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
                     />
-                    <div className="mt-1 text-xs text-white/45">Opcional. Se preenchida, o sistema tentarÃ¡ prorrogar o vencimento (via RPC).</div>
+                    <div className="mt-1 text-xs text-white/45">Opcional. Se preenchida, o sistema tentará prorrogar o vencimento (via RPC).</div>
                   </div>
                 ) : null}
               </>

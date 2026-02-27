@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { calcularTotais } from "./emprestimoCalculos";
@@ -45,13 +45,13 @@ function clamp(n: number, min: number, max: number) {
 
 function labelCliente(c: any) {
   const nome = c?.nomeCompleto ?? "Sem nome";
-  const cpf = c?.cpf ? ` â€¢ ${c.cpf}` : "";
+  const cpf = c?.cpf ? ` • ${c.cpf}` : "";
   return `${nome}${cpf}`;
 }
 
 /**
  * Resolve taxa (%) a partir do total e valor
- * - Tabela Price: busca binÃ¡ria
+ * - Tabela Price: busca binária
  * - Outras: por_parcela ou fixo
  */
 function resolverTaxaPorTotal(params: {
@@ -134,7 +134,7 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
 
   const [taxaJuros, setTaxaJuros] = useState(0);
 
-  // Total manual (habilita campo "Total a Receber" editÃ¡vel)
+  // Total manual (habilita campo "Total a Receber" editável)
   const [usarTotalManual, setUsarTotalManual] = useState(false);
   const [totalManual, setTotalManual] = useState(0);
   const [totalManualInput, setTotalManualInput] = useState("0,00");
@@ -175,7 +175,7 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
     }
   }, [open]);
 
-  // MantÃ©m os inputs de moeda editÃ¡veis (sem formatar a cada tecla)
+  // Mantém os inputs de moeda editáveis (sem formatar a cada tecla)
   useEffect(() => {
     if (!open) return;
     valorEditingRef.current = false;
@@ -222,7 +222,7 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
     };
   }, [clienteId]);
 
-  // Sempre que achar o cliente selecionado, preenche o texto do campo (para manter â€œseleÃ§Ã£oâ€ visÃ­vel)
+  // Sempre que achar o cliente selecionado, preenche o texto do campo (para manter “seleção— visível)
   useEffect(() => {
     if (!open) return;
     if (!clienteId) return;
@@ -271,8 +271,8 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
     // delay para permitir click no item
     blurCloseTimer.current = window.setTimeout(() => {
       setClienteDropdownOpen(false);
-      // se apagou e saiu, nÃ£o muda o cliente automaticamente
-      // se quiser â€œlimpar seleÃ§Ã£oâ€ quando vazio:
+      // se apagou e saiu, não muda o cliente automaticamente
+      // se quiser “limpar seleção— quando vazio:
       // if (!clienteQuery.trim()) setClienteId("");
     }, 120);
   };
@@ -314,7 +314,7 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
       setSalvandoNovoCliente(true);
       const saved = await saveCliente(payloadCliente);
       if (!saved) {
-        alert("NÃ£o foi possÃ­vel criar o cliente.");
+        alert("Não foi possível criar o cliente.");
         return;
       }
 
@@ -328,7 +328,7 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
     }
   }
 
-  // Primeira parcela automÃ¡tica
+  // Primeira parcela automática
   const primeiraParcela = useMemo(() => {
     const base = fromISODate(dataContrato || hojeISO());
     base.setDate(base.getDate() + Math.max(0, Number(prazoDias ?? 0)));
@@ -342,8 +342,8 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
   }, [dataContrato, prazoDias, cobrarSabado, cobrarDomingo, cobrarFeriados]);
 
 
-  // ReferÃªncia (sem ajuste): usada quando NÃƒO escolher dia fixo na semana.
-  // Assim, as prÃ³ximas parcelas seguem a data do contrato + prazo, mesmo que a 1Âª parcela
+  // Referência (sem ajuste): usada quando NÃO escolher dia fixo na semana.
+  // Assim, as próximas parcelas seguem a data do contrato + prazo, mesmo que a 1ª parcela
   // seja ajustada por fim de semana/feriado.
   const primeiraParcelaReferencia = useMemo(() => {
     const base = fromISODate(dataContrato || hojeISO());
@@ -351,7 +351,7 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
     return toISODate(base);
   }, [dataContrato, prazoDias]);
 
-  // Totais calculados (padrÃ£o)
+  // Totais calculados (padrão)
   const totais = useMemo(() => {
     return calcularTotais({
       valor,
@@ -417,8 +417,8 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
               : "mensal";
 
     return gerarVencimentosParcelas({
-      // Se nÃ£o usar dia fixo (semanal/quinzenal), usa a referÃªncia do contrato + prazo
-      // para manter o espaÃ§amento coerente, mesmo quando a 1Âª parcela foi ajustada.
+      // Se não usar dia fixo (semanal/quinzenal), usa a referência do contrato + prazo
+      // para manter o espaçamento coerente, mesmo quando a 1ª parcela foi ajustada.
       primeiraParcelaISO:
         (mod === "semanal" || mod === "quinzenal") && !usarDiaFixoSemana
           ? primeiraParcelaReferencia
@@ -450,11 +450,11 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
       return;
     }
     if (valor <= 0) {
-      alert("Informe o valor do emprÃ©stimo.");
+      alert("Informe o valor do empréstimo.");
       return;
     }
     if (!totalManualValido) {
-      alert("O total a receber nÃ£o pode ser menor que o valor emprestado.");
+      alert("O total a receber não pode ser menor que o valor emprestado.");
       return;
     }
 
@@ -497,8 +497,8 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-700/50 px-4 py-3 bg-gradient-to-r from-emerald-500/10 via-cyan-500/5 to-transparent">
           <div>
-            <div className="text-lg font-semibold text-white">Novo EmprÃ©stimo</div>
-            <div className="text-xs text-white/50">Configure o emprÃ©stimo e confira o cronograma antes de criar.</div>
+            <div className="text-lg font-semibold text-white">Novo Empréstimo</div>
+            <div className="text-xs text-white/50">Configure o empréstimo e confira o cronograma antes de criar.</div>
           </div>
           <button
             onClick={onClose}
@@ -510,7 +510,7 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
 
         {/* Body (scroll) */}
         <div className="flex-1 overflow-y-auto px-4 py-4">
-          {/* âœ… UMA COLUNA SEMPRE */}
+          {/* ✅ UMA COLUNA SEMPRE */}
           <div className="grid grid-cols-1 gap-6">
             {/* Cliente */}
             <div className="rounded-xl border border-slate-700/60 bg-slate-900/40 p-3 shadow-[0_0_0_1px_rgba(16,185,129,0.04)]">
@@ -562,21 +562,21 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-[11px] text-white/70">EndereÃ§o</label>
+                      <label className="text-[11px] text-white/70">Endereço</label>
                       <input
                         value={novoClienteEndereco}
                         onChange={(e) => setNovoClienteEndereco(e.target.value)}
-                        placeholder="EndereÃ§o completo"
+                        placeholder="Endereço completo"
                         className="w-full h-9 rounded-lg border border-slate-700/60 bg-slate-950/60 px-3 text-sm text-white placeholder:text-white/30 outline-none focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/20 transition"
                       />
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-[11px] text-white/70">ObservaÃ§Ãµes</label>
+                      <label className="text-[11px] text-white/70">Observações</label>
                       <textarea
                         value={novoClienteObs}
                         onChange={(e) => setNovoClienteObs(e.target.value)}
-                        placeholder="ObservaÃ§Ãµes sobre o cliente"
+                        placeholder="Observações sobre o cliente"
                         className="h-20 w-full resize-none rounded-lg border border-slate-700/60 bg-slate-950/60 px-3 py-2 text-sm text-white placeholder:text-white/30 outline-none focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/20 transition"
                       />
                     </div>
@@ -596,7 +596,7 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
 
               {!novoClienteAberto ? (
                 <>
-              {/* âœ… Combobox com busca */}
+              {/* ✅ Combobox com busca */}
               <div className="relative">
                 <input
                   value={clienteQuery}
@@ -620,7 +620,7 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
                           <button
                             type="button"
                             key={c.id}
-                            onMouseDown={(e) => e.preventDefault()} // mantÃ©m foco para permitir click
+                            onMouseDown={(e) => e.preventDefault()} // mantém foco para permitir click
                             onClick={() => selecionarCliente(c)}
                             className={`flex w-full items-start justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-slate-800/50 ${
                               c.id === clienteId ? "bg-emerald-500/10" : ""
@@ -630,8 +630,8 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
                               <div className="truncate text-white/90">{c.nomeCompleto ?? "Sem nome"}</div>
                               <div className="truncate text-[11px] text-white/50">
                                 {c.cpf ? `CPF: ${c.cpf}` : ""}{" "}
-                                {c.telefone ? `â€¢ Tel: ${c.telefone}` : ""}{" "}
-                                {c.email ? `â€¢ ${c.email}` : ""}
+                                {c.telefone ? `• Tel: ${c.telefone}` : ""}{" "}
+                                {c.email ? `• ${c.email}` : ""}
                               </div>
                             </div>
                             {c.id === clienteId ? (
@@ -662,7 +662,7 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
                     ) : null}
                   </>
                 ) : (
-                  "â€”"
+                  "—"
                 )}
               </div>
             </div>
@@ -763,12 +763,12 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
                     placeholder="0,00"
                   />
                   {!totalManualValido ? (
-                    <div className="text-[11px] text-rose-300">Total deve ser â‰¥ valor emprestado.</div>
+                    <div className="text-[11px] text-rose-300">Total deve ser ≥ valor emprestado.</div>
                   ) : null}
                   {!usarTotalManual ? (
                     <div className="text-[11px] text-white/40">Calculado automaticamente pela taxa.</div>
                   ) : (
-                    <div className="text-[11px] text-white/40">Ao editar o total, a taxa Ã© recalculada (e vice-versa).</div>
+                    <div className="text-[11px] text-white/40">Ao editar o total, a taxa é recalculada (e vice-versa).</div>
                   )}
                 </div>
               </div>
@@ -783,7 +783,7 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
                       { value: "parcelado_mensal", label: "Mensal" },
                       { value: "quinzenal", label: "Quinzenal" },
                       { value: "semanal", label: "Semanal" },
-                      { value: "diario", label: "DiÃ¡rio" },
+                      { value: "diario", label: "Diário" },
                       { value: "tabela_price", label: "Tabela Price" },
                     ]}
                   />
@@ -822,15 +822,15 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
                           options={[
                             { value: "0", label: "Domingo" },
                             { value: "1", label: "Segunda" },
-                            { value: "2", label: "TerÃ§a" },
+                            { value: "2", label: "Terça" },
                             { value: "3", label: "Quarta" },
                             { value: "4", label: "Quinta" },
                             { value: "5", label: "Sexta" },
-                            { value: "6", label: "SÃ¡bado" },
+                            { value: "6", label: "Sábado" },
                           ]}
                         />
                         <div className="text-[11px] text-white/40">
-                          Se desativado, as prÃ³ximas parcelas seguem a referÃªncia da data do contrato + prazo.
+                          Se desativado, as próximas parcelas seguem a referência da data do contrato + prazo.
                         </div>
                       </div>
                     ) : null}
@@ -870,7 +870,7 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
                 </div>
 
                 <div className="space-y-1">
-                  <div className="text-xs text-white/60">Prazo (dias) atÃ© 1Âª parcela</div>
+                  <div className="text-xs text-white/60">Prazo (dias) até 1ª parcela</div>
                   <input
                     type="number"
                     min={0}
@@ -883,7 +883,7 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
 
               <div className="mt-4 grid grid-cols-1 gap-2">
                 <label className="flex items-center justify-between rounded-lg border border-slate-700/60 bg-slate-950/40 px-3 py-2 text-sm text-white/80">
-                  <span>Cobrar no sÃ¡bado</span>
+                  <span>Cobrar no sábado</span>
                   <input type="checkbox" checked={cobrarSabado} onChange={(e) => setCobrarSabado(e.target.checked)} />
                 </label>
                 <label className="flex items-center justify-between rounded-lg border border-slate-700/60 bg-slate-950/40 px-3 py-2 text-sm text-white/80">
@@ -900,7 +900,7 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
                 </label>
 
                 <div className="mt-2 text-xs text-white/60">
-                  Primeira parcela (automÃ¡tica): <span className="font-semibold text-white">{primeiraParcela}</span>
+                  Primeira parcela (automática): <span className="font-semibold text-white">{primeiraParcela}</span>
                 </div>
               </div>
             </div>
@@ -910,7 +910,7 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
               <div className="mb-3 text-xs font-semibold text-white">Cronograma</div>
 
               <div className="mb-4 text-xs text-white/60">
-                Mostrando as {parcelas} parcelas. (A 1Âª parcela aparece apenas aqui.)
+                Mostrando as {parcelas} parcelas. (A 1ª parcela aparece apenas aqui.)
               </div>
 
               <div className="max-h-[420px] overflow-y-auto rounded-lg border border-slate-700/60">
@@ -950,15 +950,15 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
             <div className="rounded-xl border border-slate-700/60 bg-slate-900/40 p-3 shadow-[0_0_0_1px_rgba(16,185,129,0.04)] text-xs text-white/60">
               <div className="font-semibold text-white/80 mb-1">Dicas</div>
               <ul className="list-disc pl-4 space-y-1">
-                <li>Use â€œTotal manualâ€ quando quiser digitar o total e deixar a taxa calcular sozinha.</li>
-                <li>Prazo (dias) calcula a 1Âª parcela automaticamente com as regras de cobranÃ§a.</li>
+                <li>Use “Total manual” quando quiser digitar o total e deixar a taxa calcular sozinha.</li>
+                <li>Prazo (dias) calcula a 1ª parcela automaticamente com as regras de cobrança.</li>
                 <li>Semanal/quinzenal: use dia fixo para alinhar os vencimentos.</li>
               </ul>
             </div>
 
-            {/* ConfiguraÃ§Ãµes */}
+            {/* Configurações */}
             <div className="rounded-xl border border-slate-700/60 bg-slate-900/40 p-3 shadow-[0_0_0_1px_rgba(16,185,129,0.04)]">
-              <div className="mb-3 text-xs font-semibold text-white">ConfiguraÃ§Ãµes</div>
+              <div className="mb-3 text-xs font-semibold text-white">Configurações</div>
 
               <label className="flex items-center justify-between rounded-lg border border-slate-700/60 bg-slate-950/40 px-3 py-2 text-sm text-white/80">
                 <span>Notificar WhatsApp</span>
@@ -1002,7 +1002,7 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
               </div>
 
               <div className="mt-4 space-y-1">
-                <div className="text-xs text-white/60">ObservaÃ§Ãµes</div>
+                <div className="text-xs text-white/60">Observações</div>
                 <textarea
                   value={observacoes}
                   onChange={(e) => setObservacoes(e.target.value)}
