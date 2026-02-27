@@ -247,7 +247,7 @@ export default function AppLayout() {
           </div>
         ) : null}
 
-        <main className="flex-1 min-w-0">
+        <main className="flex-1 min-w-0 pt-16 md:pt-0">
           <div className="h-14 border-b border-emerald-500/10 bg-slate-950/30 flex items-center gap-3 px-3 sm:px-6">
             <button
               className="md:hidden rounded-lg border border-white/10 bg-white/5 p-2 hover:bg-white/10"
@@ -259,8 +259,8 @@ export default function AppLayout() {
             <div className="text-sm text-slate-300">Painel</div>
           </div>
 
-          {/* ✅ AQUI está a correção: espaço extra pro BottomNavigation no mobile */}
-          <div className="w-full max-w-none px-2 sm:px-6 py-3 sm:py-6 pb-24 md:pb-6">
+          {/* Espaço extra para o menu fixo superior no mobile */}
+          <div className="w-full max-w-none px-2 sm:px-6 pt-3 sm:pt-6 pb-6 md:pb-6">
             <Outlet />
           </div>
         </main>

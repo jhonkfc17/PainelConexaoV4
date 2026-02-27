@@ -3,7 +3,7 @@ import { LayoutDashboard, Users, CreditCard, Settings } from "lucide-react";
 
 export default function BottomNavigation() {
   return (
-    <div className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-950 border-t border-slate-800 flex justify-around items-center h-16 z-50 pb-safe">
+    <div className="md:hidden fixed top-0 left-0 right-0 bg-slate-950/95 backdrop-blur border-b border-slate-800 flex justify-around items-center h-16 z-50 pt-safe">
       <NavLink to="/" className="flex flex-col items-center text-xs">
         <LayoutDashboard size={20} />
         Dashboard
