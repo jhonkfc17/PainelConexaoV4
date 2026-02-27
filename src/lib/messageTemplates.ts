@@ -156,7 +156,17 @@ export const MESSAGE_TEMPLATE_VARIABLES = [
 ] as const;
 
 export function getMessageTemplate(key: MessageTemplateKey) {
-  return lsGet(`cfg_tpl_${key}`, DEFAULT_MESSAGE_TEMPLATES[key]);
+  const raw = lsGet(`cfg_tpl_${key}`, DEFAULT_MESSAGE_TEMPLATES[key]);
+
+  // Se o texto tiver sinais claros de mojibake (UTF-8 lido como ISO), volta ao default e corrige storage
+  const looksBroken = /ðŸ|âœ|âš|â|â˜‚|â¤/.test(raw);
+  if (looksBroken) {
+    const fixed = DEFAULT_MESSAGE_TEMPLATES[key];
+    lsSet(`cfg_tpl_${key}`, fixed);
+    return fixed;
+  }
+
+  return raw;
 }
 
 export function setMessageTemplate(key: MessageTemplateKey, value: string) {
