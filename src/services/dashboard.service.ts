@@ -104,6 +104,13 @@ function valorRecebidoTotal(p: ParcelaRow): number {
   return principal + juros;
 }
 
+function paidDateOrToday(p: ParcelaRow, todayISO: string): string | null {
+  const valorPago = valorPagoAcumulado(p);
+  const pagoFlag = Boolean(p.pago);
+  if (!pagoFlag && !(valorPago > 0)) return null;
+  return p.pago_em ? isoFromAny(p.pago_em) : todayISO;
+}
+
 function toDateOnlyISO(d: Date): string {
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
@@ -374,18 +381,33 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
     (p) => !p.pago && String(p.vencimento) >= weekStartISO && String(p.vencimento) <= todayISO
   ).length;
 
-  const recebidoSemana = parcelas
-    .filter((p) => {
-      const valorPago = valorRecebidoTotal(p);
-      const pagoFlag = Boolean(p.pago);
-      if (!pagoFlag && !(valorPago > 0)) return false;
+  // Pagamentos (com data resolvida)
+  const pagosComData = parcelas
+    .map((p) => ({ p, paidDate: paidDateOrToday(p, todayISO) }))
+    .filter((r) => Boolean(r.paidDate)) as { p: ParcelaRow; paidDate: string }[];
 
-      const paidDate = p.pago_em ? isoFromAny(p.pago_em) : todayISO;
-      return paidDate >= weekStartISO && paidDate <= todayISO;
-    })
-    .reduce((acc, p) => {
-      return acc + valorRecebidoTotal(p);
-    }, 0);
+  // Recebidos brutos (principal + juros + multa)
+  const totalRecebidoBruto = pagosComData.reduce((acc, r) => acc + valorRecebidoTotal(r.p), 0);
+
+  const totalRecebidoAntesSemana = pagosComData
+    .filter((r) => String(r.paidDate) < weekStartISO)
+    .reduce((acc, r) => acc + valorRecebidoTotal(r.p), 0);
+
+  const totalRecebidoDuranteSemana = pagosComData
+    .filter((r) => String(r.paidDate) >= weekStartISO && String(r.paidDate) <= todayISO)
+    .reduce((acc, r) => acc + valorRecebidoTotal(r.p), 0);
+
+  // Alocação simples de principal para descobrir lucro (juros/multa):
+  // - Recupera principal até o limite do capital emprestado, na ordem temporal.
+  const principalTotal = capitalEmprestado;
+  const principalRecuperadoAntes = Math.min(totalRecebidoAntesSemana, principalTotal);
+  const principalRestanteAntes = Math.max(0, principalTotal - principalRecuperadoAntes);
+  const principalRecuperadoSemana = Math.min(principalRestanteAntes, totalRecebidoDuranteSemana);
+
+  const lucroSemana = totalRecebidoDuranteSemana - principalRecuperadoSemana;
+
+  const principalRecuperadoTotal = Math.min(totalRecebidoBruto, principalTotal);
+  const lucroRealizadoTotal = totalRecebidoBruto - principalRecuperadoTotal;
 
   // =========================
   // Chart series
@@ -473,7 +495,8 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
 
   const totalDevido = vencidasAteHoje.reduce((acc, p) => acc + safeNum(p.valor), 0);
 
-  const totalPago = vencidasAteHoje
+  // Total pago bruto (para métricas de recebimento)
+  const totalPagoBruto = vencidasAteHoje
     .filter((p) => {
       const valorPago = valorRecebidoTotal(p);
       return Boolean(p.pago) || valorPago > 0;
@@ -482,10 +505,13 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
       return acc + valorRecebidoTotal(p);
     }, 0);
 
+  // Lucro realizado (juros + multa) em todas as vencidas pagas
+  const lucroRealizadoVencidas = lucroRealizadoTotal;
+
   const atrasadasEmAberto = vencidasAteHoje.filter((p) => String(p.vencimento) < todayISO && !isPaidByDate(p, todayISO));
   const totalAtrasadoEmAberto = atrasadasEmAberto.reduce((acc, p) => acc + safeNum(p.valor), 0);
 
-  const recebimentoRate = totalDevido > 0 ? totalPago / totalDevido : 1;
+  const recebimentoRate = totalDevido > 0 ? totalPagoBruto / totalDevido : 1;
   const inadimplenciaRate = totalDevido > 0 ? totalAtrasadoEmAberto / totalDevido : 0;
 
   const healthScore = Math.round(100 * (0.7 * recebimentoRate + 0.3 * (1 - inadimplenciaRate)));
@@ -511,7 +537,8 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
 
   const weekCards: DashboardWeekCard[] = [
     { label: "Cobranças", value: cobrancasSemana, hint: "esta semana" },
-    { label: "Recebido", value: brl(recebidoSemana), hint: "esta semana" },
+    // Recebido (lucro/juros/multa) na semana
+    { label: "Recebido", value: brl(lucroSemana), hint: "lucro (juros/multa) esta semana" },
     { label: "Vence hoje", value: venceHoje, hint: "cobranças" },
     { label: "Vence amanhã", value: venceAmanha, hint: "cobranças" },
     { label: "Empréstimos", value: emprestimosSemana, hint: "esta semana" },
@@ -519,7 +546,8 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
     { label: "Previsão de Lucro", value: brl(lucroPrevisto), hint: "valor a receber - capital" },
     { label: "Contratos", value: emprestimos.length, hint: "total" },
     { label: "Capital em mão", value: brl(capitalEmprestado), hint: "capital emprestado" },
-    { label: "Recebido", value: brl(totalPago), hint: "total recebido (vencidas)" },
+    // Recebido total (lucro/juros/multa) até hoje
+    { label: "Recebido", value: brl(lucroRealizadoTotal), hint: "lucro realizado (juros/multa)" },
     { label: "Em atraso", value: brl(totalAtrasadoEmAberto), hint: "aberto" },
     { label: "Clientes", value: clientesCount ?? 0, hint: "cadastrados" },
   ];
@@ -531,7 +559,7 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
     bars: [
       { label: "Taxa de recebimento", value: `${(recebimentoRate * 100).toFixed(1)}%` },
       { label: "Inadimplência", value: `${(inadimplenciaRate * 100).toFixed(1)}%` },
-      { label: "Recebido", value: brl(totalPago) },
+      { label: "Recebido", value: brl(lucroRealizadoTotal) },
       { label: "Em atraso", value: brl(totalAtrasadoEmAberto) },
     ],
     noteTitle,
