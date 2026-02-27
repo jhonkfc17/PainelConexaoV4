@@ -1,18 +1,21 @@
-﻿# Conector WhatsApp (Railway)
+# Conector WhatsApp (Cloud API)
 
-Conjunto de funcoes/servicos para integrar o painel ao connector de WhatsApp rodando na Railway.
+As funções agora falam direto com o WhatsApp Cloud API (Graph), sem o connector da Railway.
 
-- `supabase/functions/wa-connector/*` -> Edge Function principal (autenticada) que faz proxy para o connector (`/whatsapp/init|status|qr|send`), validando o usuario Supabase e usando `WA_CONNECTOR_URL` + `WA_TOKEN`.
-- `supabase/functions/wa-auto-dispatch/*` -> Edge Function opcional de envio rapido (`/send`) pensada para automacoes; tambem forwarda para o connector.
-- `src/services/whatsappDispatch.ts` -> Cliente usado pelo frontend (`sendWhatsAppFromPanel`) que valida status/QR via `wa-connector` antes de enviar.
-- `src/services/whatsappConnector.ts` + `src/components/WhatsAppConnectorCard.tsx` -> UI de status/QR/ativacao do WhatsApp.
+- `supabase/functions/wa-connector/*` – Edge Function autenticada para init/status/qr/send (QR sempre dispensa porque Cloud API não usa).
+- `supabase/functions/wa-auto-dispatch/*` – Automação para disparos em lote (usa o mesmo Cloud API).
+- `src/services/whatsappDispatch.ts` / `src/services/whatsappConnector.ts` – clientes frontend.
 
-## Variaveis de ambiente (Supabase Edge)
+## Variáveis de ambiente (Supabase Edge)
+Obrigatórias:
 
-Obrigatorias para as funcoes acima:
+- `WA_PHONE_NUMBER_ID` – ID do número do WhatsApp Cloud API.
+- `WA_ACCESS_TOKEN` – token de acesso da Cloud API.
 
-- `WA_CONNECTOR_URL` (alias: `WA_URL`, `RAILWAY_WA_URL`, `RAILWAY_WHATSAPP_URL`) – URL base do connector na Railway.
-- `WA_TOKEN` (alias: `WA_CONNECTOR_TOKEN`, `RAILWAY_WA_TOKEN`, `RAILWAY_WHATSAPP_TOKEN`) – token aceito pelo connector (usa header `x-wa-token` e tambem `Authorization: Bearer`).
+Opcionais (fallback para fora da janela de 24h):
+
+- `WA_TEMPLATE_NAME` – nome do template aprovado (ex: `hello_world`).
+- `WA_TEMPLATE_LANG` – idioma (ex: `pt_BR`). Padrão: `pt_BR`.
 
 ## Deploy
 
@@ -21,7 +24,4 @@ supabase functions deploy wa-connector
 supabase functions deploy wa-auto-dispatch
 ```
 
-Depois do deploy, a UI de Configuracoes -> WhatsApp ja consegue:
-
-1. `wa-connector` -> init / status / qr / send.
-2. (Opcional) Automacao/robos podem usar `wa-auto-dispatch` chamando a Edge Function direta via `supabase.functions.invoke("wa-auto-dispatch", ...)`.
+Depois do deploy, a UI de Configurações -> WhatsApp usa `wa-connector`; automações chamam `wa-auto-dispatch` via `supabase.functions.invoke`.

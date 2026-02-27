@@ -49,14 +49,6 @@ function applyTemplate(tpl: string, data: Record<string, string>) {
   return tpl.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key) => data[key] ?? "");
 }
 
-function connectorHeaders(token: string) {
-  return {
-    "content-type": "application/json",
-    "x-wa-token": token,
-    Authorization: `Bearer ${token}`,
-  };
-}
-
 async function readJsonSafe(resp: Response) {
   const txt = await resp.text();
   if (!txt) return {};
@@ -67,11 +59,91 @@ async function readJsonSafe(resp: Response) {
   }
 }
 
+async function waCloudSendText(opts: { phoneNumberId: string; accessToken: string; to: string; message: string }) {
+  const { phoneNumberId, accessToken, to, message } = opts;
+  const resp = await fetch(`https://graph.facebook.com/v23.0/${phoneNumberId}/messages`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to,
+      type: "text",
+      text: { body: message },
+    }),
+  });
+
+  const data = await readJsonSafe(resp);
+  if (!resp.ok) return { ok: false, status: resp.status, error: data?.error?.message ?? "Erro ao enviar", details: data };
+  return { ok: true, data, messageId: (data as any)?.messages?.[0]?.id ?? null };
+}
+
+async function waCloudSendTemplate(opts: {
+  phoneNumberId: string;
+  accessToken: string;
+  to: string;
+  templateName: string;
+  templateLang: string;
+  templateParams?: string[];
+}) {
+  const { phoneNumberId, accessToken, to, templateName, templateLang, templateParams = [] } = opts;
+  const params = templateParams.map((p) => ({ type: "text", text: p }));
+
+  const payload: any = {
+    messaging_product: "whatsapp",
+    to,
+    type: "template",
+    template: {
+      name: templateName,
+      language: { code: templateLang },
+    },
+  };
+
+  if (params.length > 0) {
+    payload.template.components = [{ type: "body", parameters: params }];
+  }
+
+  const resp = await fetch(`https://graph.facebook.com/v23.0/${phoneNumberId}/messages`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await readJsonSafe(resp);
+  if (!resp.ok) return { ok: false, status: resp.status, error: data?.error?.message ?? "Erro ao enviar template", details: data };
+  return { ok: true, data, messageId: (data as any)?.messages?.[0]?.id ?? null };
+}
+
+function shouldUseTemplateFallback(r: any) {
+  if (!r) return false;
+  const status = Number(r?.status ?? 0);
+  const msg = String((r?.error ?? "") || (r?.details?.error?.message ?? "")).toLowerCase();
+  if (msg.includes("template") || msg.includes("outside the 24") || msg.includes("24h") || msg.includes("window") || msg.includes("template required")) {
+    return true;
+  }
+  if (status === 400 || status === 403 || status === 422 || status === 428) return true;
+  return false;
+}
+
 serve(async () => {
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
   const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const WA_CONNECTOR_URL = Deno.env.get("WA_CONNECTOR_URL")!;
-  const WA_TOKEN = Deno.env.get("WA_TOKEN")!;
+  const WA_PHONE_NUMBER_ID = Deno.env.get("WA_PHONE_NUMBER_ID") ?? "";
+  const WA_ACCESS_TOKEN = Deno.env.get("WA_ACCESS_TOKEN") ?? "";
+  const WA_TEMPLATE_NAME = Deno.env.get("WA_TEMPLATE_NAME") ?? "";
+  const WA_TEMPLATE_LANG = Deno.env.get("WA_TEMPLATE_LANG") ?? "pt_BR";
+
+  if (!WA_PHONE_NUMBER_ID || !WA_ACCESS_TOKEN) {
+    return new Response(JSON.stringify({ ok: false, error: "Missing WA_PHONE_NUMBER_ID / WA_ACCESS_TOKEN" }), {
+      status: 500,
+      headers: { "content-type": "application/json" },
+    });
+  }
 
   const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -212,61 +284,45 @@ serve(async () => {
 
     const insertedRows = (inserted ?? []) as Array<{ id: string; to_phone: string; message: string }>;
 
-    // 1) Tenta endpoint em lote (se existir no connector externo)
-    const batchPayload = {
-      items: insertedRows.map((r) => ({
-        to: r.to_phone,
-        message: r.message,
-      })),
-    };
-
-    let batchOk = false;
-    let batchStatus = 0;
-    let batchResp: any = null;
-    try {
-      const resp = await fetch(`${WA_CONNECTOR_URL}/send-batch`, {
-        method: "POST",
-        headers: connectorHeaders(WA_TOKEN),
-        body: JSON.stringify(batchPayload),
-      });
-      batchStatus = resp.status;
-      batchResp = await readJsonSafe(resp);
-      batchOk = resp.ok;
-    } catch (e) {
-      batchResp = { error: String(e) };
-    }
-
     const sentIds: string[] = [];
     const failedRows: Array<{ id: string; error: string }> = [];
 
-    if (batchOk) {
-      for (const row of insertedRows) sentIds.push(row.id);
-    } else {
-      // 2) Fallback compatível com conector de referência: envia um por um em /whatsapp/send
-      for (const row of insertedRows) {
-        try {
-          const resp = await fetch(`${WA_CONNECTOR_URL}/whatsapp/send`, {
-            method: "POST",
-            headers: connectorHeaders(WA_TOKEN),
-            body: JSON.stringify({
-              tenant_id: tenantId,
-              to: row.to_phone,
-              message: row.message,
-            }),
-          });
+    for (const row of insertedRows) {
+      try {
+        const rText = await waCloudSendText({
+          phoneNumberId: WA_PHONE_NUMBER_ID,
+          accessToken: WA_ACCESS_TOKEN,
+          to: row.to_phone,
+          message: row.message,
+        });
 
-          const payload = await readJsonSafe(resp);
-          if (resp.ok) {
-            sentIds.push(row.id);
-          } else {
-            failedRows.push({
-              id: row.id,
-              error: `HTTP ${resp.status}: ${JSON.stringify(payload).slice(0, 300)}`,
-            });
-          }
-        } catch (e) {
-          failedRows.push({ id: row.id, error: String(e).slice(0, 300) });
+        if (rText.ok) {
+          sentIds.push(row.id);
+          continue;
         }
+
+        if (shouldUseTemplateFallback(rText)) {
+          const tplName = WA_TEMPLATE_NAME || "hello_world";
+          const tplLang = WA_TEMPLATE_LANG || "pt_BR";
+          const rTpl = await waCloudSendTemplate({
+            phoneNumberId: WA_PHONE_NUMBER_ID,
+            accessToken: WA_ACCESS_TOKEN,
+            to: row.to_phone,
+            templateName: tplName,
+            templateLang: tplLang,
+            templateParams: [row.message],
+          });
+          if (rTpl.ok) {
+            sentIds.push(row.id);
+            continue;
+          }
+          failedRows.push({ id: row.id, error: rTpl.error || `HTTP ${rTpl.status}` });
+          continue;
+        }
+
+        failedRows.push({ id: row.id, error: rText.error || `HTTP ${rText.status}` });
+      } catch (e) {
+        failedRows.push({ id: row.id, error: String(e).slice(0, 300) });
       }
     }
 
@@ -279,9 +335,7 @@ serve(async () => {
     }
 
     if (failedIds.length > 0) {
-      const errText =
-        failedRows.map((x) => `${x.id}: ${x.error}`).join(" | ").slice(0, 900) ||
-        JSON.stringify({ batchStatus, batchResp }).slice(0, 900);
+      const errText = failedRows.map((x) => `${x.id}: ${x.error}`).join(" | ").slice(0, 900);
 
       await sb
         .from("wa_message_log")
@@ -294,10 +348,7 @@ serve(async () => {
       queued: insertedRows.length,
       sent: sentIds.length,
       failed: failedIds.length,
-      connectorResp: {
-        batch: { ok: batchOk, status: batchStatus, data: batchResp },
-        fallback_single_send_used: !batchOk,
-      },
+      connectorResp: { usedCloud: true },
     };
   }
 

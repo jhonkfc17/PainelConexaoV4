@@ -47,7 +47,7 @@ async function waCloudSendText(opts: {
 }) {
   const { phoneNumberId, accessToken, to, message } = opts;
 
-  const resp = await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
+  const resp = await fetch(`https://graph.facebook.com/v23.0/${phoneNumberId}/messages`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -106,7 +106,7 @@ async function waCloudSendTemplate(opts: {
     payload.template.components.push({ type: "body", parameters: bodyParams });
   }
 
-  const resp = await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
+  const resp = await fetch(`https://graph.facebook.com/v23.0/${phoneNumberId}/messages`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
