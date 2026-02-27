@@ -97,6 +97,13 @@ function valorPagoAcumulado(p: ParcelaRow): number {
   return safeNum(bruto);
 }
 
+function valorRecebidoTotal(p: ParcelaRow): number {
+  // Total efetivamente recebido: principal pago (ou valor da parcela) + juros de atraso (quando registrado separado).
+  const principal = valorPagoAcumulado(p) || safeNum(p.valor);
+  const juros = safeNum(p.juros_atraso);
+  return principal + juros;
+}
+
 function toDateOnlyISO(d: Date): string {
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
@@ -369,7 +376,7 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
 
   const recebidoSemana = parcelas
     .filter((p) => {
-      const valorPago = valorPagoAcumulado(p);
+      const valorPago = valorRecebidoTotal(p);
       const pagoFlag = Boolean(p.pago);
       if (!pagoFlag && !(valorPago > 0)) return false;
 
@@ -377,8 +384,7 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
       return paidDate >= weekStartISO && paidDate <= todayISO;
     })
     .reduce((acc, p) => {
-      const valorPago = valorPagoAcumulado(p) || safeNum(p.valor);
-      return acc + valorPago;
+      return acc + valorRecebidoTotal(p);
     }, 0);
 
   // =========================
@@ -428,8 +434,7 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
       const key = bucketKeyForDateOnly(paidDate);
       const idx = idxByKey.get(key);
       if (idx != null) {
-        const pago = valorPagoAcumulado(p) || safeNum(p.valor);
-        evolucaoData[idx].recebido = safeNum(evolucaoData[idx].recebido) + pago;
+        evolucaoData[idx].recebido = safeNum(evolucaoData[idx].recebido) + valorRecebidoTotal(p);
         jurosData[idx].juros = safeNum(jurosData[idx].juros) + safeNum(parcelaJurosRecebido(p));
       }
     }
@@ -470,12 +475,11 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
 
   const totalPago = vencidasAteHoje
     .filter((p) => {
-      const valorPago = valorPagoAcumulado(p);
+      const valorPago = valorRecebidoTotal(p);
       return Boolean(p.pago) || valorPago > 0;
     })
     .reduce((acc, p) => {
-      const valorPago = valorPagoAcumulado(p) || safeNum(p.valor);
-      return acc + valorPago;
+      return acc + valorRecebidoTotal(p);
     }, 0);
 
   const atrasadasEmAberto = vencidasAteHoje.filter((p) => String(p.vencimento) < todayISO && !isPaidByDate(p, todayISO));
