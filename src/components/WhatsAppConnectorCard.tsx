@@ -45,13 +45,8 @@ export default function WhatsAppConnectorCard() {
       setConnectedNumber(st.connectedNumber);
       setLastError(st.lastError);
 
-      if (st.status !== "ready") {
-        const qr = await waQr();
-        if (qr.hasQr && qr.qr) setQrDataUrl(qr.qr);
-        else setQrDataUrl(null);
-      } else {
-        setQrDataUrl(null);
-      }
+      // Cloud API não usa QR
+      setQrDataUrl(null);
     } catch (e: any) {
       setLastError(prettifyWaError(e?.message || e));
     } finally {
