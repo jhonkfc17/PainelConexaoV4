@@ -545,6 +545,23 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
 
   const irDetalhes = () => navigate(`/emprestimos/${(emprestimo as any).id}`);
 
+  const abrirWhatsapp = (mensagem?: string) => {
+    const phoneRaw =
+      (emprestimo as any)?.clienteContato ??
+      (emprestimo as any)?.cliente_contato ??
+      (emprestimo as any)?.telefone ??
+      "";
+    const phone = String(phoneRaw).replace(/\D/g, "");
+    if (!phone) {
+      alert("Cliente sem telefone cadastrado.");
+      return;
+    }
+    const waPhone = phone.startsWith("55") ? phone : `55${phone}`;
+    const url = `https://wa.me/${waPhone}${mensagem ? `?text=${encodeURIComponent(mensagem)}` : ""}`;
+    const opened = window.open(url, "_blank", "noopener,noreferrer");
+    if (!opened) window.location.href = url;
+  };
+
   const emprestimoModal = useMemo(() => {
     return {
       ...(emprestimo as any),
@@ -944,17 +961,17 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
 
       {/* CTA WhatsApp (mantém sempre visível) */}
       <div className="px-4 pt-3">
-        <button
-          type="button"
-          onClick={irDetalhes}
-          className={`w-full rounded-xl border px-4 py-2 text-sm font-semibold hover:bg-emerald-500/15 ${
-            atraso.detalhe
-              ? "border-red-500/25 bg-red-500/10 text-red-100 hover:bg-red-500/15"
-              : "border-emerald-500/25 bg-emerald-500/10 text-emerald-100"
-          }`}
-        >
-          {atraso.detalhe ? "Cobrar Atraso (WhatsApp)" : "Cobrar via WhatsApp"}
-        </button>
+              <button
+                type="button"
+                onClick={() => abrirWhatsapp()}
+                className={`w-full rounded-xl border px-4 py-2 text-sm font-semibold hover:bg-emerald-500/15 ${
+                  atraso.detalhe
+                    ? "border-red-500/25 bg-red-500/10 text-red-100 hover:bg-red-500/15"
+                    : "border-emerald-500/25 bg-emerald-500/10 text-emerald-100"
+                }`}
+              >
+                {atraso.detalhe ? "Cobrar Atraso (WhatsApp)" : "Cobrar via WhatsApp"}
+              </button>
       </div>
 
       <div className="px-4 pt-3 pb-4">
