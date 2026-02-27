@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { useAuthStore } from "../../store/useAuthStore";
 import { sendWhatsAppFromPanel } from "../../services/whatsappDispatch";
 
 type Props = {
@@ -12,7 +11,6 @@ type Props = {
 
 export default function ComprovanteModal({ open, title, linhas, whatsappPhone, onClose }: Props) {
   const texto = useMemo(() => linhas.join("\n"), [linhas]);
-  const tenantId = useAuthStore((s) => s.tenantId);
   const [sending, setSending] = useState(false);
 
   if (!open) return null;
@@ -30,15 +28,9 @@ export default function ComprovanteModal({ open, title, linhas, whatsappPhone, o
       return;
     }
 
-    if (!tenantId) {
-      alert("Tenant não identificado. Faça login novamente.");
-      return;
-    }
-
     setSending(true);
     try {
       await sendWhatsAppFromPanel({
-        tenant_id: tenantId,
         to: whatsappPhone,
         message: texto,
       });

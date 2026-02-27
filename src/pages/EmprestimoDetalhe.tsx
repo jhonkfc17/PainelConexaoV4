@@ -100,11 +100,10 @@ export default function EmprestimoDetalhe() {
 
   async function sendWhatsAppMessage(text: string) {
     if (!phone) return alert("Cliente sem telefone cadastrado.");
-    if (!tenantId) return alert("Tenant não identificado. Faça login novamente.");
 
     setSendingWa(true);
     try {
-      await sendWhatsAppFromPanel({ tenant_id: tenantId, to: phone, message: text });
+      await sendWhatsAppFromPanel({ to: phone, message: text });
       alert("Mensagem enviada ✅");
     } catch (e: any) {
       alert(String(e?.message || e) || "Falha ao enviar");

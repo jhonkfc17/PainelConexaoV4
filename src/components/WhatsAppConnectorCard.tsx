@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { QrCode, RefreshCw, Send, Smartphone, AlertTriangle } from "lucide-react";
 import { waInit, waQr, waSend, waStatus } from "@/services/whatsappConnector";
+import { isWhatsAppManualMode, setWhatsAppManualMode } from "@/services/whatsappDispatch";
 
 export default function WhatsAppConnectorCard() {
   const [status, setStatus] = useState<string>("idle");
@@ -13,10 +14,19 @@ export default function WhatsAppConnectorCard() {
   const [msg, setMsg] = useState("Olá! Teste do Raposacobra ✅");
   const [sending, setSending] = useState(false);
 
+  const [manualMode, setManualMode] = useState<boolean>(() => {
+    try {
+      return isWhatsAppManualMode();
+    } catch {
+      return false;
+    }
+  });
+
   const [loading, setLoading] = useState(true);
   const pollRef = useRef<number | null>(null);
 
   const isReady = useMemo(() => status === "ready", [status]);
+  const statusLabel = manualMode ? "manual" : status;
 
   function prettifyWaError(raw: unknown) {
     const msg = String(raw ?? "");
@@ -40,6 +50,14 @@ export default function WhatsAppConnectorCard() {
 
   async function refresh() {
     try {
+      if (manualMode) {
+        setStatus("manual");
+        setConnectedNumber(null);
+        setLastError(null);
+        setQrDataUrl(null);
+        setLoading(false);
+        return;
+      }
       const st = await waStatus();
       setStatus(st.status);
       setConnectedNumber(st.connectedNumber);
@@ -56,6 +74,7 @@ export default function WhatsAppConnectorCard() {
 
   async function initIfNeeded() {
     try {
+      if (manualMode) return;
       await waInit();
     } catch (e: any) {
       setLastError(prettifyWaError(e?.message || e));
@@ -126,6 +145,33 @@ export default function WhatsAppConnectorCard() {
         </button>
       </div>
 
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          onClick={() => {
+            setWhatsAppManualMode(true);
+            setManualMode(true);
+            setStatus("manual");
+            setConnectedNumber(null);
+            setLastError(null);
+            setQrDataUrl(null);
+          }}
+          className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-500/15"
+        >
+          Desconectar (usar WhatsApp Web)
+        </button>
+        <button
+          onClick={() => {
+            setWhatsAppManualMode(false);
+            setManualMode(false);
+            setStatus("idle");
+            refresh();
+          }}
+          className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/15"
+        >
+          Reconectar Cloud API
+        </button>
+      </div>
+
       {lastError && lastError.toLowerCase().includes("não autenticado") ? (
         <div className="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100">
           <div className="flex items-start gap-2">
@@ -148,10 +194,11 @@ export default function WhatsAppConnectorCard() {
               : "border-white/10 bg-white/5 text-slate-200/80")
           }
         >
-          {loading ? "carregando..." : status}
-          {isReady ? " ✅" : ""}
+          {loading ? "carregando..." : statusLabel}
+          {isReady && !manualMode ? " ✅" : ""}
         </span>
         {connectedNumber ? <span className="text-slate-400">({connectedNumber})</span> : null}
+        {manualMode ? <span className="text-amber-200 text-xs">(manual via WhatsApp Web)</span> : null}
       </div>
 
       {lastError ? (
