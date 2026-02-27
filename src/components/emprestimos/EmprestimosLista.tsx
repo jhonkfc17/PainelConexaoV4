@@ -63,6 +63,13 @@ function dueTone(d: DueStatus) {
   return "from-emerald-500/12 to-emerald-500/6 border-emerald-500/20";
 }
 
+function dueCardTone(d: DueStatus) {
+  if (d === "atrasado") return "from-red-600/18 via-red-600/12 to-red-500/10 border-red-500/45";
+  if (d === "hoje") return "from-amber-500/20 via-amber-500/12 to-amber-400/10 border-amber-400/45";
+  if (d === "amanha") return "from-sky-500/18 via-sky-500/12 to-sky-400/10 border-sky-400/40";
+  return "from-emerald-500/18 via-emerald-500/10 to-emerald-400/10 border-emerald-400/35";
+}
+
 function glowClass(d: DueStatus) {
   if (d === "amanha") return "shadow-[0_0_0_1px_rgba(56,189,248,0.35),0_14px_40px_rgba(2,132,199,0.14)]";
   if (d === "atrasado") return "shadow-[0_0_0_1px_rgba(239,68,68,0.30),0_14px_40px_rgba(239,68,68,0.12)]";
@@ -393,6 +400,13 @@ function moneyColorByTone(t: VisualTone) {
   return "text-emerald-300";
 }
 
+function moneyColorByDue(d: DueStatus, fallbackTone: VisualTone) {
+  if (d === "atrasado") return "text-red-200";
+  if (d === "hoje") return "text-amber-100";
+  if (d === "amanha") return "text-sky-100";
+  return moneyColorByTone(fallbackTone);
+}
+
 function EmprestimoCardPasta({
   emprestimo,
   onRemover,
@@ -539,7 +553,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
   }, [emprestimo, restante, totalReceber, lucroPrevisto]);
 
   return (
-    <div className={`w-full min-w-0 rounded-2xl border bg-gradient-to-b ${cardToneByTone(visualTone)} ${glowClass(due)} ${pulseClass(due)}`}>
+    <div className={`w-full min-w-0 rounded-2xl border bg-gradient-to-b ${dueCardTone(due)} ${glowClass(due)} ${pulseClass(due)}`}>
       <RenegociarDividaModal open={renegociarAberto} onClose={() => { setRenegociarAberto(false); safeRefetch(); }} emprestimo={emprestimoModal} />
       <JurosAtrasoConfigModal open={jurosCfgAberto} onClose={() => { setJurosCfgAberto(false); safeRefetch(); }} onSaved={() => safeRefetch()} emprestimo={emprestimo} />
       <AplicarMultaModal open={multaAberto} onClose={() => { setMultaAberto(false); safeRefetch(); }} onSaved={() => safeRefetch()} emprestimo={emprestimo} />
@@ -611,7 +625,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
         </div>
 
         <div className="mt-4 text-center">
-          <div className={`text-4xl font-extrabold tracking-tight ${moneyColorByTone(visualTone)}`}>{brl(restanteExibido)}</div>
+          <div className={`text-4xl font-extrabold tracking-tight ${moneyColorByDue(due, visualTone)}`}>{brl(restanteExibido)}</div>
           <div className="mt-1 text-xs text-white/60">
             restante a receber
             {jurosExtra > 0 ? <span className="text-red-200/90"> {`(inclui +${brl(jurosExtra)} juros atraso)`}</span> : null}
@@ -995,15 +1009,11 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  const to = onlyDigits((emprestimo as any).clienteContato);
-                  if (!to) return alert("Cliente sem telefone cadastrado.");
-                  irDetalhes();
-                }}
+                onClick={irDetalhes}
                 className="h-9 w-9 rounded-xl border border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
-                title="WhatsApp"
+                title="Editar empréstimo e vencimentos"
               >
-                💬
+                ✏️
               </button>
               <button
                 type="button"
@@ -1077,7 +1087,7 @@ function PastaClienteCard({
   const cardTone = dueTone(groupDue);
 
   return (
-    <div className={`w-full min-w-0 rounded-2xl border bg-gradient-to-b ${cardTone} ${glowClass(groupDue)} ${pulseClass(groupDue)}`}>
+    <div className={`w-full min-w-0 rounded-2xl border bg-gradient-to-b ${dueCardTone(groupDue)} ${glowClass(groupDue)} ${pulseClass(groupDue)}`}>
       <div className="p-4 sm:p-4">
         <div className="rounded-xl border border-white/10 bg-black/25 px-4 py-2 text-center">
           <div className="truncate text-white font-semibold">{clienteNome}</div>
