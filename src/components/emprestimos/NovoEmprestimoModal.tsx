@@ -1098,8 +1098,11 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
                             <div className="flex items-center justify-end gap-2">
                               <span className="text-[11px] text-white/50">R$</span>
                               <input
+                                type="number"
+                                step="0.01"
+                                min="0"
                                 inputMode="decimal"
-                                value={fmt2(Number(p.valor ?? 0))}
+                                value={Number.isFinite(Number(p.valor ?? 0)) ? String(p.valor ?? 0) : ""}
                                 onChange={(e) => atualizarValorParcelaManual(i, e.target.value)}
                                 className="w-28 rounded-lg border border-slate-700/60 bg-slate-950/70 px-2 py-1 text-right text-sm text-white outline-none focus:border-emerald-400/60 focus:ring-1 focus:ring-emerald-400/30"
                               />

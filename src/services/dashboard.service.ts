@@ -342,6 +342,8 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   const emprestimosSemana = emprestimos.filter((e) => isoFromAny(e.created_at) >= weekStartISO).length;
 
   const capitalEmprestado = emprestimos.reduce((acc, e) => acc + safeNum(e.payload?.valor), 0);
+  const totalReceberGeral = parcelas.reduce((acc, p) => acc + safeNum(p.valor), 0);
+  const lucroPrevisto = Math.max(0, totalReceberGeral - capitalEmprestado);
 
   const venceHoje = parcelas.filter((p) => !p.pago && String(p.vencimento) === todayISO).length;
   const venceAmanha = parcelas.filter((p) => !p.pago && String(p.vencimento) === tomorrowISO).length;
@@ -351,7 +353,11 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   ).length;
 
   const recebidoSemana = parcelas
-    .filter((p) => Boolean(p.pago) && (p.pago_em ? isoFromAny(p.pago_em) : "") >= weekStartISO)
+    .filter((p) => {
+      if (!p.pago) return false;
+      const paidDate = p.pago_em ? isoFromAny(p.pago_em) : todayISO;
+      return paidDate >= weekStartISO && paidDate <= todayISO;
+    })
     .reduce((acc, p) => acc + (p.valor_pago_acumulado == null ? safeNum(p.valor) : safeNum(p.valor_pago_acumulado)), 0);
 
   // =========================
@@ -478,7 +484,7 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
     { label: "Vence amanhã", value: venceAmanha, hint: "cobranças" },
     { label: "Empréstimos", value: emprestimosSemana, hint: "esta semana" },
     { label: "Produtos", value: 0, hint: "esta semana" },
-    { label: "Veículos", value: 0, hint: "esta semana" },
+    { label: "Previsão de Lucro", value: brl(lucroPrevisto), hint: "valor a receber - capital" },
     { label: "Contratos", value: emprestimos.length, hint: "total" },
     { label: "Capital em mão", value: brl(capitalEmprestado), hint: "capital emprestado" },
     { label: "Recebido", value: brl(totalPago), hint: "total recebido (vencidas)" },

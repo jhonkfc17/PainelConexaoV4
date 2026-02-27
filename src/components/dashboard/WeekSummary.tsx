@@ -28,6 +28,7 @@ function routeForLabel(label: string): string | null {
 
   if (l.includes("emprést") || l.includes("emprest")) return "/emprestimos";
   if (l.includes("capital")) return "/emprestimos";
+  if (l.includes("previsão de lucro") || l.includes("previsao de lucro") || l.includes("lucro")) return "/emprestimos";
   if (l.includes("contrat")) return "/emprestimos";
 
   if (l.includes("cliente")) return "/clientes";

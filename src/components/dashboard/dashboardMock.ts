@@ -27,7 +27,7 @@ export const dashboardMock = {
 
       { label: "Empréstimos", value: 0, hint: "esta semana" },
       { label: "Produtos", value: 0, hint: "esta semana" },
-      { label: "Veículos", value: 0, hint: "esta semana" },
+      { label: "Previsão de Lucro", value: "R$ 0,00", hint: "valor a receber - capital" },
       { label: "Contratos", value: 0, hint: "esta semana" },
 
       { label: "Juros a receber", value: "R$ 0,00", hint: "últimos 6 meses" },

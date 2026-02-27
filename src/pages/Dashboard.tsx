@@ -243,7 +243,7 @@ const header = data?.header ?? {
     { label: "Vence hoje", value: "—", hint: "cobranças" },
     { label: "Empréstimos", value: "—", hint: "esta semana" },
     { label: "Produtos", value: 0, hint: "esta semana" },
-    { label: "Veículos", value: 0, hint: "esta semana" },
+    { label: "Previsão de Lucro", value: "—", hint: "valor a receber - capital" },
     { label: "Contratos", value: "—", hint: "total" },
     { label: "Juros a receber", value: "—", hint: "últimos 6 meses" },
     { label: "Recebido", value: "—", hint: "total recebido (vencidas)" },
