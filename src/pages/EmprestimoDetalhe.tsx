@@ -7,7 +7,6 @@ import { useEmprestimosStore } from "../store/useEmprestimosStore";
 import type { Emprestimo } from "@/store/useEmprestimosStore";
 import { fillTemplate, getMessageTemplate } from "../lib/messageTemplates";
 import { useAuthStore } from "../store/useAuthStore";
-import { sendWhatsAppFromPanel } from "../services/whatsappDispatch";
 
 function brl(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -99,14 +98,23 @@ export default function EmprestimoDetalhe() {
   const phone = onlyDigits(emprestimo?.clienteContato);
 
   async function sendWhatsAppMessage(text: string) {
-    if (!phone) return alert("Cliente sem telefone cadastrado.");
+    if (!phone) {
+      alert("Cliente sem telefone cadastrado.");
+      return;
+    }
 
     setSendingWa(true);
     try {
-      await sendWhatsAppFromPanel({ to: phone, message: text });
-      alert("Mensagem enviada ✅");
+      const waPhone = phone.startsWith("55") ? phone : `55${phone}`;
+      const url = `https://wa.me/${waPhone}?text=${encodeURIComponent(text)}`;
+
+      // abre em nova aba/janela; se bloqueado, tenta mesma aba
+      const opened = window.open(url, "_blank", "noopener,noreferrer");
+      if (!opened) {
+        window.location.href = url;
+      }
     } catch (e: any) {
-      alert(String(e?.message || e) || "Falha ao enviar");
+      alert(String(e?.message || e) || "Falha ao abrir WhatsApp");
     } finally {
       setSendingWa(false);
     }

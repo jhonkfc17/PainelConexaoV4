@@ -200,9 +200,16 @@ function makeBuckets(now: Date, range: DashboardRange): { buckets: Bucket[]; sta
 }
 
 function isPaidByDate(p: ParcelaRow, dateISO: string): boolean {
-  if (!p.pago) return false;
+  const valorPago = safeNum(p.valor_pago_acumulado);
+  const marcadoPago = Boolean(p.pago);
   const paidDate = p.pago_em ? isoFromAny(p.pago_em) : null;
-  if (!paidDate) return false;
+
+  // Considera parcela paga se valor_pago_acumulado > 0 mesmo que flag pago esteja falsa
+  if (!marcadoPago && !(valorPago > 0)) return false;
+
+  // Se não há data registrada, assume pago na data avaliada (conta como recebido até hoje)
+  if (!paidDate) return true;
+
   return paidDate <= dateISO;
 }
 
@@ -354,11 +361,17 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
 
   const recebidoSemana = parcelas
     .filter((p) => {
-      if (!p.pago) return false;
+      const valorPago = safeNum(p.valor_pago_acumulado);
+      const pagoFlag = Boolean(p.pago);
+      if (!pagoFlag && !(valorPago > 0)) return false;
+
       const paidDate = p.pago_em ? isoFromAny(p.pago_em) : todayISO;
       return paidDate >= weekStartISO && paidDate <= todayISO;
     })
-    .reduce((acc, p) => acc + (p.valor_pago_acumulado == null ? safeNum(p.valor) : safeNum(p.valor_pago_acumulado)), 0);
+    .reduce((acc, p) => {
+      const valorPago = p.valor_pago_acumulado == null ? safeNum(p.valor) : safeNum(p.valor_pago_acumulado);
+      return acc + valorPago;
+    }, 0);
 
   // =========================
   // Chart series
@@ -447,8 +460,14 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   const totalDevido = vencidasAteHoje.reduce((acc, p) => acc + safeNum(p.valor), 0);
 
   const totalPago = vencidasAteHoje
-    .filter((p) => Boolean(p.pago))
-    .reduce((acc, p) => acc + (p.valor_pago_acumulado == null ? safeNum(p.valor) : safeNum(p.valor_pago_acumulado)), 0);
+    .filter((p) => {
+      const valorPago = safeNum(p.valor_pago_acumulado);
+      return Boolean(p.pago) || valorPago > 0;
+    })
+    .reduce((acc, p) => {
+      const valorPago = p.valor_pago_acumulado == null ? safeNum(p.valor) : safeNum(p.valor_pago_acumulado);
+      return acc + valorPago;
+    }, 0);
 
   const atrasadasEmAberto = vencidasAteHoje.filter((p) => String(p.vencimento) < todayISO && !isPaidByDate(p, todayISO));
   const totalAtrasadoEmAberto = atrasadasEmAberto.reduce((acc, p) => acc + safeNum(p.valor), 0);
