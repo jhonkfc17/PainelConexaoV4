@@ -46,4 +46,7 @@ export type NovoEmprestimoPayload = {
 
   // NOVO: lista de vencimentos editável
   vencimentos?: string[]; // YYYY-MM-DD (tamanho = parcelas)
+
+  // Quando o usuário ajustar valores/data de cada parcela manualmente no cronograma de criação
+  parcelasPersonalizadas?: { numero: number; vencimento: string; valor: number }[];
 };

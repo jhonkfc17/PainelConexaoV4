@@ -16,6 +16,16 @@ function json(data: Json, status = 200) {
   });
 }
 
+function isProtocolTimeoutError(message: string | null | undefined) {
+  const m = String(message ?? "").toLowerCase();
+  return m.includes("runtime.callfunctionon timed out") || m.includes("protocoltimeout");
+}
+
+function isExecutionContextDestroyed(message: string | null | undefined) {
+  const m = String(message ?? "").toLowerCase();
+  return m.includes("execution context was destroyed") || m.includes("most likely because of a navigation");
+}
+
 function onlyDigits(value: string) {
   return String(value || "").replace(/\D+/g, "");
 }
@@ -36,141 +46,54 @@ async function readJson(req: Request) {
   }
 }
 
-/**
- * Envia texto via Cloud API
- */
-async function waCloudSendText(opts: {
-  phoneNumberId: string;
-  accessToken: string;
-  to: string;
-  message: string;
-}) {
-  const { phoneNumberId, accessToken, to, message } = opts;
-
-  const resp = await fetch(`https://graph.facebook.com/v23.0/${phoneNumberId}/messages`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      to,
-      type: "text",
-      text: { body: message },
-    }),
-  });
-
-  const data = await resp.json().catch(() => ({}));
-  if (!resp.ok) {
-    return {
-      ok: false,
-      status: resp.status,
-      error: data?.error?.message ?? "Erro ao enviar mensagem",
-      details: data,
-    };
-  }
-
-  return { ok: true, data, messageId: data?.messages?.[0]?.id ?? null };
-}
-
-/**
- * Envia template via Cloud API
- * templateParams: array de strings que serão usadas como parâmetros do componente "body"
- */
-async function waCloudSendTemplate(opts: {
-  phoneNumberId: string;
-  accessToken: string;
-  to: string;
-  templateName: string;
-  templateLang: string;
-  templateParams?: string[];
-}) {
-  const { phoneNumberId, accessToken, to, templateName, templateLang, templateParams = [] } = opts;
-
-  // monta o payload de componentes para o body do template
-  const bodyParams = templateParams.map((p) => ({ type: "text", text: p }));
-
-  const payload: any = {
-    messaging_product: "whatsapp",
-    to,
-    type: "template",
-    template: {
-      name: templateName,
-      language: { code: templateLang },
-      components: [],
-    },
+async function forward(baseUrl: string, token: string, path: string, method: string, body?: any) {
+  const url = `${baseUrl}${path}`;
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    "x-wa-token": token,
+    Authorization: `Bearer ${token}`,
   };
 
-  if (bodyParams.length > 0) {
-    payload.template.components.push({ type: "body", parameters: bodyParams });
-  }
+  const upper = method.toUpperCase();
+  const canHaveBody = upper !== "GET" && upper !== "HEAD";
 
-  const resp = await fetch(`https://graph.facebook.com/v23.0/${phoneNumberId}/messages`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify(payload),
+  const resp = await fetch(url, {
+    method: upper,
+    headers,
+    body: canHaveBody && body !== undefined ? JSON.stringify(body) : undefined,
   });
 
-  const data = await resp.json().catch(() => ({}));
+  const text = await resp.text();
+  let data: any = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { raw: text };
+  }
+
   if (!resp.ok) {
-    return {
-      ok: false,
-      status: resp.status,
-      error: data?.error?.message ?? "Erro ao enviar template",
-      details: data,
-    };
+    return { ok: false, status: resp.status, error: data?.error ?? text ?? resp.statusText, data };
   }
 
-  return { ok: true, data, messageId: data?.messages?.[0]?.id ?? null };
+  return { ok: true, data };
 }
 
-/**
- * Decide se a falha exige fallback para template
- */
-function shouldUseTemplateFallback(r: any) {
-  if (!r) return false;
-  const status = Number(r?.status ?? 0);
-  const msg = String((r?.error ?? "") || (r?.details?.error?.message ?? "")).toLowerCase();
-
-  // condições comuns: mensagem diz "template" / "outside the 24" / "window" / "template required"
-  if (msg.includes("template") || msg.includes("outside the 24") || msg.includes("24h") || msg.includes("window") || msg.includes("template required")) {
-    return true;
-  }
-
-  // alguns códigos 400/403/428 podem significar que é necessário template (Glance)
-  if (status === 400 || status === 403 || status === 428 || status === 422) return true;
-
-  return false;
-}
-
-/**
- * Handler
- */
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   try {
-    // Supabase + Cloud API envs
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || Deno.env.get("PROJECT_URL") || "";
-    const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SERVICE_ROLE_KEY") || "";
-
-    const WA_PHONE_NUMBER_ID = Deno.env.get("WA_PHONE_NUMBER_ID") || "";
-    const WA_ACCESS_TOKEN = Deno.env.get("WA_ACCESS_TOKEN") || "";
-
-    // Optional: default template envs to use as fallback
-    const WA_TEMPLATE_NAME = Deno.env.get("WA_TEMPLATE_NAME") || ""; // ex: hello_world
-    const WA_TEMPLATE_LANG = Deno.env.get("WA_TEMPLATE_LANG") || "pt_BR"; // ex: pt_BR
+    const SERVICE_ROLE_KEY =
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SERVICE_ROLE_KEY") || "";
+    const WA_CONNECTOR_URL = Deno.env.get("WA_CONNECTOR_URL") || "";
+    const WA_TOKEN = Deno.env.get("WA_TOKEN") || "";
 
     if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
       return json({ error: "Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY" }, 500);
     }
-    if (!WA_PHONE_NUMBER_ID || !WA_ACCESS_TOKEN) {
-      return json({ error: "Missing WA_PHONE_NUMBER_ID / WA_ACCESS_TOKEN" }, 500);
+    if (!WA_CONNECTOR_URL || !WA_TOKEN) {
+      return json({ error: "Missing WA_CONNECTOR_URL / WA_TOKEN" }, 500);
     }
 
     const authHeader = req.headers.get("authorization") ?? req.headers.get("Authorization") ?? "";
@@ -186,6 +109,7 @@ Deno.serve(async (req) => {
 
     const { data: userRes, error: userErr } = await userClient.auth.getUser();
     const caller = userRes?.user ?? null;
+
     if (userErr || !caller?.id) {
       return json({ error: "Unauthorized", details: userErr?.message ?? "Invalid token" }, 401);
     }
@@ -195,109 +119,170 @@ Deno.serve(async (req) => {
     const action = String(body?.action ?? "").trim();
     if (!action) return json({ error: "Missing action" }, 400);
 
-    // Keep init/status/qr for UI compatibility
+    // INIT
     if (action === "init") {
-      return json({
-        ok: true,
-        tenant_id,
-        status: "ready",
-        connected: true,
-        note: "Cloud API: no QR required.",
-      });
+      const r = await forward(WA_CONNECTOR_URL, WA_TOKEN, "/whatsapp/init", "POST", { tenant_id });
+      return json(r.ok ? { ok: true, tenant_id, ...r.data } : { ok: false, tenant_id, ...r }, r.ok ? 200 : 502);
     }
 
+    // STATUS
     if (action === "status") {
+      const r = await forward(
+        WA_CONNECTOR_URL,
+        WA_TOKEN,
+        `/whatsapp/status?tenant_id=${encodeURIComponent(tenant_id)}`,
+        "GET"
+      );
+
+      const statusRaw = String((r as any)?.data?.status ?? "").toLowerCase();
+      const waStateRaw = String((r as any)?.data?.waState ?? "").toUpperCase();
+      const connectedByState = statusRaw === "ready" || waStateRaw === "CONNECTED";
+
+      const msg =
+        String((r as any)?.error ?? "") ||
+        String((r as any)?.data?.error ?? "") ||
+        String((r as any)?.data?.lastError ?? "");
+
+      if (connectedByState) {
+        return json({
+          ok: true,
+          tenant_id,
+          status: "ready",
+          connected: true,
+          connectedNumber: null,
+          qrUpdatedAt: null,
+          lastError: null,
+          lastSeenAt: new Date().toISOString(),
+        });
+      }
+
+      if (!r.ok) {
+        const rawBody = String((r as any)?.data?.raw ?? "");
+        const isCannotGet = rawBody.includes("Cannot GET /whatsapp/status") || msg.includes("Cannot GET /whatsapp/status");
+        const is404 = Number((r as any)?.status ?? 0) === 404;
+
+        if (is404 || isCannotGet) {
+          return json({
+            ok: true,
+            tenant_id,
+            status: "idle",
+            connected: false,
+            connectedNumber: null,
+            qrUpdatedAt: null,
+            lastError: "Connector ainda não expôs /whatsapp/status (404).",
+            lastSeenAt: new Date().toISOString(),
+          });
+        }
+
+        return json(
+          {
+            ok: false,
+            tenant_id,
+            error: msg || "Connector error",
+            status: statusRaw || "idle",
+            waState: waStateRaw || null,
+            data: (r as any)?.data ?? null,
+          },
+          502
+        );
+      }
+
+      const status = (r.data?.status ?? "idle") as any;
       return json({
         ok: true,
         tenant_id,
-        status: "ready",
-        connected: true,
-        lastError: null,
-        lastSeenAt: new Date().toISOString(),
+        status,
+        connected: status === "ready",
+        connectedNumber: null,
+        qrUpdatedAt: null,
+        lastError: r.data?.lastError ?? null,
+        lastSeenAt: r.data?.lastEventAt ? new Date(r.data.lastEventAt).toISOString() : null,
       });
     }
 
+    // QR
     if (action === "qr") {
+      const r = await forward(
+        WA_CONNECTOR_URL,
+        WA_TOKEN,
+        `/whatsapp/qr?tenant_id=${encodeURIComponent(tenant_id)}`,
+        "GET"
+      );
+
+      if (!r.ok) {
+        const msg =
+          String((r as any)?.error ?? "") ||
+          String((r as any)?.data?.error ?? "") ||
+          String((r as any)?.data?.lastError ?? "");
+
+        const statusRaw = String((r as any)?.data?.status ?? "").toLowerCase();
+        const waStateRaw = String((r as any)?.data?.waState ?? "").toUpperCase();
+        const connectedByState = statusRaw === "ready" || waStateRaw === "CONNECTED";
+
+        if ((isProtocolTimeoutError(msg) || isExecutionContextDestroyed(msg)) && connectedByState) {
+          return json({
+            ok: true,
+            tenant_id,
+            hasQr: false,
+            status: "ready",
+            qr: undefined,
+            qrUpdatedAt: null,
+            lastError: null,
+          });
+        }
+
+        return json({ ok: false, tenant_id, ...r }, 502);
+      }
+
+      const qr = r.data?.qr ?? null;
       return json({
         ok: true,
         tenant_id,
-        hasQr: false,
-        status: "ready",
-        qr: undefined,
-        note: "Cloud API: no QR.",
+        hasQr: Boolean(qr),
+        status: qr ? "qr" : (r.data?.status ?? "idle"),
+        qr: qr || undefined,
       });
     }
 
+    // SEND
     if (action === "send") {
       const to = normalizeToWhatsAppBR(String(body?.to ?? "").trim());
       const message = String(body?.message ?? "").trim();
-      const templateParams: string[] = Array.isArray(body?.template_params) ? body.template_params : [];
-
       if (!to || !message) return json({ error: "to and message required" }, 400);
 
-      // 1) tenta texto simples
-      const rText = await waCloudSendText({
-        phoneNumberId: WA_PHONE_NUMBER_ID,
-        accessToken: WA_ACCESS_TOKEN,
-        to,
-        message,
-      });
+      const r = await forward(WA_CONNECTOR_URL, WA_TOKEN, "/whatsapp/send", "POST", { tenant_id, to, message });
 
-      if (rText.ok) {
-        return json({ ok: true, tenant_id, messageId: rText.messageId, raw: rText.data });
-      }
+      if (!r.ok) {
+        const msg =
+          String((r as any)?.error ?? "") ||
+          String((r as any)?.data?.error ?? "") ||
+          String((r as any)?.data?.lastError ?? "");
 
-      // 2) se falhou por motivo comum (fora da janela 24h / template required), tenta fallback para template
-      if (shouldUseTemplateFallback(rText)) {
-        // template name/lang: prioridade para body.template_name/template_lang, senão envs
-        const templateName = String(body?.template_name ?? WA_TEMPLATE_NAME || "").trim();
-        const templateLang = String(body?.template_lang ?? WA_TEMPLATE_LANG || "pt_BR").trim();
+        const statusRaw = String((r as any)?.data?.status ?? "").toLowerCase();
+        const waStateRaw = String((r as any)?.data?.waState ?? "").toUpperCase();
+        const connectedByState = statusRaw === "ready" || waStateRaw === "CONNECTED";
 
-        if (!templateName) {
-          // não há template configurado → retorna erro com hint
-          return json({
-            ok: false,
-            tenant_id,
-            error: "Template required but no template configured.",
-            details: rText,
-            hint: "Configure WA_TEMPLATE_NAME/WA_TEMPLATE_LANG or send template_name/template_lang in body",
-            retryable: false,
-          }, rText.status || 502);
+        if ((isProtocolTimeoutError(msg) || isExecutionContextDestroyed(msg)) && connectedByState) {
+          return json(
+            {
+              ok: false,
+              tenant_id,
+              error: "Timeout interno do Chromium ao enviar. Tente novamente.",
+              details: msg,
+              retryable: true,
+              status: "ready",
+              connected: true,
+              lastSeenAt: new Date().toISOString(),
+            },
+            504
+          );
         }
 
-        // Se não vier templateParams pelo body, por padrão passamos a própria mensagem como {{1}}
-        const paramsToUse = templateParams.length > 0 ? templateParams : [message];
-
-        const rTpl = await waCloudSendTemplate({
-          phoneNumberId: WA_PHONE_NUMBER_ID,
-          accessToken: WA_ACCESS_TOKEN,
-          to,
-          templateName,
-          templateLang,
-          templateParams: paramsToUse,
-        });
-
-        if (rTpl.ok) {
-          return json({ ok: true, tenant_id, messageId: rTpl.messageId, raw: rTpl.data, usedTemplate: templateName });
-        }
-
-        // fallback template também falhou
-        return json({
-          ok: false,
-          tenant_id,
-          error: rTpl.error || "Failed to send template",
-          details: { textError: rText, templateError: rTpl },
-        }, rTpl.status || 502);
+        const status = typeof r.status === "number" && r.status >= 400 && r.status < 600 ? r.status : 502;
+        return json({ ok: false, tenant_id, ...r }, status);
       }
 
-      // 3) Caso geral: retorna o erro original do texto
-      return json({
-        ok: false,
-        tenant_id,
-        error: rText.error,
-        status: rText.status,
-        details: rText.details,
-      }, rText.status || 502);
+      return json({ ok: true, tenant_id, ...r.data });
     }
 
     return json({ error: "Unknown action" }, 400);

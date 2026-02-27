@@ -160,6 +160,12 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
   const [jurosAtrasoTipo, setJurosAtrasoTipo] = useState<JurosAtrasoTipo>("valor_por_dia");
   const [jurosAtrasoTaxa, setJurosAtrasoTaxa] = useState(0);
 
+  // Cronograma manual (edição de cada parcela)
+  const [editarCronograma, setEditarCronograma] = useState(false);
+  const [cronogramaManual, setCronogramaManual] = useState<
+    { numero: number; vencimento: string; valor: number }[]
+  >([]);
+
   // evita loop total<->taxa
   const lastEditRef = useRef<"taxa" | "total" | null>(null);
 
@@ -438,11 +444,116 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
     return totalAReceber / n;
   }, [totalAReceber, parcelas]);
 
+  const cronogramaFinal = useMemo(() => {
+    const base = vencimentos.map((v, idx) => ({
+      numero: idx + 1,
+      vencimento: v,
+      valor: valorParcela,
+    }));
+
+    if (!editarCronograma) return base;
+
+    return base.map((row, idx) => {
+      const custom = cronogramaManual[idx];
+      const valorCustom = Number(custom?.valor ?? NaN);
+      return {
+        numero: idx + 1,
+        vencimento: custom?.vencimento || row.vencimento,
+        valor: Number.isFinite(valorCustom) ? valorCustom : row.valor,
+      };
+    });
+  }, [vencimentos, valorParcela, editarCronograma, cronogramaManual]);
+
+  useEffect(() => {
+    if (!editarCronograma) return;
+    setCronogramaManual((prev) => {
+      return vencimentos.map((v, idx) => {
+        const atual = prev[idx];
+        const valorCustom = Number(atual?.valor ?? NaN);
+        return {
+          numero: idx + 1,
+          vencimento: atual?.vencimento || v,
+          valor: Number.isFinite(valorCustom) ? valorCustom : valorParcela,
+        };
+      });
+    });
+  }, [editarCronograma, vencimentos, valorParcela]);
+
+  const totalCronograma = useMemo(() => {
+    return cronogramaFinal.reduce((acc, p) => acc + Number(p.valor ?? 0), 0);
+  }, [cronogramaFinal]);
+
+  const parcelaResumo = useMemo(() => {
+    if (cronogramaFinal.length === 0) return valorParcela;
+    const primeiro = Number(cronogramaFinal[0]?.valor ?? valorParcela);
+    const todosIguais = cronogramaFinal.every((p) => Number(p.valor ?? 0) === primeiro);
+    if (todosIguais) return primeiro;
+    return totalCronograma / cronogramaFinal.length;
+  }, [cronogramaFinal, valorParcela, totalCronograma]);
+
+  const totalResumoContrato = useMemo(
+    () => (editarCronograma ? totalCronograma : totalAReceber),
+    [editarCronograma, totalCronograma, totalAReceber]
+  );
+
+  const parcelaResumoContrato = useMemo(
+    () => (editarCronograma ? parcelaResumo : valorParcela),
+    [editarCronograma, parcelaResumo, valorParcela]
+  );
+
   const totalManualValido = useMemo(() => {
     if (!usarTotalManual) return true;
     if (valor <= 0) return false;
     return totalManual >= valor;
   }, [usarTotalManual, totalManual, valor]);
+
+  const toggleEditarCronograma = () => {
+    setEditarCronograma((prev) => {
+      const next = !prev;
+      if (next) {
+        setCronogramaManual(
+          vencimentos.map((v, idx) => ({
+            numero: idx + 1,
+            vencimento: v,
+            valor: valorParcela,
+          }))
+        );
+      } else {
+        setCronogramaManual([]);
+      }
+      return next;
+    });
+  };
+
+  const atualizarVencimentoParcela = (idx: number, novoVencimento: string) => {
+    setCronogramaManual((prev) => {
+      const arr = [...prev];
+      const base = arr[idx] ?? cronogramaFinal[idx] ?? { numero: idx + 1, vencimento: novoVencimento, valor: valorParcela };
+      arr[idx] = { ...base, vencimento: novoVencimento };
+      return arr;
+    });
+  };
+
+  const atualizarValorParcelaManual = (idx: number, raw: string) => {
+    const parsed = parseNumeroBR(sanitizeMoneyInput(raw));
+    setCronogramaManual((prev) => {
+      const arr = [...prev];
+      const base =
+        arr[idx] ?? cronogramaFinal[idx] ?? { numero: idx + 1, vencimento: vencimentos[idx] ?? primeiraParcela, valor: valorParcela };
+      arr[idx] = { ...base, valor: parsed };
+      return arr;
+    });
+  };
+
+  const resetCronogramaManual = () => {
+    setCronogramaManual(
+      vencimentos.map((v, idx) => ({
+        numero: idx + 1,
+        vencimento: v,
+        valor: valorParcela,
+      }))
+    );
+  };
 
   const handleCriar = () => {
     if (!clienteId) {
@@ -455,6 +566,28 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
     }
     if (!totalManualValido) {
       alert("O total a receber não pode ser menor que o valor emprestado.");
+      return;
+    }
+
+    const cronogramaParaSalvar = cronogramaFinal;
+    const vencimentosParaSalvar = cronogramaParaSalvar.map((p) => p.vencimento);
+
+    const faltaVencimento = cronogramaParaSalvar.some((p) => !p.vencimento);
+    const valorInvalido = cronogramaParaSalvar.some((p) => !(Number(p.valor ?? 0) > 0));
+
+    if (faltaVencimento) {
+      alert("Preencha o vencimento de todas as parcelas.");
+      return;
+    }
+
+    if (valorInvalido) {
+      alert("Todas as parcelas precisam ter valor maior que zero.");
+      return;
+    }
+
+    const totalContrato = totalCronograma || totalAReceber;
+    if (!(totalContrato >= valor)) {
+      alert("O total das parcelas não pode ser menor que o valor emprestado.");
       return;
     }
 
@@ -481,7 +614,8 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
       notificarWhatsapp: notificarWhatsapp || undefined,
       jurosAtrasoTipo: aplicarJurosAtraso ? jurosAtrasoTipo : undefined,
       jurosAtrasoTaxa: aplicarJurosAtraso ? Number(jurosAtrasoTaxa ?? 0) : undefined,
-      vencimentos,
+      vencimentos: vencimentosParaSalvar,
+      parcelasPersonalizadas: editarCronograma ? cronogramaParaSalvar : undefined,
     };
 
     onCreate(payload);
@@ -841,15 +975,15 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
               <div className="mt-4 grid grid-cols-3 gap-3 text-xs text-white/70">
                 <div className="rounded-lg border border-slate-700/60 bg-slate-950/40 px-3 py-2">
                   <div className="text-white/50">Juros total</div>
-                  <div className="font-semibold text-white">R$ {fmt2(totalAReceber - valor)}</div>
+                  <div className="font-semibold text-white">R$ {fmt2(Math.max(0, totalResumoContrato - valor))}</div>
                 </div>
                 <div className="rounded-lg border border-slate-700/60 bg-slate-950/40 px-3 py-2">
                   <div className="text-white/50">Total a receber</div>
-                  <div className="font-semibold text-white">R$ {fmt2(totalAReceber)}</div>
+                  <div className="font-semibold text-white">R$ {fmt2(totalResumoContrato)}</div>
                 </div>
                 <div className="rounded-lg border border-slate-700/60 bg-slate-950/40 px-3 py-2">
                   <div className="text-white/50">Parcela</div>
-                  <div className="font-semibold text-white">R$ {fmt2(valorParcela)}</div>
+                  <div className="font-semibold text-white">R$ {fmt2(parcelaResumoContrato)}</div>
                 </div>
               </div>
             </div>
@@ -907,10 +1041,31 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
 
             {/* Cronograma */}
             <div className="rounded-xl border border-slate-700/60 bg-slate-900/40 p-3 shadow-[0_0_0_1px_rgba(16,185,129,0.04)]">
-              <div className="mb-3 text-xs font-semibold text-white">Cronograma</div>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="text-xs font-semibold text-white">Cronograma</div>
+                <div className="flex items-center gap-2">
+                  {editarCronograma ? (
+                    <button
+                      type="button"
+                      onClick={resetCronogramaManual}
+                      className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-500/15"
+                    >
+                      Recalcular padrão
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={toggleEditarCronograma}
+                    className="rounded-lg border border-slate-600/60 bg-slate-800/50 px-3 py-1.5 text-[11px] font-semibold text-white hover:border-emerald-400/60 hover:text-emerald-100"
+                  >
+                    {editarCronograma ? "Usar automático" : "Editar manualmente"}
+                  </button>
+                </div>
+              </div>
 
               <div className="mb-4 text-xs text-white/60">
-                Mostrando as {parcelas} parcelas. (A 1ª parcela aparece apenas aqui.)
+                Mostrando as {parcelas} parcelas.{" "}
+                {editarCronograma ? "Edite datas e valores diretamente na tabela." : "(A 1ª parcela aparece apenas aqui.)"}
               </div>
 
               <div className="max-h-[420px] overflow-y-auto rounded-lg border border-slate-700/60">
@@ -923,11 +1078,36 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
                     </tr>
                   </thead>
                   <tbody>
-                    {vencimentos.map((v, i) => (
-                      <tr key={v + i} className="border-t border-slate-700/60 text-white/80">
+                    {cronogramaFinal.map((p, i) => (
+                      <tr key={`${p.vencimento}-${i}`} className="border-t border-slate-700/60 text-white/80">
                         <td className="px-3 py-2">{i + 1}</td>
-                        <td className="px-3 py-2">{v}</td>
-                        <td className="px-3 py-2 text-right">R$ {fmt2(valorParcela)}</td>
+                        <td className="px-3 py-2">
+                          {editarCronograma ? (
+                            <input
+                              type="date"
+                              value={p.vencimento}
+                              onChange={(e) => atualizarVencimentoParcela(i, e.target.value)}
+                              className="w-full rounded-lg border border-slate-700/60 bg-slate-950/70 px-2 py-1 text-sm text-white outline-none focus:border-emerald-400/60 focus:ring-1 focus:ring-emerald-400/30"
+                            />
+                          ) : (
+                            p.vencimento
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          {editarCronograma ? (
+                            <div className="flex items-center justify-end gap-2">
+                              <span className="text-[11px] text-white/50">R$</span>
+                              <input
+                                inputMode="decimal"
+                                value={fmt2(Number(p.valor ?? 0))}
+                                onChange={(e) => atualizarValorParcelaManual(i, e.target.value)}
+                                className="w-28 rounded-lg border border-slate-700/60 bg-slate-950/70 px-2 py-1 text-right text-sm text-white outline-none focus:border-emerald-400/60 focus:ring-1 focus:ring-emerald-400/30"
+                              />
+                            </div>
+                          ) : (
+                            <>R$ {fmt2(p.valor)}</>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -937,11 +1117,14 @@ export function NovoEmprestimoModal({ open, onClose, onCreate, prefillClienteId 
               <div className="mt-4 grid grid-cols-2 gap-3 text-xs text-white/70">
                 <div className="rounded-lg border border-slate-700/60 bg-slate-950/40 px-3 py-2">
                   <div className="text-white/50">Total</div>
-                  <div className="font-semibold text-white">R$ {fmt2(totalAReceber)}</div>
+                  <div className="font-semibold text-white">
+                    R$ {fmt2(totalCronograma)}
+                    {editarCronograma ? <span className="ml-1 text-[11px] text-emerald-200">(manual)</span> : null}
+                  </div>
                 </div>
                 <div className="rounded-lg border border-slate-700/60 bg-slate-950/40 px-3 py-2">
-                  <div className="text-white/50">Parcela</div>
-                  <div className="font-semibold text-white">R$ {fmt2(valorParcela)}</div>
+                  <div className="text-white/50">{editarCronograma ? "Parcela (média)" : "Parcela"}</div>
+                  <div className="font-semibold text-white">R$ {fmt2(parcelaResumo)}</div>
                 </div>
               </div>
             </div>

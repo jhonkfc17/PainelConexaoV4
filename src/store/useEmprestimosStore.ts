@@ -653,18 +653,37 @@ stopRealtime:
           ? (payload.vencimentos as string[])
           : Array.from({ length: Math.max(1, Number(payload.parcelas ?? 1)) }, () => payload.primeiraParcela || todayYmd());
 
-      const parcelasRows = vencs.map((venc, i) => ({
-        emprestimo_id: created.id,
-        numero: i + 1,
-        vencimento: venc,
-        valor: Number(totais.valorParcela ?? 0),
-        pago: false,
-        valor_pago_acumulado: 0,
-        juros_atraso: 0,
-        saldo_restante: Number(totais.valorParcela ?? 0),
-        // se a policy exigir `user_id = auth.uid()`, enviamos explicitamente
-        ...(uid ? { user_id: uid } : {}),
-      }));
+      const temCronogramaPersonalizado =
+        Array.isArray(payload.parcelasPersonalizadas) &&
+        payload.parcelasPersonalizadas.length === Math.max(1, Number(payload.parcelas ?? 1));
+
+      const parcelasRows = temCronogramaPersonalizado
+        ? (payload.parcelasPersonalizadas as any[]).map((p, i) => {
+            const valorPar = Number(p?.valor ?? 0);
+            return {
+              emprestimo_id: created.id,
+              numero: p?.numero ?? i + 1,
+              vencimento: p?.vencimento ?? vencs[i] ?? payload.primeiraParcela ?? todayYmd(),
+              valor: valorPar,
+              pago: false,
+              valor_pago_acumulado: 0,
+              juros_atraso: 0,
+              saldo_restante: valorPar,
+              ...(uid ? { user_id: uid } : {}),
+            };
+          })
+        : vencs.map((venc, i) => ({
+            emprestimo_id: created.id,
+            numero: i + 1,
+            vencimento: venc,
+            valor: Number(totais.valorParcela ?? 0),
+            pago: false,
+            valor_pago_acumulado: 0,
+            juros_atraso: 0,
+            saldo_restante: Number(totais.valorParcela ?? 0),
+            // se a policy exigir `user_id = auth.uid()`, enviamos explicitamente
+            ...(uid ? { user_id: uid } : {}),
+          }));
 
       const { error: parcelasErr } = await supabase.from("parcelas").insert(parcelasRows);
       if (parcelasErr) throw parcelasErr;
