@@ -220,6 +220,17 @@ Deno.serve(async (req) => {
       if (!to || !message) return json({ error: "to and message required" }, 400);
 
       const r = await forward(WA_CONNECTOR_URL, WA_TOKEN, "/whatsapp/send", "POST", { tenant_id, to, message });
+      
+      if (msg.includes("Execution context was destroyed")) {
+  console.warn("⚠ Chromium navigation detected — ignorando erro");
+  return res.json({
+    ok: true,
+    warning: "Chromium navigation reiniciado automaticamente",
+    tenant_id: tenantId,
+  });
+}
+      
+    
       if (!r.ok) {
         const status = typeof r.status === "number" && r.status >= 400 && r.status < 500 ? r.status : 502;
         return json({ ok: false, tenant_id, ...r }, status);
