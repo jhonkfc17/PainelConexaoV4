@@ -143,32 +143,56 @@ Deno.serve(async (req) => {
     "GET"
   );
 
-  // Helper: tenta inferir status/waState mesmo quando r.ok=false
   const statusRaw = String((r as any)?.data?.status ?? "").toLowerCase();
   const waStateRaw = String((r as any)?.data?.waState ?? "").toUpperCase();
   const connectedByState = statusRaw === "ready" || waStateRaw === "CONNECTED";
 
-  // Mensagem de erro pode vir em r.error ou dentro de r.data.error/lastError dependendo do connector
   const msg =
     String((r as any)?.error ?? "") ||
     String((r as any)?.data?.error ?? "") ||
     String((r as any)?.data?.lastError ?? "");
 
-  // 1) Se o connector "errou", mas é erro clássico do Chromium e a sessão está CONNECTED/ready,
-  //    devolve OK pra não quebrar o painel.
+  // 🔥 SE ESTÁ CONECTADO → IGNORA ERRO DE PUPPETEER TOTALMENTE
+  if (connectedByState) {
+    return json({
+      ok: true,
+      tenant_id,
+      status: "ready",
+      connected: true,
+      connectedNumber: null,
+      qrUpdatedAt: null,
+      lastError: null, // 🔥 AQUI remove o erro da UI
+      lastSeenAt: new Date().toISOString(),
+    });
+  }
+
+  // Só trata erro se NÃO estiver conectado
   if (!r.ok) {
-    if ((isProtocolTimeoutError(msg) || isExecutionContextDestroyed(msg)) && connectedByState) {
-      return json({
-        ok: true,
+    return json(
+      {
+        ok: false,
         tenant_id,
-        status: "ready",
-        connected: true,
-        connectedNumber: null,
-        qrUpdatedAt: null,
-        lastError: msg,
-        lastSeenAt: new Date().toISOString(),
-      });
-    }
+        error: msg || "Connector error",
+      },
+      502
+    );
+  }
+
+  const status = (r.data?.status ?? "idle") as any;
+
+  return json({
+    ok: true,
+    tenant_id,
+    status,
+    connected: status === "ready",
+    connectedNumber: null,
+    qrUpdatedAt: null,
+    lastError: r.data?.lastError ?? null,
+    lastSeenAt: r.data?.lastEventAt
+      ? new Date(r.data.lastEventAt).toISOString()
+      : null,
+  });
+}
 
     // 2) Se for erro de rota inexistente / 404 (ex: "Cannot GET /whatsapp/status"),
     //    não devolve 502 (isso causa cascata/early drop). Retorna um status seguro.
