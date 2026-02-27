@@ -46,15 +46,8 @@ async function readJson(req: Request) {
   }
 }
 
-async function forward(
-  baseUrl: string,
-  token: string,
-  path: string,
-  method: string,
-  body?: any
-) {
+async function forward(baseUrl: string, token: string, path: string, method: string, body?: any) {
   const url = `${baseUrl}${path}`;
-
   const headers: Record<string, string> = {
     "content-type": "application/json",
     // alguns conectores usam x-wa-token (novo)
@@ -81,12 +74,7 @@ async function forward(
   }
 
   if (!resp.ok) {
-    return {
-      ok: false,
-      status: resp.status,
-      error: data?.error ?? text ?? resp.statusText,
-      data,
-    };
+    return { ok: false, status: resp.status, error: data?.error ?? text ?? resp.statusText, data };
   }
 
   return { ok: true, data };
@@ -117,7 +105,7 @@ Deno.serve(async (req) => {
     const jwt = authHeader.replace("Bearer ", "").trim();
     if (!jwt) return json({ error: "Missing bearer token" }, 401);
 
-    // Client "user" (valida token) usando service role, mas com Authorization do usuário.
+    // Valida token do usuário usando service role, mas com Authorization do usuário.
     const userClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
       global: { headers: { Authorization: `Bearer ${jwt}` } },
       auth: { persistSession: false },
@@ -130,20 +118,16 @@ Deno.serve(async (req) => {
       return json({ error: "Unauthorized", details: userErr?.message ?? "Invalid token" }, 401);
     }
 
-    // ✅ 1 usuário = 1 WhatsApp session
+    // ✅ 1 usuário = 1 sessão WhatsApp
     const tenant_id = caller.id;
 
     const body = await readJson(req);
     const action = String(body?.action ?? "").trim();
-
     if (!action) return json({ error: "Missing action" }, 400);
 
     if (action === "init") {
       const r = await forward(WA_CONNECTOR_URL, WA_TOKEN, "/whatsapp/init", "POST", { tenant_id });
-      return json(
-        r.ok ? { ok: true, tenant_id, ...r.data } : { ok: false, tenant_id, ...r },
-        r.ok ? 200 : 502
-      );
+      return json(r.ok ? { ok: true, tenant_id, ...r.data } : { ok: false, tenant_id, ...r }, r.ok ? 200 : 502);
     }
 
     if (action === "status") {
@@ -155,12 +139,13 @@ Deno.serve(async (req) => {
       );
 
       if (!r.ok) {
+        // Alguns conectores retornam timeout do Puppeteer mesmo com sessao conectada.
+        // Nesses casos, convertemos para "ready" para nao quebrar a UX.
         const msg = String((r as any)?.error ?? "");
         const statusRaw = String((r as any)?.data?.status ?? "").toLowerCase();
         const waStateRaw = String((r as any)?.data?.waState ?? "").toUpperCase();
         const connectedByState = statusRaw === "ready" || waStateRaw === "CONNECTED";
 
-        // Se der timeout mas estiver conectado, não quebra UX.
         if (isProtocolTimeoutError(msg) && connectedByState) {
           return json({
             ok: true,
@@ -204,7 +189,7 @@ Deno.serve(async (req) => {
         const waStateRaw = String((r as any)?.data?.waState ?? "").toUpperCase();
         const connectedByState = statusRaw === "ready" || waStateRaw === "CONNECTED";
 
-        // Se a sessão está conectada, timeout ao pedir QR não deve virar erro fatal.
+        // Se a sessao esta conectada, timeout ao pedir QR nao deve virar erro fatal.
         if (isProtocolTimeoutError(msg) && connectedByState) {
           return json({
             ok: true,
@@ -234,15 +219,9 @@ Deno.serve(async (req) => {
       const message = String(body?.message ?? "").trim();
       if (!to || !message) return json({ error: "to and message required" }, 400);
 
-      const r = await forward(WA_CONNECTOR_URL, WA_TOKEN, "/whatsapp/send", "POST", {
-        tenant_id,
-        to,
-        message,
-      });
-
+      const r = await forward(WA_CONNECTOR_URL, WA_TOKEN, "/whatsapp/send", "POST", { tenant_id, to, message });
       if (!r.ok) {
-        const status =
-          typeof r.status === "number" && r.status >= 400 && r.status < 500 ? r.status : 502;
+        const status = typeof r.status === "number" && r.status >= 400 && r.status < 500 ? r.status : 502;
         return json({ ok: false, tenant_id, ...r }, status);
       }
 
