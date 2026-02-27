@@ -42,3 +42,23 @@ body {
 #root { overflow-x: hidden; }
 
 #root { overflow-x: hidden; }
+
+/* Pulses for cards by vencimento */
+@keyframes pulse-due-amber {
+  0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.45); }
+  70% { box-shadow: 0 0 0 24px rgba(245, 158, 11, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+}
+@keyframes pulse-due-sky {
+  0% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.45); }
+  70% { box-shadow: 0 0 0 24px rgba(56, 189, 248, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); }
+}
+@keyframes pulse-due-red {
+  0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5); }
+  70% { box-shadow: 0 0 0 26px rgba(239, 68, 68, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+.pulse-due-amber { animation: pulse-due-amber 1.6s ease-out infinite; }
+.pulse-due-sky { animation: pulse-due-sky 1.6s ease-out infinite; }
+.pulse-due-red { animation: pulse-due-red 1.6s ease-out infinite; }

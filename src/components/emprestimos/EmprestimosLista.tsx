@@ -70,6 +70,13 @@ function glowClass(d: DueStatus) {
   return "shadow-[0_0_0_1px_rgba(16,185,129,0.18),0_14px_40px_rgba(16,185,129,0.08)]";
 }
 
+function pulseClass(d: DueStatus) {
+  if (d === "atrasado") return "pulse-due-red";
+  if (d === "hoje") return "pulse-due-amber";
+  if (d === "amanha") return "pulse-due-sky";
+  return "";
+}
+
 function chipTone(tone: "danger" | "warn" | "info" | "ok" | "muted") {
   if (tone === "danger") return "border-red-500/30 bg-red-500/15 text-red-100";
   if (tone === "warn") return "border-amber-500/30 bg-amber-500/15 text-amber-100";
@@ -532,7 +539,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
   }, [emprestimo, restante, totalReceber, lucroPrevisto]);
 
   return (
-    <div className={`w-full min-w-0 rounded-2xl border bg-gradient-to-b ${cardToneByTone(visualTone)} ${glowClass(due)}`}>
+    <div className={`w-full min-w-0 rounded-2xl border bg-gradient-to-b ${cardToneByTone(visualTone)} ${glowClass(due)} ${pulseClass(due)}`}>
       <RenegociarDividaModal open={renegociarAberto} onClose={() => { setRenegociarAberto(false); safeRefetch(); }} emprestimo={emprestimoModal} />
       <JurosAtrasoConfigModal open={jurosCfgAberto} onClose={() => { setJurosCfgAberto(false); safeRefetch(); }} onSaved={() => safeRefetch()} emprestimo={emprestimo} />
       <AplicarMultaModal open={multaAberto} onClose={() => { setMultaAberto(false); safeRefetch(); }} onSaved={() => safeRefetch()} emprestimo={emprestimo} />
@@ -1070,7 +1077,7 @@ function PastaClienteCard({
   const cardTone = dueTone(groupDue);
 
   return (
-    <div className={`w-full min-w-0 rounded-2xl border bg-gradient-to-b ${cardTone} ${glowClass(groupDue)}`}>
+    <div className={`w-full min-w-0 rounded-2xl border bg-gradient-to-b ${cardTone} ${glowClass(groupDue)} ${pulseClass(groupDue)}`}>
       <div className="p-4 sm:p-4">
         <div className="rounded-xl border border-white/10 bg-black/25 px-4 py-2 text-center">
           <div className="truncate text-white font-semibold">{clienteNome}</div>
