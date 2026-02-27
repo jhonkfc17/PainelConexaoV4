@@ -7,6 +7,7 @@ import JurosAtrasoConfigModal from "./JurosAtrasoConfigModal";
 import AplicarMultaModal from "./AplicarMultaModal";
 import PagamentosSidepanel from "./PagamentosSidepanel";
 import { useEmprestimosStore } from "../../store/useEmprestimosStore";
+import { fillTemplate, getMessageTemplate } from "@/lib/messageTemplates";
 
 type Props = {
   viewMode?: "grid" | "list";
@@ -29,6 +30,15 @@ function initials(name: string) {
   const a = parts[0]?.[0] ?? "";
   const b = parts.length > 1 ? parts[parts.length - 1]?.[0] ?? "" : "";
   return (a + b).toUpperCase() || "CL";
+}
+
+function lsGet(key: string, fallback: string) {
+  try {
+    const v = localStorage.getItem(key);
+    return v == null ? fallback : v;
+  } catch {
+    return fallback;
+  }
 }
 
 type DueStatus = "atrasado" | "hoje" | "amanha" | "ok";
@@ -545,6 +555,31 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
 
   const irDetalhes = () => navigate(`/emprestimos/${(emprestimo as any).id}`);
 
+  const montarMensagemPadraoWhatsApp = () => {
+    const modal = String((emprestimo as any).modalidade ?? "").toLowerCase();
+    const ehSemanalOuQuinzenal = modal.includes("semanal") || modal.includes("quinzenal");
+    const key = atraso?.detalhe
+      ? ehSemanalOuQuinzenal
+        ? "atraso_semanal"
+        : "atraso_mensal"
+      : ehSemanalOuQuinzenal
+        ? "cobranca_semanal"
+        : "cobranca_mensal";
+
+    const prox = proximaAberta || cronogramaParcelas[0] || {};
+    const vars = {
+      CLIENTE: (emprestimo as any).clienteNome ?? "Cliente",
+      VALOR: brl(Number(prox?.valor ?? emprestimo.valorParcela ?? 0)),
+      PARCELA: String(prox?.numero ?? 1),
+      DATA: String(prox?.vencimento ?? proximoVenc ?? ""),
+      PIX: lsGet("cfg_pix", ""),
+      ASSINATURA: lsGet("cfg_assinatura", ""),
+      DIAS_ATRASO: String(atraso?.detalhe?.dias ?? 0),
+    };
+
+    return fillTemplate(getMessageTemplate(key as any), vars);
+  };
+
   const abrirWhatsapp = (mensagem?: string) => {
     const phoneRaw =
       (emprestimo as any)?.clienteContato ??
@@ -557,7 +592,8 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
       return;
     }
     const waPhone = phone.startsWith("55") ? phone : `55${phone}`;
-    const url = `https://wa.me/${waPhone}${mensagem ? `?text=${encodeURIComponent(mensagem)}` : ""}`;
+    const texto = mensagem ?? montarMensagemPadraoWhatsApp();
+    const url = `https://wa.me/${waPhone}${texto ? `?text=${encodeURIComponent(texto)}` : ""}`;
     const opened = window.open(url, "_blank", "noopener,noreferrer");
     if (!opened) window.location.href = url;
   };
