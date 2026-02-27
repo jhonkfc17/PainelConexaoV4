@@ -3,35 +3,52 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 type Json = Record<string, any>;
 
-const corsHeaders = {
+const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+// ✅ garante UTF-8 (emojis/acentos) no retorno
 function json(data: Json, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "application/json; charset=utf-8",
+    },
   });
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // ✅ OPTIONS consistente + UTF-8
+  if (req.method === "OPTIONS") {
+    return new Response("ok", {
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "text/plain; charset=utf-8",
+      },
+    });
+  }
 
   try {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
     const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY"); // ✅ FIX
+    const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
 
     if (!SUPABASE_URL || !SERVICE_ROLE_KEY || !ANON_KEY) {
       return json(
-        { error: "Missing secrets: SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY / SUPABASE_ANON_KEY" },
-        500
+        {
+          error:
+            "Missing secrets: SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY / SUPABASE_ANON_KEY",
+        },
+        500,
       );
     }
 
-    const authHeader = req.headers.get("authorization") ?? req.headers.get("Authorization");
+    const authHeader =
+      req.headers.get("authorization") ?? req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       return json({ error: "Missing Authorization Bearer token" }, 401);
     }
@@ -47,7 +64,10 @@ Deno.serve(async (req) => {
 
     const { data: userRes, error: userErr } = await userClient.auth.getUser();
     if (userErr || !userRes?.user) {
-      return json({ error: "Unauthorized", details: userErr?.message ?? "Invalid token" }, 401);
+      return json(
+        { error: "Unauthorized", details: userErr?.message ?? "Invalid token" },
+        401,
+      );
     }
     const caller = userRes.user;
 
@@ -67,9 +87,17 @@ Deno.serve(async (req) => {
         .eq("auth_user_id", caller.id)
         .maybeSingle();
 
-      if (staffErr) return json({ error: "staff lookup failed", details: staffErr.message }, 500);
+      if (staffErr) {
+        return json(
+          { error: "staff lookup failed", details: staffErr.message },
+          500,
+        );
+      }
       if (!staffRow?.active || staffRow.role !== "admin") {
-        return json({ error: "Forbidden", details: "Caller is not admin/active" }, 403);
+        return json(
+          { error: "Forbidden", details: "Caller is not admin/active" },
+          403,
+        );
       }
     }
 
@@ -85,16 +113,24 @@ Deno.serve(async (req) => {
       const permissions = (body?.permissions ?? {}) as Json;
       const commission_pct = Number(body?.commission_pct ?? 0);
 
-      if (!email || !password) return json({ error: "email and password required" }, 400);
+      if (!email || !password) {
+        return json({ error: "email and password required" }, 400);
+      }
 
-      const { data: created, error: createErr } = await admin.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
-        app_metadata: { tenant_id: tenantId, role, active: true },
-      });
+      const { data: created, error: createErr } = await admin.auth.admin
+        .createUser({
+          email,
+          password,
+          email_confirm: true,
+          app_metadata: { tenant_id: tenantId, role, active: true },
+        });
 
-      if (createErr) return json({ error: "createUser failed", details: createErr.message }, 400);
+      if (createErr) {
+        return json(
+          { error: "createUser failed", details: createErr.message },
+          400,
+        );
+      }
 
       const auth_user_id = created.user?.id;
       if (!auth_user_id) return json({ error: "createUser missing id" }, 500);
@@ -110,7 +146,12 @@ Deno.serve(async (req) => {
         active: true,
       });
 
-      if (insErr) return json({ error: "insert staff_members failed", details: insErr.message }, 400);
+      if (insErr) {
+        return json(
+          { error: "insert staff_members failed", details: insErr.message },
+          400,
+        );
+      }
       return json({ ok: true, auth_user_id });
     }
 
@@ -118,11 +159,13 @@ Deno.serve(async (req) => {
       const auth_user_id = String(body?.auth_user_id || "");
       if (!auth_user_id) return json({ error: "auth_user_id required" }, 400);
 
-      const update: any = {};
+      const update: Record<string, unknown> = {};
       if (body?.nome !== undefined) update.nome = String(body.nome);
       if (body?.role !== undefined) update.role = String(body.role);
       if (body?.permissions !== undefined) update.permissions = body.permissions;
-      if (body?.commission_pct !== undefined) update.commission_pct = Number(body.commission_pct);
+      if (body?.commission_pct !== undefined) {
+        update.commission_pct = Number(body.commission_pct);
+      }
       if (body?.active !== undefined) update.active = Boolean(body.active);
 
       const { error: updErr } = await admin
@@ -131,7 +174,12 @@ Deno.serve(async (req) => {
         .eq("tenant_id", tenantId)
         .eq("auth_user_id", auth_user_id);
 
-      if (updErr) return json({ error: "update staff_members failed", details: updErr.message }, 400);
+      if (updErr) {
+        return json(
+          { error: "update staff_members failed", details: updErr.message },
+          400,
+        );
+      }
       return json({ ok: true });
     }
 
@@ -145,17 +193,33 @@ Deno.serve(async (req) => {
         .eq("tenant_id", tenantId)
         .eq("auth_user_id", auth_user_id);
 
-      if (updErr) return json({ error: "disable failed", details: updErr.message }, 400);
+      if (updErr) {
+        return json({ error: "disable failed", details: updErr.message }, 400);
+      }
       return json({ ok: true });
     }
 
     if (action === "reset_password") {
       const auth_user_id = String(body?.auth_user_id || "");
       const password = String(body?.password || "");
-      if (!auth_user_id || !password) return json({ error: "auth_user_id and password required" }, 400);
+      if (!auth_user_id || !password) {
+        return json(
+          { error: "auth_user_id and password required" },
+          400,
+        );
+      }
 
-      const { error: updErr } = await admin.auth.admin.updateUserById(auth_user_id, { password });
-      if (updErr) return json({ error: "reset_password failed", details: updErr.message }, 400);
+      const { error: updErr } = await admin.auth.admin.updateUserById(
+        auth_user_id,
+        { password },
+      );
+
+      if (updErr) {
+        return json(
+          { error: "reset_password failed", details: updErr.message },
+          400,
+        );
+      }
       return json({ ok: true });
     }
 
