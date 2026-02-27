@@ -48,7 +48,7 @@ export const DEFAULT_MESSAGE_TEMPLATES: Record<MessageTemplateKey, string> = {
   cobranca_mensal: [
     "📌 *Olá {CLIENTE}!*",
     "",
-    "Passando para lembrar da sua parcela (mensal).",
+    "Passando para lembrar da sua parcela (semanal).",
     "",
     "💰 *Valor:* {VALOR}",
     "📆 *Parcela:* {PARCELA}",
