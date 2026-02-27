@@ -1,7 +1,7 @@
 // src/components/WhatsAppConnectorCard.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { QrCode, RefreshCw, Send, Smartphone, AlertTriangle } from "lucide-react";
-import { waInit, waQr, waSend, waStatus } from "@/services/whatsappConnector";
+import { waInit, waSend, waStatus } from "@/services/whatsappConnector";
 import { isWhatsAppManualMode, setWhatsAppManualMode } from "@/services/whatsappDispatch";
 
 export default function WhatsAppConnectorCard() {

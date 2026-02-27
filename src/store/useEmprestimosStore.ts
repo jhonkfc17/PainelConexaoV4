@@ -779,7 +779,7 @@ stopRealtime:
       await registrarPagamentoDbV2({ emprestimoId, tipo, dataPagamento, valor, parcelaNumero, jurosAtraso, flags });
 
       let erroRenovacao: any = null;
-      if (Boolean((flags as any)?.reiniciar_contrato)) {
+      if ((flags as any)?.reiniciar_contrato) {
         try {
           await renovarContratoPreservandoConfiguracao(emprestimoId, dataPagamento || todayYmd());
         } catch (e: any) {

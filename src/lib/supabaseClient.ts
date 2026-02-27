@@ -33,7 +33,17 @@ export const supabase = createClient(
   {
     auth: {
       persistSession: true,
-      autoRefreshToken: true,
+      /**
+       * IMPORTANTE:
+       * Se o projeto Supabase estiver com CORS bloqueando o endpoint /auth/v1/token
+       * (ex.: domínio Vercel não está em "CORS allowed origins" no painel do Supabase),
+       * o autoRefresh gera erro de CORS e pode travar a experiência de login.
+       *
+       * Mantemos DESLIGADO por padrão para evitar o travamento.
+       * Depois de liberar o domínio no Supabase (Project Settings > API > CORS allowed origins),
+       * você pode ligar novamente.
+       */
+      autoRefreshToken: false,
       detectSessionInUrl: true,
     },
   }

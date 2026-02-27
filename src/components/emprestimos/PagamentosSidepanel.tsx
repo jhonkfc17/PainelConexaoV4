@@ -88,7 +88,7 @@ export default function PagamentosSidepanel({ open, onClose, emprestimo }: Props
       if (n > 0) map.set(n, p);
     }
     return map;
-  }, [emprestimo?.parcelasDb]);
+  }, [emprestimo]);
 
   const houveAdiantamento = useMemo(() => {
     return (pagamentos ?? []).some((p) => p.tipo === "ADIANTAMENTO_MANUAL" && !isEstornado(p));

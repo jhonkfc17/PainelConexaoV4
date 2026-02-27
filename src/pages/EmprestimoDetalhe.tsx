@@ -6,7 +6,6 @@ import PagamentosSidepanel from "../components/emprestimos/PagamentosSidepanel";
 import { useEmprestimosStore } from "../store/useEmprestimosStore";
 import type { Emprestimo } from "@/store/useEmprestimosStore";
 import { fillTemplate, getMessageTemplate } from "../lib/messageTemplates";
-import { useAuthStore } from "../store/useAuthStore";
 
 function brl(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -28,7 +27,6 @@ function lsGet(key: string, fallback: string) {
 export default function EmprestimoDetalhe() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const tenantId = useAuthStore((s) => s.tenantId);
 
   const { emprestimos, fetchEmprestimos } = useEmprestimosStore();
   const emprestimo = useMemo(() => emprestimos.find((e) => e.id === id) ?? null, [emprestimos, id]);
@@ -38,8 +36,8 @@ export default function EmprestimoDetalhe() {
   const [sendingWa, setSendingWa] = useState(false);
 
   useEffect(() => {
-    fetchEmprestimos();
-  }, []);
+    void fetchEmprestimos();
+  }, [fetchEmprestimos]);
 
   const parcelas = useMemo(() => {
     const p = (emprestimo?.parcelasDb as any[]) ?? [];

@@ -67,13 +67,6 @@ function prio(d: DueStatus) {
   return d === "atrasado" ? 0 : d === "hoje" ? 1 : d === "amanha" ? 2 : 3;
 }
 
-function dueTone(d: DueStatus) {
-  if (d === "atrasado") return "from-red-500/18 to-red-500/6 border-red-500/35";
-  if (d === "hoje") return "from-amber-500/18 to-amber-500/6 border-amber-500/35";
-  if (d === "amanha") return "from-sky-500/15 to-sky-500/6 border-sky-500/30";
-  return "from-emerald-500/12 to-emerald-500/6 border-emerald-500/20";
-}
-
 function dueCardTone(d: DueStatus) {
   if (d === "atrasado") return "from-red-600/18 via-red-600/12 to-red-500/10 border-red-500/45";
   if (d === "hoje") return "from-amber-500/20 via-amber-500/12 to-amber-400/10 border-amber-400/45";
@@ -216,10 +209,6 @@ function proximoVencimentoEmprestimo(e: Emprestimo) {
   const abertas = parcelas.filter((p: any) => !p?.pago);
   const sorted = [...abertas].sort((a, b) => String(a?.vencimento ?? "").localeCompare(String(b?.vencimento ?? "")));
   return sorted[0]?.vencimento ? String(sorted[0].vencimento) : undefined;
-}
-
-function onlyDigits(s?: string) {
-  return (s ?? "").replace(/\D/g, "");
 }
 
 function todayISO() {
@@ -396,13 +385,6 @@ function labelByDue(d: DueStatus) {
 }
 
 type VisualTone = "danger" | "ok" | "muted" | "info";
-
-function cardToneByTone(t: VisualTone) {
-  if (t === "danger") return "from-red-500/22 to-red-500/8 border-red-500/40";
-  if (t === "muted") return "from-slate-500/14 to-slate-500/6 border-slate-500/25";
-  if (t === "info") return "from-sky-500/14 to-sky-500/6 border-sky-500/25";
-  return "from-emerald-500/14 to-emerald-500/6 border-emerald-500/25";
-}
 
 function moneyColorByTone(t: VisualTone) {
   if (t === "danger") return "text-red-200";
@@ -1140,7 +1122,6 @@ function PastaClienteCard({
   const lucroPrevisto = Math.max(totalReceber - totalEmprestado, 0);
 
   const badge = dueBadge(groupDue);
-  const cardTone = dueTone(groupDue);
 
   return (
     <div className={`w-full min-w-0 rounded-2xl border bg-gradient-to-b ${dueCardTone(groupDue)} ${glowClass(groupDue)} ${pulseClass(groupDue)}`}>
