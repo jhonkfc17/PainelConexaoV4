@@ -136,49 +136,87 @@ Deno.serve(async (req) => {
     }
 
     if (action === "status") {
-      const r = await forward(
-        WA_CONNECTOR_URL,
-        WA_TOKEN,
-        `/whatsapp/status?tenant_id=${encodeURIComponent(tenant_id)}`,
-        "GET"
-      );
+  const r = await forward(
+    WA_CONNECTOR_URL,
+    WA_TOKEN,
+    `/whatsapp/status?tenant_id=${encodeURIComponent(tenant_id)}`,
+    "GET"
+  );
 
-      if (!r.ok) {
-        // Alguns conectores retornam timeout do Puppeteer mesmo com sessao conectada.
-        // Nesses casos, convertemos para "ready" para nao quebrar a UX.
-        const msg = String((r as any)?.error ?? "");
-        const statusRaw = String((r as any)?.data?.status ?? "").toLowerCase();
-        const waStateRaw = String((r as any)?.data?.waState ?? "").toUpperCase();
-        const connectedByState = statusRaw === "ready" || waStateRaw === "CONNECTED";
+  // Helper: tenta inferir status/waState mesmo quando r.ok=false
+  const statusRaw = String((r as any)?.data?.status ?? "").toLowerCase();
+  const waStateRaw = String((r as any)?.data?.waState ?? "").toUpperCase();
+  const connectedByState = statusRaw === "ready" || waStateRaw === "CONNECTED";
 
-        if ((isProtocolTimeoutError(msg) || isExecutionContextDestroyed(msg)) && connectedByState) {
-          return json({
-            ok: true,
-            tenant_id,
-            status: "ready",
-            connected: true,
-            connectedNumber: null,
-            qrUpdatedAt: null,
-            lastError: msg,
-            lastSeenAt: new Date().toISOString(),
-          });
-        }
+  // Mensagem de erro pode vir em r.error ou dentro de r.data.error/lastError dependendo do connector
+  const msg =
+    String((r as any)?.error ?? "") ||
+    String((r as any)?.data?.error ?? "") ||
+    String((r as any)?.data?.lastError ?? "");
 
-        return json({ ok: false, tenant_id, ...r }, 502);
-      }
-
-      const status = (r.data?.status ?? "idle") as any;
+  // 1) Se o connector "errou", mas é erro clássico do Chromium e a sessão está CONNECTED/ready,
+  //    devolve OK pra não quebrar o painel.
+  if (!r.ok) {
+    if ((isProtocolTimeoutError(msg) || isExecutionContextDestroyed(msg)) && connectedByState) {
       return json({
         ok: true,
         tenant_id,
-        status,
-        connected: status === "ready",
+        status: "ready",
+        connected: true,
         connectedNumber: null,
         qrUpdatedAt: null,
-        lastError: r.data?.lastError ?? null,
-        lastSeenAt: r.data?.lastEventAt ? new Date(r.data.lastEventAt).toISOString() : null,
+        lastError: msg,
+        lastSeenAt: new Date().toISOString(),
       });
     }
+
+    // 2) Se for erro de rota inexistente / 404 (ex: "Cannot GET /whatsapp/status"),
+    //    não devolve 502 (isso causa cascata/early drop). Retorna um status seguro.
+    const rawBody = String((r as any)?.data?.raw ?? "");
+    const isCannotGet = rawBody.includes("Cannot GET /whatsapp/status") || msg.includes("Cannot GET /whatsapp/status");
+    const is404 = Number((r as any)?.status ?? 0) === 404;
+
+    if (is404 || isCannotGet) {
+      return json({
+        ok: true,
+        tenant_id,
+        status: "idle",
+        connected: false,
+        connectedNumber: null,
+        qrUpdatedAt: null,
+        lastError: "Connector ainda não expôs /whatsapp/status (404).",
+        lastSeenAt: new Date().toISOString(),
+      });
+    }
+
+    // 3) Caso geral: mantém o erro, mas sem perder contexto
+    return json(
+      {
+        ok: false,
+        tenant_id,
+        status: statusRaw || "idle",
+        waState: waStateRaw || null,
+        error: msg || "Connector error",
+        data: (r as any)?.data ?? null,
+      },
+      502
+    );
+  }
+
+  // Sucesso
+  const status = (r.data?.status ?? "idle") as any;
+
+  return json({
+    ok: true,
+    tenant_id,
+    status,
+    connected: status === "ready",
+    connectedNumber: null,
+    qrUpdatedAt: null,
+    lastError: r.data?.lastError ?? null,
+    lastSeenAt: r.data?.lastEventAt ? new Date(r.data.lastEventAt).toISOString() : null,
+  });
+}
 
     if (action === "qr") {
       const r = await forward(
