@@ -21,6 +21,11 @@ function isProtocolTimeoutError(message: string | null | undefined) {
   return m.includes("runtime.callfunctionon timed out") || m.includes("protocoltimeout");
 }
 
+function isExecutionContextDestroyed(message: string | null | undefined) {
+  const m = String(message ?? "").toLowerCase();
+  return m.includes("execution context was destroyed") || m.includes("most likely because of a navigation");
+}
+
 function onlyDigits(value: string) {
   return String(value || "").replace(/\D+/g, "");
 }
@@ -146,7 +151,7 @@ Deno.serve(async (req) => {
         const waStateRaw = String((r as any)?.data?.waState ?? "").toUpperCase();
         const connectedByState = statusRaw === "ready" || waStateRaw === "CONNECTED";
 
-        if (isProtocolTimeoutError(msg) && connectedByState) {
+        if ((isProtocolTimeoutError(msg) || isExecutionContextDestroyed(msg)) && connectedByState) {
           return json({
             ok: true,
             tenant_id,
@@ -190,7 +195,7 @@ Deno.serve(async (req) => {
         const connectedByState = statusRaw === "ready" || waStateRaw === "CONNECTED";
 
         // Se a sessao esta conectada, timeout ao pedir QR nao deve virar erro fatal.
-        if (isProtocolTimeoutError(msg) && connectedByState) {
+        if ((isProtocolTimeoutError(msg) || isExecutionContextDestroyed(msg)) && connectedByState) {
           return json({
             ok: true,
             tenant_id,
