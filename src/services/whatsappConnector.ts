@@ -1,93 +1,73 @@
-��// src/services/whatsappConnector.ts
-import { supabase } from "@/lib/supabaseClient";
+import { supabase } from "../lib/supabaseClient";
 
-export type WAStatus = {
-  ok: boolean;
-  tenant_id: string;
-  status: "idle" | "connecting" | "qr" | "ready" | "auth_failure" | "disconnected" | string;
-  connected: boolean;
-  connectedNumber: string | null;
-  qrUpdatedAt: string | null;
-  lastError: string | null;
-  lastSeenAt: string | null;
-};
+export type WaStatus = "idle" | "qr" | "ready" | string;
 
-export type WAQr = {
+export type WaStatusResponse = {
   ok: boolean;
-  tenant_id: string;
-  hasQr: boolean;
-  status: WAStatus["status"];
-  qr?: string; // dataUrl
+  tenant_id?: string;
+  status?: WaStatus;
+  connected?: boolean;
+  connectedNumber?: string | null;
   qrUpdatedAt?: string | null;
+  lastError?: string | null;
+  lastSeenAt?: string | null;
+  // passthrough
+  [k: string]: any;
 };
 
-function isAuthError(msg: string{
-  const m = msg.toLowerCase();
-  return m.includes("jwt"|| m.includes("unauthorized"|| m.includes("missing authorization");
-}
+export type WaQrResponse = {
+  ok: boolean;
+  tenant_id?: string;
+  hasQr?: boolean;
+  status?: WaStatus;
+  qr?: string;
+  qrUpdatedAt?: string | null;
+  [k: string]: any;
+};
 
-async function getAccessTokenOrThrow(): Promise<string> {
-  const { data, error } = await supabase.auth.getSession();
-  if (errorthrow error;
-  const token = data?.session?.access_token;
-  if (!tokenthrow new Error("Sessão expirada. Faça login novamente.");
-  return token;
-}
+export type WaInitResponse = {
+  ok: boolean;
+  tenant_id?: string;
+  status?: WaStatus;
+  [k: string]: any;
+};
 
-async function refreshAccessTokenOrThrow(): Promise<string> {
-  const { data, error } = await supabase.auth.refreshSession();
-  if (error) throw error;
-  const token = data?.session?.access_token;
-  if (!token) throw new Error("Não foi possível renovar a sessão. Faça login novamente.");
-  return token;
-}
+export type WaSendResponse = {
+  ok: boolean;
+  [k: string]: any;
+};
 
-async function invokeEdgeOnce<T>(body: Record<string, any>, token: string): Promise<T> {
+async function invokeWa<T = any>(
+  action: "init" | "status" | "qr" | "send",
+  body: Record<string, any> = {}
+): Promise<T> {
+  // A Edge Function usa o JWT do usuário (Authorization) para resolver tenant_id = user.id.
+  // Portanto, NÃO passamos tenant_id aqui, a não ser que você realmente queira sobrescrever.
   const { data, error } = await supabase.functions.invoke("wa-connector", {
-    body,
-    headers: { Authorization: `Bearer ${token}` },
+    body: { action, ...body },
   });
 
-  if (!errorreturn data as T;
-
-  const rawBody = (error as any)?.context?.body;
-  const msg =
-    typeof rawBody === "string"
-      ? rawBody
-      : rawBody && typeof rawBody === "object"
-      ? JSON.stringify(rawBody)
-      : (error as any)?.message
-      ? String((error as any).message)
-      : String(error);
-
-  throw new Error(msg);
-}
-
-async function invokeEdge<T>(body: Record<string, any>): Promise<T> {
-  let token = await getAccessTokenOrThrow();
-  try {
-    return await invokeEdgeOnce<T>(body, token);
-  } catch (e: any{
-    const msg = String(e?.message || e);
-    if (!isAuthError(msg)throw e;
-    token = await refreshAccessTokenOrThrow();
-    return await invokeEdgeOnce<T>(body, token);
+  if (error) {
+    // Padroniza para virar uma mensagem legível no UI
+    const message = (error as any)?.message ?? "Erro ao chamar wa-connector";
+    throw new Error(message);
   }
+
+  return data as T;
 }
 
-// ✅ API pública (sem tenant_id)
-export function waInit() {
-  return invokeEdge({ action: "init" });
+export async function waInit(): Promise<WaInitResponse> {
+  return invokeWa<WaInitResponse>("init");
 }
 
-export function waStatus({
-  return invokeEdge<WAStatus>({ action: "status" });
+export async function waStatus(): Promise<WaStatusResponse> {
+  return invokeWa<WaStatusResponse>("status");
 }
 
-export function waQr() {
-  return invokeEdge<WAQr>({ action: "qr" });
+export async function waQr(): Promise<WaQrResponse> {
+  return invokeWa<WaQrResponse>("qr");
 }
 
-export function waSend(to: string, message: string) {
-  return invokeEdge({ action: "send", to, message });
+export async function waSend(to: string, message: string): Promise<WaSendResponse> {
+  return invokeWa<WaSendResponse>("send", { to, message });
 }

@@ -1,25 +1,10 @@
-��// src/services/whatsappDispatch.ts
-import { waSend, waStatus } from "./whatsappConnector";
+import { waSend } from "./whatsappConnector";
 
 /**
- * Dispatcher para WhatsApp (compatível com chamadas antigas do app).
- * - No novo modelo: 1 usuário = 1 sessão WhatsApp (tenant_id = caller.id no backend)
- * - Portanto, o frontend NÃO precisa (nem deveenviar tenant_id.
+ * Envio simples pelo WhatsApp do usuário logado.
+ * (cada usuário tem sua própria sessão, identificada pelo user.id na Edge Function)
  */
-
-export async function sendWhatsAppFromPanel(payload: { to: string; message: string; tenant_id?: string }) {
-  return waSend(payload.to, payload.message);
-}
-
-export async function getWhatsAppStatusFromPanel(payload?: { tenant_id?: string }) {
-  return waStatus();
-}
-
-// exports opcionais (para uso futuro/legado)
-export async function whatsappSend(to: string, message: string) {
+export async function sendWhatsAppFromPanel(params: { to: string; message: string }) {
+  const { to, message } = params;
   return waSend(to, message);
-}
-
-export async function whatsappGetStatus({
-  return waStatus();
 }
