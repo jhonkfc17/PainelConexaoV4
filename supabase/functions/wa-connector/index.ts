@@ -1,3 +1,4 @@
+/* --- código completo (WhatsApp Cloud API) --- */
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "@supabase/supabase-js";
 
@@ -36,12 +37,6 @@ async function readJson(req: Request) {
   }
 }
 
-/**
- * Envia mensagem de texto via WhatsApp Cloud API.
- * Importante:
- * - Para iniciar conversa fora da janela de 24h, você precisa usar TEMPLATE (message templates).
- * - Texto simples funciona quando o cliente já conversou recentemente (janela de atendimento).
- */
 async function waCloudSendText(opts: {
   phoneNumberId: string;
   accessToken: string;
@@ -65,7 +60,6 @@ async function waCloudSendText(opts: {
   });
 
   const data = await resp.json().catch(() => ({}));
-
   if (!resp.ok) {
     return {
       ok: false,
@@ -87,12 +81,10 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   try {
-    // Auth do Supabase (mantém sua regra: tenant_id = user.id)
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || Deno.env.get("PROJECT_URL") || "";
     const SERVICE_ROLE_KEY =
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SERVICE_ROLE_KEY") || "";
 
-    // WhatsApp Cloud API
     const WA_PHONE_NUMBER_ID = Deno.env.get("WA_PHONE_NUMBER_ID") || "";
     const WA_ACCESS_TOKEN = Deno.env.get("WA_ACCESS_TOKEN") || "";
 
@@ -109,7 +101,6 @@ Deno.serve(async (req) => {
     const jwt = authHeader.replace("Bearer ", "").trim();
     if (!jwt) return json({ error: "Missing bearer token" }, 401);
 
-    // Valida token do usuário
     const userClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
       global: { headers: { Authorization: `Bearer ${jwt}` } },
       auth: { persistSession: false },
@@ -117,56 +108,43 @@ Deno.serve(async (req) => {
 
     const { data: userRes, error: userErr } = await userClient.auth.getUser();
     const caller = userRes?.user ?? null;
-
     if (userErr || !caller?.id) {
       return json({ error: "Unauthorized", details: userErr?.message ?? "Invalid token" }, 401);
     }
 
-    // 1 usuário = 1 "tenant"
     const tenant_id = caller.id;
-
     const body = await readJson(req);
     const action = String(body?.action ?? "").trim();
     if (!action) return json({ error: "Missing action" }, 400);
 
-    // Cloud API não tem QR / sessão local como WhatsApp Web.
-    // Mantemos essas ações apenas para o painel não quebrar.
     if (action === "init") {
       return json({
         ok: true,
         tenant_id,
         status: "ready",
         connected: true,
-        note: "Cloud API: não requer QR. Número é gerenciado na Meta.",
+        note: "Cloud API: não requer QR. Número gerenciado na Meta.",
       });
     }
 
     if (action === "status") {
-      // Para Cloud API, consideramos "ready" se as variáveis existem.
-      // Se quiser mais forte: dá pra fazer um call de teste no Graph (ex.: phone_number).
       return json({
         ok: true,
         tenant_id,
         status: "ready",
         connected: true,
-        connectedNumber: null,
-        qrUpdatedAt: null,
         lastError: null,
         lastSeenAt: new Date().toISOString(),
-        note: "Cloud API: status é lógico (sem sessão Web).",
       });
     }
 
     if (action === "qr") {
-      // Não existe QR na Cloud API
       return json({
         ok: true,
         tenant_id,
         hasQr: false,
         status: "ready",
         qr: undefined,
-        qrUpdatedAt: null,
-        note: "Cloud API: não existe QR.",
       });
     }
 
@@ -183,8 +161,6 @@ Deno.serve(async (req) => {
       });
 
       if (!r.ok) {
-        // Importante: não devolve "ok:true" nunca aqui
-        // Se cair em "fora da janela 24h" a Meta devolve erro informando template necessário.
         return json(
           {
             ok: false,
@@ -193,7 +169,7 @@ Deno.serve(async (req) => {
             status: r.status,
             details: r.details,
             hint:
-              "Se o cliente não falou com você nas últimas 24h, você precisa enviar TEMPLATE aprovado (message templates).",
+              "Se o cliente não falou nas últimas 24h, você precisa usar TEMPLATE aprovado (message templates).",
           },
           r.status || 502
         );
