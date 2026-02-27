@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 
 type Json = Record<string, any>;
 
-const corsHeaders = {
+const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -55,9 +55,7 @@ async function forward(baseUrl: string, token: string, path: string, method: str
   const url = `${baseUrl}${path}`;
   const headers: Record<string, string> = {
     "content-type": "application/json",
-    // alguns conectores usam x-wa-token (novo)
     "x-wa-token": token,
-    // outros usam Authorization Bearer (legado)
     Authorization: `Bearer ${token}`,
   };
 
@@ -79,7 +77,12 @@ async function forward(baseUrl: string, token: string, path: string, method: str
   }
 
   if (!resp.ok) {
-    return { ok: false, status: resp.status, error: data?.error ?? text ?? resp.statusText, data };
+    return {
+      ok: false,
+      status: resp.status,
+      error: data?.error ?? text ?? resp.statusText,
+      data,
+    };
   }
 
   return { ok: true, data };
@@ -90,7 +93,6 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   try {
-    // Supabase reserva prefixo SUPABASE_* na UI; deixe cair para SERVICE_ROLE_KEY se for o que estiver setado.
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || Deno.env.get("PROJECT_URL") || "";
     const SERVICE_ROLE_KEY =
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SERVICE_ROLE_KEY") || "";
@@ -110,7 +112,7 @@ Deno.serve(async (req) => {
     const jwt = authHeader.replace("Bearer ", "").trim();
     if (!jwt) return json({ error: "Missing bearer token" }, 401);
 
-    // Valida token do usuário usando service role, mas com Authorization do usuário.
+    // valida token do usuário
     const userClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
       global: { headers: { Authorization: `Bearer ${jwt}` } },
       auth: { persistSession: false },
@@ -130,118 +132,98 @@ Deno.serve(async (req) => {
     const action = String(body?.action ?? "").trim();
     if (!action) return json({ error: "Missing action" }, 400);
 
+    // ---------------------------
+    // INIT
+    // ---------------------------
     if (action === "init") {
       const r = await forward(WA_CONNECTOR_URL, WA_TOKEN, "/whatsapp/init", "POST", { tenant_id });
       return json(r.ok ? { ok: true, tenant_id, ...r.data } : { ok: false, tenant_id, ...r }, r.ok ? 200 : 502);
     }
 
+    // ---------------------------
+    // STATUS
+    // ---------------------------
     if (action === "status") {
-  const r = await forward(
-    WA_CONNECTOR_URL,
-    WA_TOKEN,
-    `/whatsapp/status?tenant_id=${encodeURIComponent(tenant_id)}`,
-    "GET"
-  );
+      const r = await forward(
+        WA_CONNECTOR_URL,
+        WA_TOKEN,
+        `/whatsapp/status?tenant_id=${encodeURIComponent(tenant_id)}`,
+        "GET"
+      );
 
-  const statusRaw = String((r as any)?.data?.status ?? "").toLowerCase();
-  const waStateRaw = String((r as any)?.data?.waState ?? "").toUpperCase();
-  const connectedByState = statusRaw === "ready" || waStateRaw === "CONNECTED";
+      const statusRaw = String((r as any)?.data?.status ?? "").toLowerCase();
+      const waStateRaw = String((r as any)?.data?.waState ?? "").toUpperCase();
+      const connectedByState = statusRaw === "ready" || waStateRaw === "CONNECTED";
 
-  const msg =
-    String((r as any)?.error ?? "") ||
-    String((r as any)?.data?.error ?? "") ||
-    String((r as any)?.data?.lastError ?? "");
+      const msg =
+        String((r as any)?.error ?? "") ||
+        String((r as any)?.data?.error ?? "") ||
+        String((r as any)?.data?.lastError ?? "");
 
-  // 🔥 SE ESTÁ CONECTADO → IGNORA ERRO DE PUPPETEER TOTALMENTE
-  if (connectedByState) {
-    return json({
-      ok: true,
-      tenant_id,
-      status: "ready",
-      connected: true,
-      connectedNumber: null,
-      qrUpdatedAt: null,
-      lastError: null, // 🔥 AQUI remove o erro da UI
-      lastSeenAt: new Date().toISOString(),
-    });
-  }
+      // ✅ Se o connector está dizendo que está conectado, não deixe erro do Puppeteer quebrar a UX
+      if (connectedByState) {
+        return json({
+          ok: true,
+          tenant_id,
+          status: "ready",
+          connected: true,
+          connectedNumber: null,
+          qrUpdatedAt: null,
+          lastError: null,
+          lastSeenAt: new Date().toISOString(),
+        });
+      }
 
-  // Só trata erro se NÃO estiver conectado
-  if (!r.ok) {
-    return json(
-      {
-        ok: false,
-        tenant_id,
-        error: msg || "Connector error",
-      },
-      502
-    );
-  }
+      if (!r.ok) {
+        // 404/rota inexistente: não devolve 502 pra evitar cascata/early-drop
+        const rawBody = String((r as any)?.data?.raw ?? "");
+        const isCannotGet =
+          rawBody.includes("Cannot GET /whatsapp/status") || msg.includes("Cannot GET /whatsapp/status");
+        const is404 = Number((r as any)?.status ?? 0) === 404;
 
-  const status = (r.data?.status ?? "idle") as any;
+        if (is404 || isCannotGet) {
+          return json({
+            ok: true,
+            tenant_id,
+            status: "idle",
+            connected: false,
+            connectedNumber: null,
+            qrUpdatedAt: null,
+            lastError: "Connector ainda não expôs /whatsapp/status (404).",
+            lastSeenAt: new Date().toISOString(),
+          });
+        }
 
-  return json({
-    ok: true,
-    tenant_id,
-    status,
-    connected: status === "ready",
-    connectedNumber: null,
-    qrUpdatedAt: null,
-    lastError: r.data?.lastError ?? null,
-    lastSeenAt: r.data?.lastEventAt
-      ? new Date(r.data.lastEventAt).toISOString()
-      : null,
-  });
-}
+        // Se for timeout/navegação e não está conectado, mantém erro
+        return json(
+          {
+            ok: false,
+            tenant_id,
+            error: msg || "Connector error",
+            status: statusRaw || "idle",
+            waState: waStateRaw || null,
+            data: (r as any)?.data ?? null,
+          },
+          502
+        );
+      }
 
-    // 2) Se for erro de rota inexistente / 404 (ex: "Cannot GET /whatsapp/status"),
-    //    não devolve 502 (isso causa cascata/early drop). Retorna um status seguro.
-    const rawBody = String((r as any)?.data?.raw ?? "");
-    const isCannotGet = rawBody.includes("Cannot GET /whatsapp/status") || msg.includes("Cannot GET /whatsapp/status");
-    const is404 = Number((r as any)?.status ?? 0) === 404;
-
-    if (is404 || isCannotGet) {
+      const status = (r.data?.status ?? "idle") as any;
       return json({
         ok: true,
         tenant_id,
-        status: "idle",
-        connected: false,
+        status,
+        connected: status === "ready",
         connectedNumber: null,
         qrUpdatedAt: null,
-        lastError: "Connector ainda não expôs /whatsapp/status (404).",
-        lastSeenAt: new Date().toISOString(),
+        lastError: r.data?.lastError ?? null,
+        lastSeenAt: r.data?.lastEventAt ? new Date(r.data.lastEventAt).toISOString() : null,
       });
     }
 
-    // 3) Caso geral: mantém o erro, mas sem perder contexto
-    return json(
-      {
-        ok: false,
-        tenant_id,
-        status: statusRaw || "idle",
-        waState: waStateRaw || null,
-        error: msg || "Connector error",
-        data: (r as any)?.data ?? null,
-      },
-      502
-    );
-  }
-
-  // Sucesso
-  const status = (r.data?.status ?? "idle") as any;
-
-  return json({
-    ok: true,
-    tenant_id,
-    status,
-    connected: status === "ready",
-    connectedNumber: null,
-    qrUpdatedAt: null,
-    lastError: r.data?.lastError ?? null,
-    lastSeenAt: r.data?.lastEventAt ? new Date(r.data.lastEventAt).toISOString() : null,
-  });
-}
-
+    // ---------------------------
+    // QR
+    // ---------------------------
     if (action === "qr") {
       const r = await forward(
         WA_CONNECTOR_URL,
@@ -251,12 +233,16 @@ Deno.serve(async (req) => {
       );
 
       if (!r.ok) {
-        const msg = String((r as any)?.error ?? "");
+        const msg =
+          String((r as any)?.error ?? "") ||
+          String((r as any)?.data?.error ?? "") ||
+          String((r as any)?.data?.lastError ?? "");
+
         const statusRaw = String((r as any)?.data?.status ?? "").toLowerCase();
         const waStateRaw = String((r as any)?.data?.waState ?? "").toUpperCase();
         const connectedByState = statusRaw === "ready" || waStateRaw === "CONNECTED";
 
-        // Se a sessao esta conectada, timeout ao pedir QR nao deve virar erro fatal.
+        // Se a sessao está conectada, timeout/navegação ao pedir QR não deve virar erro fatal.
         if ((isProtocolTimeoutError(msg) || isExecutionContextDestroyed(msg)) && connectedByState) {
           return json({
             ok: true,
@@ -265,6 +251,7 @@ Deno.serve(async (req) => {
             status: "ready",
             qr: undefined,
             qrUpdatedAt: null,
+            lastError: null,
           });
         }
 
@@ -276,29 +263,40 @@ Deno.serve(async (req) => {
         ok: true,
         tenant_id,
         hasQr: Boolean(qr),
-        status: qr ? "qr" : "idle",
+        status: qr ? "qr" : (r.data?.status ?? "idle"),
         qr: qr || undefined,
       });
     }
 
+    // ---------------------------
+    // SEND
+    // ---------------------------
     if (action === "send") {
       const to = normalizeToWhatsAppBR(String(body?.to ?? "").trim());
       const message = String(body?.message ?? "").trim();
       if (!to || !message) return json({ error: "to and message required" }, 400);
 
       const r = await forward(WA_CONNECTOR_URL, WA_TOKEN, "/whatsapp/send", "POST", { tenant_id, to, message });
-      
-      if (msg.includes("Execution context was destroyed")) {
-  console.warn("⚠ Chromium navigation detected — ignorando erro");
-  return res.json({
-    ok: true,
-    warning: "Chromium navigation reiniciado automaticamente",
-    tenant_id: tenantId,
-  });
-}
-      
-    
+
       if (!r.ok) {
+        const msg =
+          String((r as any)?.error ?? "") ||
+          String((r as any)?.data?.error ?? "") ||
+          String((r as any)?.data?.lastError ?? "");
+
+        const statusRaw = String((r as any)?.data?.status ?? "").toLowerCase();
+        const waStateRaw = String((r as any)?.data?.waState ?? "").toUpperCase();
+        const connectedByState = statusRaw === "ready" || waStateRaw === "CONNECTED";
+
+        // Se deu erro de puppeteer mas sessão está CONNECTED, devolve OK (UX)
+        if ((isProtocolTimeoutError(msg) || isExecutionContextDestroyed(msg)) && connectedByState) {
+          return json({
+            ok: true,
+            tenant_id,
+            warning: "Erro interno do Chromium ignorado (sessão conectada)",
+          });
+        }
+
         const status = typeof r.status === "number" && r.status >= 400 && r.status < 500 ? r.status : 502;
         return json({ ok: false, tenant_id, ...r }, status);
       }
