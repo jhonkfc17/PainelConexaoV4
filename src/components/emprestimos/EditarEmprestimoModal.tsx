@@ -34,20 +34,35 @@ export default function EditarEmprestimoModal({ open, emprestimo, onClose, onSav
   }, [emprestimo]);
 
   const [vencimentos, setVencimentos] = useState<Record<string, string>>({});
+  const [valores, setValores] = useState<Record<string, string>>({});
 
   const handleChange = (id: string, value: string) => {
     setVencimentos((prev) => ({ ...prev, [id]: value }));
+  };
+
+  const handleValorChange = (id: string, value: string) => {
+    setValores((prev) => ({ ...prev, [id]: value }));
   };
 
   const handleSave = async () => {
     if (!emprestimo) return;
     const changes = parcelas
       .map((p) => {
-        const novo = vencimentos[p.id];
-        if (novo && novo !== p.vencimento) return { id: p.id, vencimento: novo };
-        return null;
+        const novoVenc = vencimentos[p.id];
+        const novoValorRaw = valores[p.id];
+        const valorNumber = novoValorRaw !== undefined ? Number(novoValorRaw) : p.valor;
+        const valorChanged = novoValorRaw !== undefined && Number.isFinite(valorNumber) && valorNumber !== p.valor;
+        const vencChanged = Boolean(novoVenc) && novoVenc !== p.vencimento;
+
+        if (!vencChanged && !valorChanged) return null;
+
+        const update: Record<string, any> = {};
+        if (vencChanged) update.vencimento = novoVenc;
+        if (valorChanged) update.valor = Math.max(0, valorNumber);
+
+        return { id: p.id, update };
       })
-      .filter(Boolean) as { id: string; vencimento: string }[];
+      .filter(Boolean) as { id: string; update: Record<string, any> }[];
 
     if (changes.length === 0) {
       onClose();
@@ -58,7 +73,7 @@ export default function EditarEmprestimoModal({ open, emprestimo, onClose, onSav
     setError(null);
     try {
       for (const ch of changes) {
-        const { error: upErr } = await supabase.from("parcelas").update({ vencimento: ch.vencimento }).eq("id", ch.id);
+        const { error: upErr } = await supabase.from("parcelas").update(ch.update).eq("id", ch.id);
         if (upErr) throw upErr;
       }
       onSaved?.();
@@ -78,7 +93,7 @@ export default function EditarEmprestimoModal({ open, emprestimo, onClose, onSav
         <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
           <div>
             <div className="text-sm font-semibold text-white">Editar empréstimo</div>
-            <div className="text-xs text-white/60">Ajuste as datas de vencimento das parcelas</div>
+            <div className="text-xs text-white/60">Ajuste datas de vencimento e valores das parcelas</div>
           </div>
           <button
             type="button"
@@ -112,8 +127,16 @@ export default function EditarEmprestimoModal({ open, emprestimo, onClose, onSav
                       className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white focus:border-emerald-400/60 focus:outline-none"
                     />
                   </div>
-                  <div className="w-32 text-right text-[12px] text-white/70">
-                    Valor: <span className="font-semibold text-white">R$ {Number(p.valor || 0).toFixed(2)}</span>
+                  <div className="w-32">
+                    <label className="text-[11px] uppercase tracking-wide text-white/60">Valor</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={valores[p.id] ?? Number(p.valor || 0).toFixed(2)}
+                      onChange={(e) => handleValorChange(p.id, e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white focus:border-emerald-400/60 focus:outline-none text-right"
+                    />
                   </div>
                 </div>
               );
