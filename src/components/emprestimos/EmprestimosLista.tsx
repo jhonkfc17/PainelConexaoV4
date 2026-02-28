@@ -421,6 +421,7 @@ function EmprestimoCardPasta({
   onComprovante?: (e: Emprestimo) => void;
   pagamentosMapa?: Record<string, PagamentoDb[]>;
 }) {
+  const pagamentosMapaSafe = pagamentosMapa ?? {};
   const navigate = useNavigate();
   const [detalhesAberto, setDetalhesAberto] = useState(false);
   const [renegociarAberto, setRenegociarAberto] = useState(false);
@@ -458,7 +459,7 @@ function EmprestimoCardPasta({
   // (o payload pode continuar com o total antigo)
   const totalReceber = parcelas.length > 0 ? sumParcelasValor(parcelas) : Number((emprestimo as any).totalReceber ?? 0);
   const totalPago =
-    sumPagamentos(pagamentosMapa?.[emprestimo.id]) ||
+    sumPagamentos(pagamentosMapaSafe?.[emprestimo.id]) ||
     sumRecebido(parcelas);
   const restante = parcelas.length > 0 ? sumRestante(parcelas) : Math.max(totalReceber - totalPago, 0);
   const lucroPrevisto = Math.max(totalReceber - totalEmprestado, 0);
