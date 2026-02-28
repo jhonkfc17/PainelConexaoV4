@@ -399,7 +399,7 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
 
   // Mês atual (calendário)
   const currentMonthKey = monthKey(now);
-  const pagosMes = pagosComData.filter((r) => monthKey(isoFromAny(r.paidDate)) === currentMonthKey);
+  const pagosMes = pagosComData.filter((r) => monthKey(new Date(isoFromAny(r.paidDate))) === currentMonthKey);
   const totalRecebidoMes = pagosMes.reduce((acc, r) => acc + valorRecebidoTotal(r.p), 0);
   const principalMes = pagosMes.reduce((acc, r) => acc + safeNum(r.p.valor), 0);
   const lucroMes = totalRecebidoMes - principalMes;
