@@ -280,7 +280,11 @@ export default function RelatorioOperacional() {
   }, []);
 
   const emprestimosAtivos = useMemo(() => {
-    return emprestimos.filter((e) => String((e as any).status ?? "").toLowerCase() !== "quitado");
+    return emprestimos.filter((e) => {
+      const status = String((e as any).status ?? "").toLowerCase();
+      // Mantém contratos quitados parcialmente (pode haver juros recebidos no mês)
+      return status !== "cancelado";
+    });
   }, [emprestimos]);
 
   const pagamentosRecebidosMes = useMemo(() => pagamentosMes.reduce((a, p) => a + safeNumber(p.valor), 0), [pagamentosMes]);
@@ -317,8 +321,7 @@ export default function RelatorioOperacional() {
   }, [emprestimosAtivos]);
 
   const jurosAReceber = useMemo(() => {
-    // Sem histórico consolidado de pagamentos, estimamos o "a receber" do período como:
-    // juros previstos em contratos ativos - juros recebidos no mês.
+    // Estimativa simples: juros previstos em contratos não cancelados menos juros já recebidos no mês.
     return Math.max(0, jurosPrevistos - jurosRecebidosMes);
   }, [jurosPrevistos, jurosRecebidosMes]);
 
