@@ -40,6 +40,7 @@ export type PagamentoDb = {
   juros_atraso: number | null;
   data_pagamento: string;
   created_at: string;
+  flags?: Record<string, any> | null;
   snapshot?: any;
 
   // auditoria

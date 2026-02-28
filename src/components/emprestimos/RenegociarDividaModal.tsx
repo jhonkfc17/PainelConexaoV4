@@ -276,6 +276,7 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
           flags: {
             origem: "ui_registrar_pagamento_modal",
             modo: MODO_JUROS ? "JUROS" : "PARCIAL",
+            contabilizar_como_lucro: MODO_JUROS || undefined,
             reiniciar_contrato: MODO_JUROS || undefined,
             reiniciar_contrato_em: MODO_JUROS ? dataPagamento : undefined,
             amortizar_recalcular_juros: !MODO_JUROS ? amortizar || undefined : undefined,

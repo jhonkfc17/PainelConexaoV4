@@ -108,8 +108,16 @@ export default function PagamentosSidepanel({ open, onClose, emprestimo }: Props
 
   const lucroRealizado = useMemo(() => {
     const principal = Number(emprestimo?.valor ?? 0);
-    return Math.max(totalPagoNaoEstornado - principal, 0);
-  }, [emprestimo, totalPagoNaoEstornado]);
+
+    // Pagamentos marcados com flags.contabilizar_como_lucro não reduzem principal.
+    const totalQueRecuperaPrincipal = (pagamentos ?? [])
+      .filter((p) => !isEstornado(p))
+      .filter((p) => !(p as any)?.flags?.contabilizar_como_lucro)
+      .reduce((acc, p) => acc + Number(p.valor ?? 0), 0);
+
+    const principalRecuperado = Math.min(totalQueRecuperaPrincipal, principal);
+    return Math.max(totalPagoNaoEstornado - principalRecuperado, 0);
+  }, [emprestimo, pagamentos, totalPagoNaoEstornado]);
 
   useEffect(() => {
     if (!open || !emprestimo?.id) return;
