@@ -153,6 +153,22 @@ export default function EmprestimoDetalhe() {
   const pixPadrao = lsGet("cfg_pix", "");
   const assinaturaPadrao = lsGet("cfg_assinatura", "");
 
+  function calcularJurosAtrasoEstimadoLocal() {
+    if (!parcelaParaCobrar?.isAtraso || !parcelaParaCobrar?.diasAtraso) return 0;
+    const payload = ((emprestimo as any)?.payload ?? {}) as any;
+    const cfg = (payload?.juros_atraso_config ?? null) as any;
+    const aplicar = Boolean(cfg?.aplicar ?? (emprestimo as any).aplicarJurosAtraso);
+    const tipo = (cfg?.tipo ?? (emprestimo as any).jurosAtrasoTipo ?? "valor_por_dia") as string;
+    const taxa = Number(cfg?.taxa ?? (emprestimo as any).jurosAtrasoTaxa ?? 0);
+    if (!aplicar || !taxa) return 0;
+
+    const valorParcela = Number(parcelaParaCobrar.valor ?? 0);
+    const porDia = tipo === "percentual_por_dia" ? valorParcela * (taxa / 100) : taxa;
+    return Math.max(0, porDia * Number(parcelaParaCobrar.diasAtraso));
+  }
+
+  const jurosEstimado = calcularJurosAtrasoEstimadoLocal();
+
   const varsBase: Record<string, string> = {
     CLIENTE: emprestimo.clienteNome,
     VALOR: parcelaParaCobrar ? brl(parcelaParaCobrar.valor) : brl(emprestimo.valorParcela),
@@ -165,22 +181,27 @@ export default function EmprestimoDetalhe() {
   const textoNovoContrato = fillTemplate(getMessageTemplate("novo_contrato"), varsBase);
 
   const textoCobranca = (() => {
-    const key =
-      emprestimo.modalidade === "semanal"
-        ? parcelaParaCobrar?.isAtraso
-          ? "atraso_semanal"
-          : "cobranca_semanal"
-        : parcelaParaCobrar?.isAtraso
-        ? "atraso_mensal"
+    // Regra do produto:
+    // - contratos com 1 parcela → usar template "Cobrança (mensal)"
+    // - contratos com mais de 1 parcela → usar template "Cobrança (semanal)"
+    // (mesma regra aplicada para atraso)
+    const maisDeUmaParcela = Number(emprestimo.numeroParcelas ?? 0) > 1;
+    const key = parcelaParaCobrar?.isAtraso
+      ? maisDeUmaParcela
+        ? "atraso_semanal"
+        : "atraso_mensal"
+      : maisDeUmaParcela
+        ? "cobranca_semanal"
         : "cobranca_mensal";
 
     const tpl = getMessageTemplate(key);
     const vars = {
       ...varsBase,
-      VENCIMENTO: parcelaParaCobrar?.vencimento ?? "",
+      DATA: parcelaParaCobrar?.vencimento ?? "",
       DIAS_ATRASO: String(parcelaParaCobrar?.diasAtraso ?? 0),
       PARCELA: parcelaParaCobrar ? String(parcelaParaCobrar.idx + 1) : "",
-      TOTAL_PARCELAS: String(emprestimo.numeroParcelas ?? ""),
+      PARCELAS: String(emprestimo.numeroParcelas ?? ""),
+      JUROS: jurosEstimado > 0 ? brl(jurosEstimado) : "",
     };
 
     return fillTemplate(tpl, vars);
