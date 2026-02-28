@@ -3,8 +3,9 @@ import { useNavigate, useParams } from "react-router-dom";
 
 import type { Cliente } from "../components/clientes/clienteTipos";
 import { getClienteById } from "../services/clientes.service";
-import { type ParcelaInfo } from "../services/emprestimos.service";
+import { type ParcelaInfo, type PagamentoDb } from "../services/emprestimos.service";
 import { listarScoreClientes, type ClienteScore } from "../services/score.service";
+import { supabase } from "../lib/supabaseClient";
 
 import EmprestimosLista from "../components/emprestimos/EmprestimosLista";
 import RegistrarPagamentoModal from "../components/emprestimos/RegistrarPagamentoModal";
@@ -48,6 +49,8 @@ export default function ClienteDetalhe() {
 
   const { emprestimos, fetchEmprestimos, removerEmprestimo, mudarStatus } = useEmprestimosStore();
   const [empLoading, setEmpLoading] = useState(false);
+  const [pagamentosCliente, setPagamentosCliente] = useState<PagamentoDb[]>([]);
+  const [pagLoading, setPagLoading] = useState(false);
 
   // ✅ mantém o empréstimo selecionado sincronizado com o store (para atualizar totais após pagamentos)
   useEffect(() => {
@@ -143,6 +146,35 @@ export default function ClienteDetalhe() {
     return (emprestimos ?? []).filter((e: any) => String((e as any).cliente_id ?? (e as any).clienteId ?? "") === String(id));
   }, [emprestimos, id]);
 
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      if (!emprestimosCliente.length) {
+        setPagamentosCliente([]);
+        return;
+      }
+      try {
+        setPagLoading(true);
+        const ids = emprestimosCliente.map((e: any) => e.id).filter(Boolean);
+        const { data, error } = await supabase
+          .from("pagamentos")
+          .select("id, emprestimo_id, valor, juros_atraso, estornado_em, flags, tipo")
+          .in("emprestimo_id", ids)
+          .is("estornado_em", null);
+        if (error) throw error;
+        if (alive) setPagamentosCliente((data ?? []) as any);
+      } catch (e) {
+        console.error("Falha ao carregar pagamentos do cliente:", e);
+        if (alive) setPagamentosCliente([]);
+      } finally {
+        if (alive) setPagLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [emprestimosCliente]);
+
   const parcelasFlat: ParcelaInfo[] = useMemo(() => {
     const out: ParcelaInfo[] = [];
     for (const emp of emprestimosCliente) {
@@ -173,21 +205,43 @@ export default function ClienteDetalhe() {
     const atrasadas = parcelasFlat.filter((p) => !p.pago && p.vencimento < hojeISO).length;
 
     const totalValorParcelas = parcelasFlat.reduce((s, p) => s + (Number(p.valor) || 0), 0);
-    const totalValorPago = parcelasFlat.reduce((s, p) => s + (Number(p.valor_pago) || 0), 0);
 
-    const lucroRealizado = emprestimos.reduce((acc, e) => {
-      const payload = (e.payload ?? {}) as any;
-      const valorEmprestado = Number(payload.valorEmprestado ?? 0);
-      const totalPagoEmp = (((e as any).parcelasDb ?? []) as any[]).reduce((s, p) => {
-        if (!(p as any).pago) return s;
-        const vp = Number((p as any).valor_pago ?? (p as any).valor ?? 0);
-        return s + (Number.isFinite(vp) ? vp : 0);
-      }, 0);
-      return acc + Math.max(0, totalPagoEmp - valorEmprestado);
+    const totalValorPago = pagamentosCliente.reduce(
+      (s, p) => s + Number((p as any).valor ?? 0) + Number((p as any).juros_atraso ?? 0),
+      0
+    );
+
+    const isLucroDireto = (p: PagamentoDb) => {
+      const flags: any = (p as any).flags ?? {};
+      const modo = String(flags.modo ?? "");
+      return Boolean(
+        flags?.contabilizar_como_lucro ||
+          modo === "JUROS" ||
+          flags?.juros_composto ||
+          (p.tipo === "ADIANTAMENTO_MANUAL" && Number((p as any).juros_atraso ?? 0) > 0)
+      );
+    };
+
+    const lucroRealizado = emprestimosCliente.reduce((acc, e) => {
+      const valorEmprestado = Number((e as any).valor ?? (e.payload as any)?.valorEmprestado ?? 0);
+      const pagosEmp = pagamentosCliente.filter((p) => p.emprestimo_id === e.id && !p.estornado_em);
+
+      const totalRecebido = pagosEmp.reduce(
+        (s, p) => s + Number((p as any).valor ?? 0) + Number((p as any).juros_atraso ?? 0),
+        0
+      );
+
+      const totalQueRecuperaPrincipal = pagosEmp
+        .filter((p) => !isLucroDireto(p))
+        .reduce((s, p) => s + Number((p as any).valor ?? 0), 0);
+
+      const principalRecuperado = Math.min(totalQueRecuperaPrincipal, valorEmprestado);
+      const lucro = totalRecebido - principalRecuperado;
+      return acc + Math.max(lucro, 0);
     }, 0);
 
     return { totalEmp, totalParcelas, pagas, abertas, atrasadas, totalValorParcelas, totalValorPago, lucroRealizado };
-  }, [emprestimos, parcelasFlat, hojeISO]);
+  }, [emprestimos, emprestimosCliente, parcelasFlat, hojeISO, pagamentosCliente]);
 
   if (loading) {
     return <div className="p-6 text-sm text-slate-400">Carregando cliente…</div>;
