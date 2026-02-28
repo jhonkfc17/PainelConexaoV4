@@ -1096,12 +1096,15 @@ function PastaClienteCard({
   emprestimos,
   groupDue,
   onAbrirPasta,
+  pagamentosMapa,
 }: {
   clienteNome: string;
   emprestimos: Emprestimo[];
   groupDue: DueStatus;
   onAbrirPasta: () => void;
+  pagamentosMapa?: Record<string, PagamentoDb[]>;
 }) {
+  const pagamentosMapaSafe = pagamentosMapa ?? {};
   const totalEmprestado = useMemo(
     () => emprestimos.reduce((acc, e) => acc + Number((e as any).valor ?? 0), 0),
     [emprestimos]
@@ -1116,9 +1119,9 @@ function PastaClienteCard({
   const totalPago = useMemo(() => {
     return emprestimos.reduce((acc, e) => {
       const parcelas = Array.isArray((e as any).parcelasDb) ? ((e as any).parcelasDb as any[]) : [];
-      return acc + sumRecebido(parcelas);
+      return acc + (sumPagamentos(pagamentosMapaSafe?.[(e as any).id]) || sumRecebido(parcelas));
     }, 0);
-  }, [emprestimos]);
+  }, [emprestimos, pagamentosMapaSafe]);
 
   const restante = useMemo(() => {
     // soma do saldo pendente real (considera parciais/adiantamentos)
@@ -1293,7 +1296,7 @@ export default function EmprestimosLista({
     }, 0);
     const totalPago = pastaAberta.emprestimos.reduce((acc, e) => {
       const parcelas = Array.isArray((e as any).parcelasDb) ? ((e as any).parcelasDb as any[]) : [];
-      return acc + sumRecebido(parcelas);
+      return acc + (sumPagamentos(pagamentosMapaSafe?.[(e as any).id]) || sumRecebido(parcelas));
     }, 0);
     const restante = pastaAberta.emprestimos.reduce((acc, e) => {
       const parcelas = Array.isArray((e as any).parcelasDb) ? ((e as any).parcelasDb as any[]) : [];
@@ -1370,6 +1373,7 @@ export default function EmprestimosLista({
             clienteNome={g.clienteNome}
             emprestimos={g.emprestimos}
             groupDue={g.groupDue}
+            pagamentosMapa={pagamentosMapaSafe}
             onAbrirPasta={() => setPastaAberta(g)}
           />
         );
