@@ -146,6 +146,16 @@ export default function ClienteDetalhe() {
     return (emprestimos ?? []).filter((e: any) => String((e as any).cliente_id ?? (e as any).clienteId ?? "") === String(id));
   }, [emprestimos, id]);
 
+  const pagamentosMapa = useMemo(() => {
+    const map: Record<string, PagamentoDb[]> = {};
+    for (const p of pagamentosCliente ?? []) {
+      const k = (p as any).emprestimo_id;
+      if (!map[k]) map[k] = [];
+      map[k].push(p);
+    }
+    return map;
+  }, [pagamentosCliente]);
+
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -382,7 +392,7 @@ export default function ClienteDetalhe() {
                 onMudarStatus={onMudarStatus as any}
                 onPagar={abrirPagamento as any}
                 onComprovante={abrirComprovanteEmprestimo as any}
-                pagamentosMapa={pagamentosByEmprestimo as any}
+                pagamentosMapa={pagamentosMapa as any}
               />
             </div>
           )}

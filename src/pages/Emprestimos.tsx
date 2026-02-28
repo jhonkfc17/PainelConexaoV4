@@ -8,6 +8,7 @@ import EmprestimosLista from "../components/emprestimos/EmprestimosLista";
 import NovoEmprestimoModal from "../components/emprestimos/NovoEmprestimoModal";
 import ComprovanteModal from "../components/emprestimos/ComprovanteModal";
 import RegistrarPagamentoModal from "../components/emprestimos/RegistrarPagamentoModal";
+import { supabase } from "../lib/supabaseClient";
 
 import type { NovoEmprestimoPayload } from "../components/emprestimos/emprestimoTipos";
 import type { Emprestimo } from "@/store/useEmprestimosStore";
@@ -46,8 +47,9 @@ export default function Emprestimos() {
   const [emprestimoSelecionado, setEmprestimoSelecionado] = useState<Emprestimo | null>(null);
 
   const { clientes, fetchClientes } = useClientesStore();
-  const { emprestimos, fetchEmprestimos, criarEmprestimo, removerEmprestimo, mudarStatus, pagamentosByEmprestimo } =
+  const { emprestimos, fetchEmprestimos, criarEmprestimo, removerEmprestimo, mudarStatus } =
     useEmprestimosStore();
+  const [pagamentosMapa, setPagamentosMapa] = useState<Record<string, any[]>>({});
 
   // ✅ mantém o empréstimo selecionado sincronizado com o store (atualiza totais após pagamentos)
   useEffect(() => {
@@ -61,6 +63,39 @@ export default function Emprestimos() {
     void fetchClientes();
     void fetchEmprestimos();
   }, [fetchClientes, fetchEmprestimos]);
+
+  // Carrega pagamentos (valor + juros) para exibir "Recebido" nos cards da lista
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      if (!emprestimos.length) {
+        setPagamentosMapa({});
+        return;
+      }
+      try {
+        const ids = emprestimos.map((e) => e.id).filter(Boolean);
+        const { data, error } = await supabase
+          .from("pagamentos")
+          .select("id, emprestimo_id, valor, juros_atraso, estornado_em")
+          .in("emprestimo_id", ids)
+          .is("estornado_em", null);
+        if (error) throw error;
+        const map: Record<string, any[]> = {};
+        for (const p of data ?? []) {
+          const k = (p as any).emprestimo_id;
+          if (!map[k]) map[k] = [];
+          map[k].push(p as any);
+        }
+        if (alive) setPagamentosMapa(map);
+      } catch (e) {
+        console.error("Falha ao carregar pagamentos para cards:", e);
+        if (alive) setPagamentosMapa({});
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [emprestimos]);
 
   // Abre "Novo empréstimo" já com o cliente preenchido quando vier do perfil do cliente
   useEffect(() => {
@@ -257,7 +292,7 @@ export default function Emprestimos() {
           onMudarStatus={onMudarStatus}
           onPagar={abrirPagamento}
           onComprovante={abrirComprovanteEmprestimo}
-          pagamentosMapa={pagamentosByEmprestimo as any}
+          pagamentosMapa={pagamentosMapa}
         />
       </div>
 
