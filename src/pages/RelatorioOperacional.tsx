@@ -200,6 +200,13 @@ function sumPago(ps: ParcelaDb[]): number {
   return ps.reduce((a, p) => a + parcelaPagoValor(p), 0);
 }
 
+function sumPagoPeriodo(emps: Emprestimo[], cond: (p: ParcelaDb) => boolean): number {
+  return emps.reduce((acc, e) => {
+    const ps = Array.isArray((e as any).parcelasDb) ? ((e as any).parcelasDb as ParcelaDb[]) : [];
+    return acc + ps.filter(cond).reduce((a, p) => a + parcelaPagoValor(p), 0);
+  }, 0);
+}
+
 function sumAtraso(ps: ParcelaDb[], hoje: string): number {
   return ps
     .filter((p) => {
@@ -289,6 +296,44 @@ export default function RelatorioOperacional() {
 
   const pagamentosRecebidosMes = useMemo(() => pagamentosMes.reduce((a, p) => a + safeNumber(p.valor), 0), [pagamentosMes]);
   const jurosRecebidosMes = useMemo(() => pagamentosMes.reduce((a, p) => a + safeNumber(p.juros_atraso ?? 0), 0), [pagamentosMes]);
+
+  const totalPagoAntesMes = useMemo(
+    () =>
+      sumPagoPeriodo(emprestimos, (p) => {
+        const pagoEm = toISODateOnly((p as any).pago_em ?? "");
+        return pagoEm && pagoEm < inicioMesISO;
+      }),
+    [emprestimos, inicioMesISO]
+  );
+
+  const totalPagoNoMes = useMemo(
+    () =>
+      sumPagoPeriodo(emprestimos, (p) => {
+        const pagoEm = toISODateOnly((p as any).pago_em ?? "");
+        return pagoEm && pagoEm >= inicioMesISO && pagoEm <= hojeISO;
+      }),
+    [emprestimos, inicioMesISO, hojeISO]
+  );
+
+  const principalTotalContratos = useMemo(() => emprestimos.reduce((a, e) => a + safeNumber((e as any).valor ?? 0), 0), [emprestimos]);
+
+  const principalRecuperadoAntesMes = useMemo(
+    () => Math.min(totalPagoAntesMes, principalTotalContratos),
+    [totalPagoAntesMes, principalTotalContratos]
+  );
+  const principalRestanteParaMes = useMemo(
+    () => Math.max(0, principalTotalContratos - principalRecuperadoAntesMes),
+    [principalTotalContratos, principalRecuperadoAntesMes]
+  );
+  const principalRecuperadoNoMes = useMemo(
+    () => Math.min(totalPagoNoMes, principalRestanteParaMes),
+    [totalPagoNoMes, principalRestanteParaMes]
+  );
+
+  const lucroRealizadoMes = useMemo(
+    () => Math.max(0, totalPagoNoMes - principalRecuperadoNoMes),
+    [totalPagoNoMes, principalRecuperadoNoMes]
+  );
 
   const emprestimosConcedidosMes = useMemo(() => {
     return emprestimos
