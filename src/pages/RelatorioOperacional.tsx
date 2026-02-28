@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 import {
   Bar,
@@ -23,7 +23,11 @@ import {
   Wallet,
 } from "lucide-react";
 
+import { supabase } from "@/lib/supabaseClient";
+import { listEmprestimos, type Emprestimo, type ParcelaDb } from "@/services/emprestimos.service";
+
 type MoneyRow = { label: string; value: number };
+
 type Status = "em_atraso" | "hoje" | "ok";
 
 type ContratoAtivoRow = {
@@ -47,6 +51,23 @@ function brl(v: number): string {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+function formatBR(dISO: string): string {
+  if (!dISO) return "-";
+  const [y, m, d] = dISO.slice(0, 10).split("-");
+  if (!y || !m || !d) return "-";
+  return `${d}/${m}/${y}`;
+}
+
+function toISODateOnly(v: any): string {
+  const s = String(v ?? "");
+  return s.length >= 10 ? s.slice(0, 10) : "";
+}
+
+function safeNumber(v: any): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
 function StatusPill({ status }: { status: Status }) {
   const map: Record<Status, { label: string; cls: string }> = {
     em_atraso: { label: "Em Atraso", cls: "bg-red-500/15 text-red-300 border-red-500/30" },
@@ -54,7 +75,11 @@ function StatusPill({ status }: { status: Status }) {
     ok: { label: "Em Dia", cls: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" },
   };
   const s = map[status];
-  return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] ${s.cls}`}>{s.label}</span>;
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] ${s.cls}`}>
+      {s.label}
+    </span>
+  );
 }
 
 function Card({
@@ -144,71 +169,263 @@ function SectionBox({
   );
 }
 
+function parcelaPagoValor(p: ParcelaDb): number {
+  const v = (p as any).valor_pago_acumulado ?? (p as any).valor_pago ?? 0;
+  return Math.max(0, safeNumber(v));
+}
+
+function parcelaSaldoRestante(p: ParcelaDb): number {
+  const saldo = (p as any).saldo_restante;
+  if (saldo != null) return Math.max(0, safeNumber(saldo));
+  const valor = safeNumber((p as any).valor ?? 0);
+  return Math.max(0, valor - parcelaPagoValor(p));
+}
+
+function parcelasAbertas(e: Emprestimo): ParcelaDb[] {
+  const ps = Array.isArray((e as any).parcelasDb) ? ((e as any).parcelasDb as ParcelaDb[]) : [];
+  return ps.filter((p) => parcelaSaldoRestante(p) > 0.00001);
+}
+
+function sumSaldo(ps: ParcelaDb[]): number {
+  return ps.reduce((a, p) => a + parcelaSaldoRestante(p), 0);
+}
+
+function sumPago(ps: ParcelaDb[]): number {
+  return ps.reduce((a, p) => a + parcelaPagoValor(p), 0);
+}
+
+function sumAtraso(ps: ParcelaDb[], hoje: string): number {
+  return ps
+    .filter((p) => {
+      const v = toISODateOnly((p as any).vencimento);
+      return v && v < hoje;
+    })
+    .reduce((a, p) => a + parcelaSaldoRestante(p), 0);
+}
+
+function nextVencimento(ps: ParcelaDb[]): string {
+  const dates = ps
+    .map((p) => toISODateOnly((p as any).vencimento))
+    .filter(Boolean)
+    .sort();
+  return dates[0] ?? "";
+}
+
+function statusContrato(psAbertas: ParcelaDb[], hoje: string): Status {
+  const venc = nextVencimento(psAbertas);
+  const atraso = sumAtraso(psAbertas, hoje);
+  if (atraso > 0.00001) return "em_atraso";
+  if (venc && venc === hoje) return "hoje";
+  return "ok";
+}
+
 export default function RelatorioOperacional() {
-  // UI fiel ao layout da tela enviada. Os valores abaixo estão alinhados com o print.
-  // Se quiser conectar com dados reais depois, é só manter o mesmo shape e substituir as constantes.
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [emprestimos, setEmprestimos] = useState<Emprestimo[]>([]);
+  const [pagamentosMes, setPagamentosMes] = useState<{ valor: number; juros_atraso: number | null }[]>([]);
 
-  const saidas: MoneyRow[] = [
-    { label: "Empréstimos concedidos", value: 5620 },
-    { label: "Contas a pagar (fixas)", value: 4429 },
-    { label: "Contas avulsas", value: 0 },
-  ];
-  const entradas: MoneyRow[] = [
-    { label: "Pagamentos recebidos", value: 6294.96 },
-    { label: "Outros ganhos", value: 6294.96 },
-    { label: "Em atraso", value: 1341 },
-  ];
+  const hojeISO = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const inicioMesISO = useMemo(() => {
+    const d = new Date();
+    d.setDate(1);
+    d.setHours(0, 0, 0, 0);
+    return d.toISOString().slice(0, 10);
+  }, []);
 
-  const resultadoPeriodo = 864.98;
-  const naRua = 1350;
-  const lucro = 3619.98;
+  async function carregar() {
+    setLoading(true);
+    setError(null);
+    try {
+      const [emp, pays] = await Promise.all([
+        listEmprestimos(),
+        supabase
+          .from("pagamentos")
+          .select("valor, juros_atraso, data_pagamento, estornado_em")
+          .gte("data_pagamento", inicioMesISO)
+          .lte("data_pagamento", hojeISO)
+          .is("estornado_em", null),
+      ]);
 
-  const indicadores = {
-    capitalNaRua: 3555,
-    jurosAReceber: 821,
-    totalRecebido: 6294.96,
-    jurosRecebidos: 1716,
-    emAtraso: 1341,
-    lucroRealizado: 3619.98,
-  };
+      setEmprestimos((emp ?? []) as any);
+      if (pays.error) throw pays.error;
+      setPagamentosMes(
+        ((pays.data ?? []) as any[]).map((p) => ({
+          valor: safeNumber(p.valor),
+          juros_atraso: p.juros_atraso == null ? null : safeNumber(p.juros_atraso),
+        }))
+      );
+    } catch (e: any) {
+      console.error(e);
+      setError(e?.message ?? "Falha ao carregar dados do relatório.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
-  const evolucaoMensal = [
-    { label: "Jan", naRua: 0, emprestado: 0, lucro: 0 },
-    { label: "Fev", naRua: 0, emprestado: 0, lucro: 0 },
-    { label: "Mar", naRua: 0, emprestado: 0, lucro: 0 },
-    { label: "Abr", naRua: 0, emprestado: 0, lucro: 0 },
-    { label: "Mai", naRua: 0, emprestado: 0, lucro: 0 },
-    { label: "Jun", naRua: 520, emprestado: 410, lucro: 280 },
-    { label: "Jul", naRua: 1350, emprestado: 920, lucro: 620 },
-  ];
+  useEffect(() => {
+    void carregar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const distribuicao = [
-    { label: "Na Rua", valor: 3555 },
-    { label: "Recebido", valor: 6294.96 },
-    { label: "Pendente", valor: 821 },
-    { label: "Atraso", valor: 1341 },
-  ];
+  const emprestimosAtivos = useMemo(() => {
+    return emprestimos.filter((e) => String((e as any).status ?? "").toLowerCase() !== "quitado");
+  }, [emprestimos]);
 
-  const contratosAtivos: ContratoAtivoRow[] = [
-    { cliente: "User 5", emprestado: 630, pago: 0, falta: 945, status: "em_atraso", vencimento: "17/02/2026" },
-    {
-      cliente: "JHON KELVIN FERNANDES CARDOSO 2",
-      emprestado: 1000,
-      pago: 0,
-      falta: 1500,
-      status: "hoje",
-      vencimento: "19/02/2026",
-    },
-    { cliente: "user3", emprestado: 300, pago: 0, falta: 420, status: "em_atraso", vencimento: "17/09/2027" },
-    { cliente: "user2", emprestado: 500, pago: 675, falta: 225, status: "em_atraso", vencimento: "20/02/2026" },
-    { cliente: "user2", emprestado: 300, pago: 340, falta: 340, status: "hoje", vencimento: "19/02/2026" },
-  ];
+  const pagamentosRecebidosMes = useMemo(() => pagamentosMes.reduce((a, p) => a + safeNumber(p.valor), 0), [pagamentosMes]);
+  const jurosRecebidosMes = useMemo(() => pagamentosMes.reduce((a, p) => a + safeNumber(p.juros_atraso ?? 0), 0), [pagamentosMes]);
 
-  const contratosAtraso: ContratoAtrasoRow[] = [
-    { cliente: "User 5", atraso: 945, emprestado: 630, vencimento: "17/02/2026", ticket: "389653.00" },
-    { cliente: "user3", atraso: 420, emprestado: 300, vencimento: "17/09/2027", ticket: "389653.00" },
-    { cliente: "user2", atraso: 225, emprestado: 500, vencimento: "20/02/2026", ticket: "389653.00" },
-  ];
+  const emprestimosConcedidosMes = useMemo(() => {
+    return emprestimos
+      .filter((e) => {
+        const createdISO = toISODateOnly((e as any).createdAt ?? (e as any).created_at);
+        return createdISO && createdISO >= inicioMesISO && createdISO <= hojeISO;
+      })
+      .reduce((a, e) => a + safeNumber((e as any).valor ?? 0), 0);
+  }, [emprestimos, inicioMesISO, hojeISO]);
+
+  const { capitalNaRua, emAtraso } = useMemo(() => {
+    let naRua = 0;
+    let atraso = 0;
+    for (const e of emprestimosAtivos) {
+      const ab = parcelasAbertas(e);
+      naRua += sumSaldo(ab);
+      atraso += sumAtraso(ab, hojeISO);
+    }
+    return { capitalNaRua: naRua, emAtraso: atraso };
+  }, [emprestimosAtivos, hojeISO]);
+
+  const jurosPrevistos = useMemo(() => {
+    const totalReceber = emprestimosAtivos.reduce((a, e) => a + safeNumber((e as any).totalReceber ?? 0), 0);
+    const principal = emprestimosAtivos.reduce((a, e) => a + safeNumber((e as any).valor ?? 0), 0);
+    return Math.max(0, totalReceber - principal);
+  }, [emprestimosAtivos]);
+
+  const pagoTotalAtivos = useMemo(() => {
+    return emprestimosAtivos.reduce((a, e) => a + sumPago((e as any).parcelasDb ?? []), 0);
+  }, [emprestimosAtivos]);
+
+  const jurosAReceber = useMemo(() => {
+    // Sem histórico consolidado de pagamentos, estimamos o "a receber" do período como:
+    // juros previstos em contratos ativos - juros recebidos no mês.
+    return Math.max(0, jurosPrevistos - jurosRecebidosMes);
+  }, [jurosPrevistos, jurosRecebidosMes]);
+
+  const resultadoPeriodo = useMemo(() => {
+    // Resultado do período (mês atual) = entradas - saídas.
+    // Não existe módulo de contas fixas/avulsas no projeto (logo, 0 aqui).
+    return pagamentosRecebidosMes - emprestimosConcedidosMes;
+  }, [pagamentosRecebidosMes, emprestimosConcedidosMes]);
+
+  const indicadores = useMemo(() => {
+    return {
+      capitalNaRua,
+      jurosAReceber,
+      totalRecebido: pagamentosRecebidosMes,
+      jurosRecebidos: jurosRecebidosMes,
+      emAtraso,
+      lucroRealizado: jurosRecebidosMes,
+    };
+  }, [capitalNaRua, jurosAReceber, pagamentosRecebidosMes, jurosRecebidosMes, emAtraso]);
+
+  const saidas: MoneyRow[] = useMemo(
+    () => [
+      { label: "Empréstimos concedidos", value: emprestimosConcedidosMes },
+      { label: "Contas a pagar (fixas)", value: 0 },
+      { label: "Contas avulsas", value: 0 },
+    ],
+    [emprestimosConcedidosMes]
+  );
+
+  const entradas: MoneyRow[] = useMemo(
+    () => [
+      { label: "Pagamentos recebidos", value: pagamentosRecebidosMes },
+      { label: "Outros ganhos", value: jurosRecebidosMes },
+      { label: "Em atraso", value: emAtraso },
+    ],
+    [pagamentosRecebidosMes, jurosRecebidosMes, emAtraso]
+  );
+
+  const distribuicao = useMemo(
+    () => [
+      { label: "Na Rua", valor: indicadores.capitalNaRua },
+      { label: "Recebido", valor: indicadores.totalRecebido },
+      { label: "Pendente", valor: indicadores.jurosAReceber },
+      { label: "Atraso", valor: indicadores.emAtraso },
+    ],
+    [indicadores]
+  );
+
+  const evolucaoMensal = useMemo(() => {
+    // Sem tabela de histórico, usamos uma série estável para manter o layout,
+    // baseada no snapshot atual (evita inventar valores por mês).
+    const labels = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+    const now = new Date();
+    const out: any[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      out.push({
+        label: labels[d.getMonth()],
+        naRua: indicadores.capitalNaRua,
+        emprestado: emprestimosConcedidosMes,
+        lucro: indicadores.lucroRealizado,
+      });
+    }
+    return out;
+  }, [indicadores.capitalNaRua, indicadores.lucroRealizado, emprestimosConcedidosMes]);
+
+  const contratosAtivos: ContratoAtivoRow[] = useMemo(() => {
+    return emprestimosAtivos
+      .map((e) => {
+        const ab = parcelasAbertas(e);
+        const venc = nextVencimento(ab);
+        const pago = sumPago((e as any).parcelasDb ?? []);
+        const falta = Math.max(0, safeNumber((e as any).totalReceber ?? 0) - pago);
+        return {
+          cliente: String((e as any).clienteNome ?? ""),
+          emprestado: safeNumber((e as any).valor ?? 0),
+          pago,
+          falta,
+          status: statusContrato(ab, hojeISO),
+          vencimento: formatBR(venc),
+        };
+      })
+      .sort((a, b) => {
+        const orderStatus = (s: Status) => (s === "em_atraso" ? 0 : s === "hoje" ? 1 : 2);
+        const ds = orderStatus(a.status) - orderStatus(b.status);
+        if (ds !== 0) return ds;
+        return (a.vencimento ?? "").localeCompare(b.vencimento ?? "");
+      })
+      .slice(0, 5);
+  }, [emprestimosAtivos, hojeISO]);
+
+  const contratosAtraso: ContratoAtrasoRow[] = useMemo(() => {
+    return emprestimosAtivos
+      .map((e) => {
+        const ab = parcelasAbertas(e);
+        const atraso = sumAtraso(ab, hojeISO);
+        if (!(atraso > 0.00001)) return null;
+
+        const venc = nextVencimento(
+          ab.filter((p) => {
+            const v = toISODateOnly((p as any).vencimento);
+            return v && v < hojeISO;
+          })
+        );
+
+        return {
+          cliente: String((e as any).clienteNome ?? ""),
+          atraso,
+          emprestado: safeNumber((e as any).valor ?? 0),
+          vencimento: formatBR(venc),
+          // não existe "ticket" no banco; mantemos a coluna para preservar layout.
+          ticket: String((e as any).id ?? "").slice(0, 8),
+        };
+      })
+      .filter(Boolean)
+      .sort((a: any, b: any) => b.atraso - a.atraso)
+      .slice(0, 5) as ContratoAtrasoRow[];
+  }, [emprestimosAtivos, hojeISO]);
 
   return (
     <div className="min-h-[calc(100vh-64px)] p-0 sm:p-2 overflow-x-hidden">
@@ -218,13 +435,17 @@ export default function RelatorioOperacional() {
           <div className="flex items-center gap-2">
             <div className="text-lg font-semibold text-white">Fluxo de Caixa</div>
             <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
-              Teste
+              {loading ? "Carregando" : error ? "Erro" : "Ao vivo"}
             </span>
           </div>
           <div className="mt-1 text-xs text-slate-400">
-            Veja o saldo acumulado por período, quais contas pagaram e suas entradas e saídas, e o valor final
-            da comparação.
+            Veja o saldo acumulado por período, quais contas pagaram e suas entradas e saídas, e o valor final da
+            comparação.
           </div>
+          <div className="mt-2 text-[11px] text-slate-500">
+            Período: {formatBR(inicioMesISO)} até {formatBR(hojeISO)}
+          </div>
+          {error ? <div className="mt-2 text-[11px] text-red-300">{error}</div> : null}
         </div>
 
         <button
@@ -248,7 +469,10 @@ export default function RelatorioOperacional() {
         <div className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-300">
           <CircleDollarSign size={16} /> Resultado do Período
         </div>
-        <div className="mt-1 text-2xl font-extrabold text-emerald-200">+{brl(resultadoPeriodo)}</div>
+        <div className="mt-1 text-2xl font-extrabold text-emerald-200">
+          {resultadoPeriodo >= 0 ? "+" : "-"}
+          {brl(Math.abs(resultadoPeriodo))}
+        </div>
         <div className="mt-0.5 text-[11px] text-emerald-200/70">ENTRADAS - SAÍDAS DO CAIXA</div>
       </div>
 
@@ -258,63 +482,80 @@ export default function RelatorioOperacional() {
           <div className="flex items-center justify-center gap-2 text-xs font-semibold text-amber-300">
             <Wallet size={16} /> Na Rua
           </div>
-          <div className="mt-2 text-lg font-semibold text-amber-200">{brl(naRua)}</div>
+          <div className="mt-2 text-2xl font-extrabold text-amber-200">{brl(indicadores.capitalNaRua)}</div>
+          <div className="mt-1 text-[11px] text-amber-200/70">VALOR A RECEBER</div>
         </div>
 
         <div className="rounded-2xl border border-emerald-500/25 bg-emerald-950/10 shadow-glow backdrop-blur-md p-4 text-center">
           <div className="flex items-center justify-center gap-2 text-xs font-semibold text-emerald-300">
-            <ArrowUpCircle size={16} /> Lucro
+            <CircleDollarSign size={16} /> Lucro
           </div>
-          <div className="mt-2 text-lg font-semibold text-emerald-200">{brl(lucro)}</div>
+          <div className="mt-2 text-2xl font-extrabold text-emerald-200">{brl(indicadores.lucroRealizado)}</div>
+          <div className="mt-1 text-[11px] text-emerald-200/70">JUROS RECEBIDOS (PERÍODO)</div>
         </div>
 
-        <div className="rounded-2xl border border-emerald-500/25 bg-emerald-950/10 shadow-glow backdrop-blur-md p-4 text-center">
-          <div className="flex items-center justify-center gap-2 text-xs font-semibold text-emerald-300">
-            <ArrowDownCircle size={16} /> Resultado
+        <div className="rounded-2xl border border-purple-500/25 bg-purple-950/10 shadow-glow backdrop-blur-md p-4 text-center">
+          <div className="flex items-center justify-center gap-2 text-xs font-semibold text-purple-300">
+            <CircleDollarSign size={16} /> Pago
           </div>
-          <div className="mt-2 text-lg font-semibold text-emerald-200">+{brl(resultadoPeriodo)}</div>
+          <div className="mt-2 text-2xl font-extrabold text-purple-200">{brl(pagoTotalAtivos)}</div>
+          <div className="mt-1 text-[11px] text-purple-200/70">TOTAL PAGO EM CONTRATOS ATIVOS</div>
         </div>
       </div>
 
-      {/* Indicadores */}
-      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
+      {/* Linha de cards */}
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
         <Card icon={<Wallet size={16} />} title="Capital na Rua" value={brl(indicadores.capitalNaRua)} subtitle="Em contratos ativos" tone="emerald" />
-        <Card icon={<ArrowUpCircle size={16} />} title="Juros a Receber" value={brl(indicadores.jurosAReceber)} subtitle="No período" tone="emerald" />
-        <Card icon={<CircleDollarSign size={16} />} title="Total Recebido" value={brl(indicadores.totalRecebido)} subtitle="Histórico" tone="emerald" />
-        <Card icon={<CircleDollarSign size={16} />} title="Juros Recebidos" value={brl(indicadores.jurosRecebidos)} subtitle="Saldo acumulado" tone="amber" />
-        <Card icon={<AlertTriangle size={16} />} title="Em Atraso" value={brl(indicadores.emAtraso)} subtitle="2 contratos" tone="red" />
-        <Card icon={<Download size={16} />} title="Lucro Realizado" value={brl(indicadores.lucroRealizado)} subtitle="Juros já recebidos" tone="purple" />
+        <Card icon={<ArrowUpCircle size={16} />} title="Juros a Receber" value={brl(indicadores.jurosAReceber)} subtitle="Estimado" tone="amber" />
+        <Card icon={<ArrowDownCircle size={16} />} title="Total Recebido" value={brl(indicadores.totalRecebido)} subtitle="No período" tone="emerald" />
+        <Card icon={<CircleDollarSign size={16} />} title="Juros Recebidos" value={brl(indicadores.jurosRecebidos)} subtitle="No período" tone="emerald" />
+        <Card icon={<AlertTriangle size={16} />} title="Em Atraso" value={brl(indicadores.emAtraso)} subtitle="Saldo vencido" tone="red" />
+        <Card icon={<CircleDollarSign size={16} />} title="Lucro Realizado" value={brl(indicadores.lucroRealizado)} subtitle="Juros recebidos" tone="purple" />
       </div>
 
       {/* Gráficos */}
-      <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-2">
-        <div className="rounded-2xl border border-emerald-500/15 bg-white/5 p-4 min-w-0">
-          <div className="text-sm font-semibold text-white/80">Evolução Mensal</div>
-          <div className="mt-3 h-56 min-w-0 overflow-hidden rounded-xl border border-white/10 bg-black/20 p-2">
-            <ResponsiveContainer width="100%" height={240}>
-              <LineChart data={evolucaoMensal} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                <XAxis dataKey="label" tick={{ fill: "rgba(255,255,255,0.7)", fontSize: 12 }} />
-                <YAxis tick={{ fill: "rgba(255,255,255,0.7)", fontSize: 12 }} />
-                <Tooltip formatter={(value: any, name: any) => [brl(Number(value ?? 0)), String(name)]} labelStyle={{ color: "rgba(0,0,0,0.8)" }} />
-                <Line type="monotone" dataKey="naRua" name="Na Rua" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="emprestado" name="Emprestado" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="lucro" name="Lucro" strokeWidth={2} dot={false} />
+      <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <div className="rounded-2xl border border-emerald-500/20 bg-slate-950/30 shadow-glow backdrop-blur-md p-4">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-semibold text-white">Evolução Mensal</div>
+            <button
+              type="button"
+              onClick={() => void carregar()}
+              className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/10"
+              title="Recarregar"
+            >
+              <RefreshCcw size={14} />
+              Atualizar
+            </button>
+          </div>
+          <div className="mt-3 h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={evolucaoMensal}>
+                <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
+                <XAxis dataKey="label" strokeOpacity={0.6} />
+                <YAxis strokeOpacity={0.6} />
+                <Tooltip />
+                <Line type="monotone" dataKey="naRua" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="emprestado" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="lucro" strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
+          <div className="mt-2 text-[11px] text-slate-500">
+            * Gráfico mantém o layout (histórico mensal depende de uma tabela de histórico para ficar 100% fiel).
+          </div>
         </div>
 
-        <div className="rounded-2xl border border-emerald-500/15 bg-white/5 p-4 min-w-0">
-          <div className="text-sm font-semibold text-white/80">Distribuição</div>
-          <div className="mt-3 h-56 min-w-0 overflow-hidden rounded-xl border border-white/10 bg-black/20 p-2">
-            <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={distribuicao} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                <XAxis dataKey="label" tick={{ fill: "rgba(255,255,255,0.7)", fontSize: 12 }} />
-                <YAxis tick={{ fill: "rgba(255,255,255,0.7)", fontSize: 12 }} />
-                <Tooltip formatter={(value: any) => brl(Number(value ?? 0))} labelStyle={{ color: "rgba(0,0,0,0.8)" }} />
-                <Bar dataKey="valor" name="Valor" />
+        <div className="rounded-2xl border border-emerald-500/20 bg-slate-950/30 shadow-glow backdrop-blur-md p-4">
+          <div className="text-sm font-semibold text-white">Distribuição</div>
+          <div className="mt-3 h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={distribuicao}>
+                <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
+                <XAxis dataKey="label" strokeOpacity={0.6} />
+                <YAxis strokeOpacity={0.6} />
+                <Tooltip />
+                <Bar dataKey="valor" />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -322,78 +563,91 @@ export default function RelatorioOperacional() {
       </div>
 
       {/* Tabelas */}
-      <div className="mt-3 rounded-2xl border border-emerald-500/15 bg-white/5 p-4">
-        <div className="flex items-center justify-between">
-          <div className="text-sm font-semibold text-white/80">Contratos Ativos (Na Rua)</div>
-          <button
-            type="button"
-            className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white/70 hover:bg-white/10"
-            onClick={() => alert("Atualizar: em breve")}
-            title="Atualizar"
-          >
-            <RefreshCcw size={14} />
-          </button>
-        </div>
+      <div className="mt-3 grid grid-cols-1 gap-3">
+        <div className="rounded-2xl border border-emerald-500/20 bg-slate-950/30 shadow-glow backdrop-blur-md overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3">
+            <div className="text-sm font-semibold text-white">Contratos Ativos (Na Rua)</div>
+            <button
+              type="button"
+              onClick={() => alert("Exportar: em breve")}
+              className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/10"
+            >
+              <Download size={14} />
+              Exportar
+            </button>
+          </div>
 
-        <div className="mt-3 overflow-x-auto rounded-xl border border-white/10">
-          <table className="min-w-[900px] w-full text-sm">
-            <thead className="bg-black/30">
-              <tr className="text-left text-xs text-white/60">
-                <th className="px-3 py-2">Cliente</th>
-                <th className="px-3 py-2">Emprestado</th>
-                <th className="px-3 py-2">Pago</th>
-                <th className="px-3 py-2">Falta</th>
-                <th className="px-3 py-2">Status</th>
-                <th className="px-3 py-2">Vencimento</th>
-              </tr>
-            </thead>
-            <tbody>
-              {contratosAtivos.map((r) => (
-                <tr key={`${r.cliente}-${r.vencimento}`} className="border-t border-white/10 text-white/80">
-                  <td className="px-3 py-2 text-xs">{r.cliente}</td>
-                  <td className="px-3 py-2 text-xs">{brl(r.emprestado)}</td>
-                  <td className="px-3 py-2 text-xs text-emerald-200">{brl(r.pago)}</td>
-                  <td className="px-3 py-2 text-xs">{brl(r.falta)}</td>
-                  <td className="px-3 py-2 text-xs">
+          <div className="border-t border-white/10">
+            <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[11px] font-semibold text-slate-400">
+              <div className="col-span-4">Cliente</div>
+              <div className="col-span-2 text-right">Emprestado</div>
+              <div className="col-span-2 text-right">Pago</div>
+              <div className="col-span-2 text-right">Falta</div>
+              <div className="col-span-1 text-center">Status</div>
+              <div className="col-span-1 text-right">Venc.</div>
+            </div>
+
+            {contratosAtivos.length === 0 ? (
+              <div className="px-4 py-4 text-sm text-slate-400">Nenhum contrato ativo encontrado.</div>
+            ) : (
+              contratosAtivos.map((r, idx) => (
+                <div
+                  key={`${r.cliente}-${idx}`}
+                  className="grid grid-cols-12 gap-2 px-4 py-3 text-sm border-t border-white/5"
+                >
+                  <div className="col-span-4 text-slate-200 truncate">{r.cliente || "-"}</div>
+                  <div className="col-span-2 text-right text-emerald-200 font-semibold">{brl(r.emprestado)}</div>
+                  <div className="col-span-2 text-right text-slate-200">{brl(r.pago)}</div>
+                  <div className="col-span-2 text-right text-slate-200">{brl(r.falta)}</div>
+                  <div className="col-span-1 flex justify-center">
                     <StatusPill status={r.status} />
-                  </td>
-                  <td className="px-3 py-2 text-xs text-white/60">{r.vencimento}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div className="mt-3 rounded-2xl border border-red-500/20 bg-red-950/10 p-4">
-        <div className="flex items-center justify-between">
-          <div className="text-sm font-semibold text-red-200">Contratos em Atraso</div>
-          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-red-500/20 text-xs text-red-200">{contratosAtraso.length}</span>
+                  </div>
+                  <div className="col-span-1 text-right text-slate-300">{r.vencimento}</div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
 
-        <div className="mt-3 overflow-x-auto rounded-xl border border-red-500/20">
-          <table className="min-w-[900px] w-full text-sm">
-            <thead className="bg-black/30">
-              <tr className="text-left text-xs text-white/60">
-                <th className="px-3 py-2">Cliente</th>
-                <th className="px-3 py-2">Atraso</th>
-                <th className="px-3 py-2">Emprestado</th>
-                <th className="px-3 py-2">Vencimento</th>
-                <th className="px-3 py-2">Ticket</th>
-              </tr>
-            </thead>
-            <tbody>
-              {contratosAtraso.map((r) => (
-                <tr key={`${r.cliente}-${r.vencimento}`} className="border-t border-red-500/10 text-white/80">
-                  <td className="px-3 py-2 text-xs">{r.cliente}</td>
-                  <td className="px-3 py-2 text-xs text-red-200">{brl(r.atraso)}</td>
-                  <td className="px-3 py-2 text-xs">{brl(r.emprestado)}</td>
-                  <td className="px-3 py-2 text-xs text-white/60">{r.vencimento}</td>
-                  <td className="px-3 py-2 text-xs text-white/60">{r.ticket}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="rounded-2xl border border-red-500/20 bg-slate-950/30 shadow-glow backdrop-blur-md overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3">
+            <div className="text-sm font-semibold text-white">Contratos em Atraso</div>
+            <button
+              type="button"
+              onClick={() => alert("Exportar: em breve")}
+              className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/10"
+            >
+              <Download size={14} />
+              Exportar
+            </button>
+          </div>
+
+          <div className="border-t border-white/10">
+            <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[11px] font-semibold text-slate-400">
+              <div className="col-span-4">Cliente</div>
+              <div className="col-span-2 text-right">Atraso</div>
+              <div className="col-span-2 text-right">Emprestado</div>
+              <div className="col-span-2 text-right">Venc.</div>
+              <div className="col-span-2 text-right">Ticket</div>
+            </div>
+
+            {contratosAtraso.length === 0 ? (
+              <div className="px-4 py-4 text-sm text-slate-400">Nenhum contrato em atraso.</div>
+            ) : (
+              contratosAtraso.map((r, idx) => (
+                <div
+                  key={`${r.cliente}-${idx}`}
+                  className="grid grid-cols-12 gap-2 px-4 py-3 text-sm border-t border-white/5"
+                >
+                  <div className="col-span-4 text-slate-200 truncate">{r.cliente || "-"}</div>
+                  <div className="col-span-2 text-right text-red-300 font-semibold">{brl(r.atraso)}</div>
+                  <div className="col-span-2 text-right text-slate-200">{brl(r.emprestado)}</div>
+                  <div className="col-span-2 text-right text-slate-300">{r.vencimento}</div>
+                  <div className="col-span-2 text-right text-slate-400">{r.ticket}</div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </div>
     </div>
