@@ -463,7 +463,7 @@ function EmprestimoCardPasta({
     sumRecebido(parcelas);
   const restante = parcelas.length > 0 ? sumRestante(parcelas) : Math.max(totalReceber - totalPago, 0);
   const lucroPrevisto = Math.max(totalReceber - totalEmprestado, 0);
-  const lucroRealizado = totalPago - totalEmprestado;
+  const lucroRealizado = Math.max(totalPago - totalEmprestado, 0);
 
   const jurosPorParcela = (() => {
     const aplicado = String((emprestimo as any).jurosAplicado ?? "") as string;
