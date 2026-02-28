@@ -469,16 +469,11 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   const totalRecebidoMesComPagamentos = totalRecebidoMes + pagamentosMesValor;
 
   // Lucro realizado no mês:
-  // - Recupera principal (capital emprestado) primeiro, na ordem temporal.
-  // - O excedente recebido no mês é considerado lucro (juros/multa).
-  const principalTotalMes = capitalEmprestado;
-  const principalRecuperadoAntesMes = Math.min(totalRecebidoAntesMes, principalTotalMes);
-  const principalRestanteAntesMes = Math.max(0, principalTotalMes - principalRecuperadoAntesMes);
-  const principalRecuperadoNoMes = Math.min(principalRestanteAntesMes, totalRecebidoDuranteMes);
-  const lucroMesParcelas = totalRecebidoDuranteMes - principalRecuperadoNoMes;
-
-  // + juros_atraso (sempre lucro) e pagamentos explicitamente marcados como lucro (ex: "Pagar Juros")
-  const lucroMes = Math.max(0, lucroMesParcelas + pagamentosMesJuros + pagamentosMesLucroFlags);
+  // - Juros/multa recebidos nas parcelas pagas no mês (recebido - principal dessas parcelas)
+  // - Juros registrados em pagamentos (juros_atraso)
+  // - Pagamentos explicitamente marcados como lucro (ex.: "Pagar Juros")
+  const jurosMesParcelas = Math.max(0, totalRecebidoMes - principalMes);
+  const lucroMes = Math.max(0, jurosMesParcelas + pagamentosMesJuros + pagamentosMesLucroFlags);
 
   // Alocação simples de principal para descobrir lucro (juros/multa):
   // - Recupera principal até o limite do capital emprestado, na ordem temporal.
