@@ -410,10 +410,7 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   try {
     const pagamentosQuery = supabase
       .from("pagamentos")
-      .select("valor, juros_atraso, data_pagamento, created_at, estornado_em, emprestimo_id, tipo, flags")
-      // reduz tráfego: apenas mês corrente
-      .gte("data_pagamento", toDateOnlyISO(new Date(now.getFullYear(), now.getMonth(), 1)))
-      .lte("data_pagamento", toDateOnlyISO(new Date(now.getFullYear(), now.getMonth() + 1, 0)));
+      .select("valor, juros_atraso, data_pagamento, created_at, estornado_em, emprestimo_id, tipo, flags");
 
     const { data: pagamentosData } = await pagamentosQuery;
     const pagamentos = (pagamentosData ?? []) as any[];
