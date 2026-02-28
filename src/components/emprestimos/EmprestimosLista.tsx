@@ -538,13 +538,16 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
   const irDetalhes = () => navigate(`/emprestimos/${(emprestimo as any).id}`);
 
   const montarMensagemPadraoWhatsApp = () => {
-    const modal = String((emprestimo as any).modalidade ?? "").toLowerCase();
-    const ehSemanalOuQuinzenal = modal.includes("semanal") || modal.includes("quinzenal");
+    // Regra do produto:
+    // - contratos com 1 parcela → usar template "Cobrança (mensal)"
+    // - contratos com mais de 1 parcela → usar template "Cobrança (semanal)"
+    // (mesma regra aplicada para atraso)
+    const maisDeUmaParcela = totalParcelasCount > 1;
     const key = atraso?.detalhe
-      ? ehSemanalOuQuinzenal
+      ? maisDeUmaParcela
         ? "atraso_semanal"
         : "atraso_mensal"
-      : ehSemanalOuQuinzenal
+      : maisDeUmaParcela
         ? "cobranca_semanal"
         : "cobranca_mensal";
 
@@ -554,6 +557,8 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
       VALOR: brl(Number(prox?.valor ?? emprestimo.valorParcela ?? 0)),
       PARCELA: String(prox?.numero ?? 1),
       DATA: String(prox?.vencimento ?? proximoVenc ?? ""),
+      // Juros estimado (exibido quando houver atraso). Quando não aplicável, fica em branco.
+      JUROS: atraso?.total && Number(atraso.total) > 0 ? brl(Number(atraso.total)) : "",
       PIX: lsGet("cfg_pix", ""),
       ASSINATURA: lsGet("cfg_assinatura", ""),
       DIAS_ATRASO: String(atraso?.detalhe?.dias ?? 0),
@@ -561,7 +566,6 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
 
     return fillTemplate(getMessageTemplate(key as any), vars);
   };
-
 
   const abrirWhatsapp = (mensagem?: string) => {
     const phoneRaw =

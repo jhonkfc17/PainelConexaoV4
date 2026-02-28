@@ -153,6 +153,22 @@ export default function EmprestimoDetalhe() {
   const pixPadrao = lsGet("cfg_pix", "");
   const assinaturaPadrao = lsGet("cfg_assinatura", "");
 
+  function calcularJurosAtrasoEstimadoLocal() {
+    if (!parcelaParaCobrar?.isAtraso || !parcelaParaCobrar?.diasAtraso) return 0;
+    const payload = ((emprestimo as any)?.payload ?? {}) as any;
+    const cfg = (payload?.juros_atraso_config ?? null) as any;
+    const aplicar = Boolean(cfg?.aplicar ?? (emprestimo as any).aplicarJurosAtraso);
+    const tipo = (cfg?.tipo ?? (emprestimo as any).jurosAtrasoTipo ?? "valor_por_dia") as string;
+    const taxa = Number(cfg?.taxa ?? (emprestimo as any).jurosAtrasoTaxa ?? 0);
+    if (!aplicar || !taxa) return 0;
+
+    const valorParcela = Number(parcelaParaCobrar.valor ?? 0);
+    const porDia = tipo === "percentual_por_dia" ? valorParcela * (taxa / 100) : taxa;
+    return Math.max(0, porDia * Number(parcelaParaCobrar.diasAtraso));
+  }
+
+  const jurosEstimado = calcularJurosAtrasoEstimadoLocal();
+
   const varsBase: Record<string, string> = {
     CLIENTE: emprestimo.clienteNome,
     VALOR: parcelaParaCobrar ? brl(parcelaParaCobrar.valor) : brl(emprestimo.valorParcela),
@@ -165,61 +181,31 @@ export default function EmprestimoDetalhe() {
   const textoNovoContrato = fillTemplate(getMessageTemplate("novo_contrato"), varsBase);
 
   const textoCobranca = (() => {
-    const key =
-      emprestimo.modalidade === "semanal"
-        ? parcelaParaCobrar?.isAtraso
-          ? "atraso_semanal"
-          : "cobranca_semanal"
-        : parcelaParaCobrar?.isAtraso
-        ? "atraso_mensal"
+    // Regra do produto:
+    // - contratos com 1 parcela → usar template "Cobrança (mensal)"
+    // - contratos com mais de 1 parcela → usar template "Cobrança (semanal)"
+    // (mesma regra aplicada para atraso)
+    const maisDeUmaParcela = Number(emprestimo.numeroParcelas ?? 0) > 1;
+    const key = parcelaParaCobrar?.isAtraso
+      ? maisDeUmaParcela
+        ? "atraso_semanal"
+        : "atraso_mensal"
+      : maisDeUmaParcela
+        ? "cobranca_semanal"
         : "cobranca_mensal";
 
     const tpl = getMessageTemplate(key);
-
-    // JUROS: total pago - valor emprestado
-    const valorEmprestado = Number((emprestimo as any).valor ?? 0);
-
-    const valorPago = (parcelas ?? []).reduce((total: number, p: any) => {
-      const v = Number(p?.valor_pago_acumulado ?? p?.valor_pago ?? 0);
-      return total + (Number.isFinite(v) ? v : 0);
-    }, 0);
-
-    const jurosCalculado = valorPago - valorEmprestado;
-    const jurosStr = jurosCalculado > 0 ? brl(jurosCalculado) : "";
-
     const vars = {
       ...varsBase,
-      VENCIMENTO: parcelaParaCobrar?.vencimento ?? "",
+      DATA: parcelaParaCobrar?.vencimento ?? "",
       DIAS_ATRASO: String(parcelaParaCobrar?.diasAtraso ?? 0),
       PARCELA: parcelaParaCobrar ? String(parcelaParaCobrar.idx + 1) : "",
-      TOTAL_PARCELAS: String(emprestimo.numeroParcelas ?? ""),
+      PARCELAS: String(emprestimo.numeroParcelas ?? ""),
+      JUROS: jurosEstimado > 0 ? brl(jurosEstimado) : "",
     };
 
-    let msg = fillTemplate(tpl, vars);
-
-    // Se JUROS <= 0, remove a linha inteira relacionada a juros
-    // (cobre templates como "valor minimo : {JUROS}" ou "Juros: {JUROS}")
-    if (!jurosStr) {
-      msg = msg
-        .split("
-")
-        .filter((linha) => {
-          const l = linha.toLowerCase();
-          return !l.includes("{juros}") && !l.includes("valor minimo") && !l.includes("juros");
-        })
-        .join("
-");
-    }
-
-    // Limpa linhas vazias duplicadas
-    msg = msg.replace(/
-\s*
-/g, "
-").trim();
-
-    return msg;
+    return fillTemplate(tpl, vars);
   })();
-
 
   return (
     <div className="p-4 sm:p-6 text-white">
@@ -311,9 +297,7 @@ export default function EmprestimoDetalhe() {
             </div>
 
             {parcelaParaCobrar?.isAtraso ? (
-              <div className="mt-2 text-xs text-amber-200/80">
-                Existe parcela em atraso (venc.: {parcelaParaCobrar.vencimento}).
-              </div>
+              <div className="mt-2 text-xs text-amber-200/80">Existe parcela em atraso (venc.: {parcelaParaCobrar.vencimento}).</div>
             ) : null}
           </div>
         </div>
@@ -322,9 +306,7 @@ export default function EmprestimoDetalhe() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <div className="text-sm font-semibold text-white">Parcelas</div>
-              <div className="text-xs text-white/50">
-                Abra o painel “Pagar” para registrar parcela, parcial/adiantamento ou quitação total.
-              </div>
+              <div className="text-xs text-white/50">Abra o painel “Pagar” para registrar parcela, parcial/adiantamento ou quitação total.</div>
             </div>
 
             <button
@@ -337,28 +319,20 @@ export default function EmprestimoDetalhe() {
 
           <div className="mt-4 grid gap-2">
             {parcelas.map((p: any, idx: number) => (
-              <div
-                key={idx}
-                className="rounded-xl border border-white/10 bg-black/20 p-3 flex items-center justify-between gap-3"
-              >
+              <div key={idx} className="rounded-xl border border-white/10 bg-black/20 p-3 flex items-center justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold">
                     Parcela {p.numero}/{emprestimo.numeroParcelas} • {brl(p.valor)}
                   </div>
                   <div className="text-xs text-white/50">Vencimento: {p.vencimento}</div>
                   {!p.pago && (p.saldo_restante > 0 || p.valor_pago_acumulado > 0) ? (
-                    <div className="mt-1 text-xs text-amber-200/90">
-                      Ainda deve:{" "}
-                      {brl(p.saldo_restante > 0 ? p.saldo_restante : Math.max(p.valor - p.valor_pago_acumulado, 0))}
-                    </div>
+                    <div className="mt-1 text-xs text-amber-200/90">Ainda deve: {brl(p.saldo_restante > 0 ? p.saldo_restante : Math.max(p.valor - p.valor_pago_acumulado, 0))}</div>
                   ) : null}
                 </div>
 
                 <div className="flex items-center gap-2">
                   {p.pago ? (
-                    <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200">
-                      Pago
-                    </span>
+                    <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200">Pago</span>
                   ) : (
                     <button
                       className="rounded-lg bg-emerald-500 text-slate-950 px-3 py-2 text-xs font-semibold hover:opacity-95"
