@@ -241,17 +241,22 @@ export default function RelatorioOperacional() {
         listEmprestimos(),
         supabase
           .from("pagamentos")
-          .select("valor, juros_atraso, data_pagamento, estornado_em")
-          .gte("data_pagamento", inicioMesISO)
-          .lte("data_pagamento", hojeISO)
-          .is("estornado_em", null),
+          .select("valor, juros_atraso, data_pagamento, created_at, estornado_em")
+          .is("estornado_em", null)
+          .gte("created_at", inicioMesISO)
+          .lte("created_at", hojeISO),
       ]);
 
       setEmprestimos((emp ?? []) as any);
       if (pays.error) throw pays.error;
+      const pagamentosFiltrados = ((pays.data ?? []) as any[]).filter((p) => {
+        const ref = toISODateOnly(p.data_pagamento ?? p.created_at);
+        if (!ref) return false;
+        return ref >= inicioMesISO && ref <= hojeISO && !p.estornado_em;
+      });
       setPagamentosMes(
-        ((pays.data ?? []) as any[]).map((p) => ({
-          valor: safeNumber(p.valor),
+        pagamentosFiltrados.map((p) => ({
+          valor: safeNumber(p.valor) + safeNumber(p.juros_atraso ?? 0),
           juros_atraso: p.juros_atraso == null ? null : safeNumber(p.juros_atraso),
         }))
       );
