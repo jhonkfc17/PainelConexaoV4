@@ -171,7 +171,13 @@ function SectionBox({
 
 function parcelaPagoValor(p: ParcelaDb): number {
   const v = (p as any).valor_pago_acumulado ?? (p as any).valor_pago ?? 0;
-  return Math.max(0, safeNumber(v));
+  const base = Math.max(0, safeNumber(v));
+  // Fallback: quando a parcela está marcada como paga mas não há valor_pago preenchido,
+  // usamos o valor original da parcela como pago.
+  if (base === 0 && (p as any).pago) {
+    return Math.max(0, safeNumber((p as any).valor ?? 0));
+  }
+  return base;
 }
 
 function parcelaSaldoRestante(p: ParcelaDb): number {
