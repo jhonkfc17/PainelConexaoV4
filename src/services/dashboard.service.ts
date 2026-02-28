@@ -251,7 +251,7 @@ function buildEmptyDashboard(range: DashboardRange): DashboardData {
     weekCards: [
       { label: "Emprestado", value: "R$ 0,00", hint: "0 contratos" },
       { label: "Recebido no mês", value: "R$ 0,00", hint: "0 parcelas pagas" },
-      { label: "Lucro no mês", value: "R$ 0,00", hint: "lucro realizado" },
+      { label: "Lucro no mês", value: "R$ 0,00", hint: "lucro realizado (mês atual)" },
     ],
     charts: {
       evolucao: { title: "Evolução", data: emptySeries, keys: ["emprestado", "recebido"] },
@@ -399,9 +399,18 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
 
   // Mês atual (calendário)
   const currentMonthKey = monthKey(now);
-  const pagosMes = pagosComData.filter((r) => monthKey(new Date(isoFromAny(r.paidDate))) === currentMonthKey);
-  const totalRecebidoMes = pagosMes.reduce((acc, r) => acc + valorRecebidoTotal(r.p), 0);
-  const principalMes = pagosMes.reduce((acc, r) => acc + safeNum(r.p.valor), 0);
+  const monthStartISO = toDateOnlyISO(new Date(now.getFullYear(), now.getMonth(), 1));
+
+  const totalRecebidoAntesMes = pagosComData
+    .filter((r) => String(r.paidDate) < monthStartISO)
+    .reduce((acc, r) => acc + valorRecebidoTotal(r.p), 0);
+
+  const totalRecebidoDuranteMes = pagosComData
+    .filter((r) => String(r.paidDate) >= monthStartISO && String(r.paidDate) <= todayISO)
+    .reduce((acc, r) => acc + valorRecebidoTotal(r.p), 0);
+
+  // Recebido no mês (até hoje) = principal + juros + multa de parcelas pagas
+  const totalRecebidoMes = totalRecebidoDuranteMes;
   // Pagamentos registrados (inclusive juros-only) – capturados na tabela de pagamentos
   // para contemplar "Pagar Juros" e adiantamentos que não liquidam parcelas.
   let pagamentosMesValor = 0;
@@ -458,8 +467,18 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   }
 
   const totalRecebidoMesComPagamentos = totalRecebidoMes + pagamentosMesValor;
-  // Lucro = juros das parcelas pagas + valores de pagamentos marcados explicitamente como lucro (juros-only)
-  const lucroMes = Math.max(0, (totalRecebidoMes - principalMes) + pagamentosMesJuros + pagamentosMesLucroFlags);
+
+  // Lucro realizado no mês:
+  // - Recupera principal (capital emprestado) primeiro, na ordem temporal.
+  // - O excedente recebido no mês é considerado lucro (juros/multa).
+  const principalTotalMes = capitalEmprestado;
+  const principalRecuperadoAntesMes = Math.min(totalRecebidoAntesMes, principalTotalMes);
+  const principalRestanteAntesMes = Math.max(0, principalTotalMes - principalRecuperadoAntesMes);
+  const principalRecuperadoNoMes = Math.min(principalRestanteAntesMes, totalRecebidoDuranteMes);
+  const lucroMesParcelas = totalRecebidoDuranteMes - principalRecuperadoNoMes;
+
+  // + juros_atraso (sempre lucro) e pagamentos explicitamente marcados como lucro (ex: "Pagar Juros")
+  const lucroMes = Math.max(0, lucroMesParcelas + pagamentosMesJuros + pagamentosMesLucroFlags);
 
   // Alocação simples de principal para descobrir lucro (juros/multa):
   // - Recupera principal até o limite do capital emprestado, na ordem temporal.
@@ -611,7 +630,7 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
     { label: "Contratos", value: emprestimos.length, hint: "total" },
     { label: "Capital na Rua", value: brl(capitalEmprestado), hint: "capital emprestado" },
     // Lucro do mês (recebido - principal + 100% juros)
-    { label: "Lucro no mês", value: brl(lucroMes), hint: "lucro (juros/multa) no mês" },
+    { label: "Lucro no mês", value: brl(lucroMes), hint: "lucro realizado (mês atual)" },
     { label: "Em atraso", value: brl(totalAtrasadoEmAberto), hint: "aberto" },
     { label: "Clientes", value: clientesCount ?? 0, hint: "cadastrados" },
   ];
