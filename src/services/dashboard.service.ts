@@ -402,7 +402,39 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   const pagosMes = pagosComData.filter((r) => monthKey(new Date(isoFromAny(r.paidDate))) === currentMonthKey);
   const totalRecebidoMes = pagosMes.reduce((acc, r) => acc + valorRecebidoTotal(r.p), 0);
   const principalMes = pagosMes.reduce((acc, r) => acc + safeNum(r.p.valor), 0);
-  const lucroMes = totalRecebidoMes - principalMes;
+  // Pagamentos registrados (inclusive juros-only) – capturados na tabela de pagamentos
+  // para contemplar "Pagar Juros" e adiantamentos que não liquidam parcelas.
+  let pagamentosMesValor = 0;
+  try {
+    const pagamentosQuery = supabase
+      .from("pagamentos")
+      .select("valor, juros_atraso, data_pagamento, created_at, estornado_em, emprestimo_id");
+
+    const { data: pagamentosData } = await pagamentosQuery;
+    const pagamentos = (pagamentosData ?? []) as any[];
+
+    // Restringe a empréstimos visíveis quando não owner
+    const emprestimoIdsSet = new Set(emprestimos.map((e) => String(e.id)));
+
+    const pagamentosMes = pagamentos.filter((p) => {
+      if (!isOwner && p.emprestimo_id && !emprestimoIdsSet.has(String(p.emprestimo_id))) return false;
+      if (p.estornado_em) return false;
+      const dataRef = isoFromAny(p.data_pagamento ?? p.created_at ?? null);
+      if (!dataRef) return false;
+      return monthKey(new Date(dataRef)) === currentMonthKey;
+    });
+
+    pagamentosMesValor = pagamentosMes.reduce(
+      (acc, p) => acc + safeNum(p.valor) + safeNum((p as any).juros_atraso),
+      0
+    );
+  } catch {
+    // Em caso de falha, seguimos apenas com parcelas para não quebrar o dashboard.
+    pagamentosMesValor = 0;
+  }
+
+  const totalRecebidoMesComPagamentos = totalRecebidoMes + pagamentosMesValor;
+  const lucroMes = (totalRecebidoMes - principalMes) + pagamentosMesValor;
 
   // Alocação simples de principal para descobrir lucro (juros/multa):
   // - Recupera principal até o limite do capital emprestado, na ordem temporal.
@@ -545,7 +577,7 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   const weekCards: DashboardWeekCard[] = [
     { label: "Cobranças", value: cobrancasSemana, hint: "esta semana" },
     // Recebido (lucro/juros/multa) na semana
-    { label: "Recebido no mês", value: brl(totalRecebidoMes), hint: "total registrado no mês" },
+    { label: "Recebido no mês", value: brl(totalRecebidoMesComPagamentos), hint: "total registrado no mês" },
     { label: "Vence hoje", value: venceHoje, hint: "cobranças" },
     { label: "Vence amanhã", value: venceAmanha, hint: "cobranças" },
     { label: "Empréstimos", value: emprestimosSemana, hint: "esta semana" },
