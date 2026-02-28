@@ -12,6 +12,16 @@ import RegistrarPagamentoModal from "../components/emprestimos/RegistrarPagament
 import ComprovanteModal from "../components/emprestimos/ComprovanteModal";
 import { useEmprestimosStore } from "../store/useEmprestimosStore";
 
+function fmtDateBR(iso?: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(String(iso));
+  if (Number.isNaN(d.getTime())) return String(iso);
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
+
 function Badge({ faixa, score }: { faixa: string; score: number | null }) {
   const cls =
     faixa === "A"
@@ -74,11 +84,11 @@ export default function ClienteDetalhe() {
       `Raposacobra - Comprovante de Empréstimo`,
       "",
       `Cliente: ${e.clienteNome ?? e.cliente_nome ?? ""}`,
-      `Data do contrato: ${e.dataContrato ?? e.created_at ?? ""}`,
+      `Data do contrato: ${fmtDateBR(e.dataContrato ?? e.created_at ?? "")}`,
       `Valor emprestado: R$ ${Number(e.valor ?? 0).toFixed(2)}`,
       `Total a receber: R$ ${Number(e.totalReceber ?? 0).toFixed(2)}`,
       `Parcelas: ${Number(e.numeroParcelas ?? 0)}x de R$ ${Number(e.valorParcela ?? 0).toFixed(2)}`,
-      `1º vencimento: ${(e.vencimentos?.[0] ?? e.primeiraParcela ?? "")}`,
+      `1º vencimento: ${fmtDateBR(e.vencimentos?.[0] ?? e.primeiraParcela ?? "")}`,
       "",
       "Obrigado!",
     ];

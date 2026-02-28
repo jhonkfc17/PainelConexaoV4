@@ -18,6 +18,16 @@ import { useUIStore } from "../store/useUIStore";
 import { useClientesStore } from "../store/useClientesStore";
 import { useEmprestimosStore } from "../store/useEmprestimosStore";
 
+function fmtDateBR(iso?: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(String(iso));
+  if (Number.isNaN(d.getTime())) return String(iso);
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
+
 export default function Emprestimos() {
   const { isBuscarClienteOpen, closeBuscarCliente } = useUIStore();
 
@@ -189,11 +199,11 @@ export default function Emprestimos() {
       `Raposacobra - Comprovante de Empréstimo`,
       "",
       `Cliente: ${e.clienteNome}`,
-      `Data do contrato: ${e.dataContrato}`,
+      `Data do contrato: ${fmtDateBR(e.dataContrato)}`,
       `Valor emprestado: R$ ${e.valor.toFixed(2)}`,
       `Total a receber: R$ ${e.totalReceber.toFixed(2)}`,
       `Parcelas: ${e.numeroParcelas}x de R$ ${e.valorParcela.toFixed(2)}`,
-      `1º vencimento: ${e.vencimentos?.[0] || e.primeiraParcela}`,
+      `1º vencimento: ${fmtDateBR(e.vencimentos?.[0] || e.primeiraParcela)}`,
       "",
       "Obrigado!",
     ];
@@ -214,11 +224,11 @@ export default function Emprestimos() {
       `Raposacobra - Comprovante de Empréstimo`,
       "",
       `Cliente: ${novo.clienteNome}`,
-      `Data do contrato: ${novo.dataContrato}`,
+      `Data do contrato: ${fmtDateBR(novo.dataContrato)}`,
       `Valor emprestado: R$ ${novo.valor.toFixed(2)}`,
       `Total a receber: R$ ${novo.totalReceber.toFixed(2)}`,
       `Parcelas: ${novo.numeroParcelas}x de R$ ${novo.valorParcela.toFixed(2)}`,
-      `1º vencimento: ${novo.vencimentos?.[0] || novo.primeiraParcela}`,
+      `1º vencimento: ${fmtDateBR(novo.vencimentos?.[0] || novo.primeiraParcela)}`,
       "",
       "Obrigado!",
     ];
