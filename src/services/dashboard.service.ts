@@ -399,22 +399,10 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
 
   // Mês atual (calendário)
   const currentMonthKey = monthKey(now);
-  const pagosMes = pagosComData.filter((r) => monthKey(new Date(isoFromAny(r.paidDate))) === currentMonthKey);
-
-  const totalRecebidoMes = pagosMes.reduce((acc, r) => {
-    const pago = valorPagoAcumulado(r.p);
-    const juros = safeNum(r.p.juros_atraso);
-    return acc + pago + juros;
-  }, 0);
-
-  const principalRecuperadoMes = pagosMes.reduce((acc, r) => {
-    const principalParcela = safeNum(r.p.valor);
-    const pago = valorPagoAcumulado(r.p);
-    const recuperado = Math.min(pago, principalParcela);
-    return acc + recuperado;
-  }, 0);
-
-  const lucroMes = totalRecebidoMes - principalRecuperadoMes;
+  const pagosMes = pagosComData.filter((r) => monthKey(isoFromAny(r.paidDate)) === currentMonthKey);
+  const totalRecebidoMes = pagosMes.reduce((acc, r) => acc + valorRecebidoTotal(r.p), 0);
+  const principalMes = pagosMes.reduce((acc, r) => acc + safeNum(r.p.valor), 0);
+  const lucroMes = totalRecebidoMes - principalMes;
 
   // Alocação simples de principal para descobrir lucro (juros/multa):
   // - Recupera principal até o limite do capital emprestado, na ordem temporal.
