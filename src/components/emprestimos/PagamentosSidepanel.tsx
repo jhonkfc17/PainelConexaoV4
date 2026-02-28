@@ -116,7 +116,7 @@ export default function PagamentosSidepanel({ open, onClose, emprestimo }: Props
       .reduce((acc, p) => acc + Number(p.valor ?? 0), 0);
 
     const principalRecuperado = Math.min(totalQueRecuperaPrincipal, principal);
-    return Math.max(totalPagoNaoEstornado - principalRecuperado, 0);
+    return totalPagoNaoEstornado - principalRecuperado;
   }, [emprestimo, pagamentos, totalPagoNaoEstornado]);
 
   useEffect(() => {

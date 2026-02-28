@@ -183,7 +183,7 @@ export default function ClienteDetalhe() {
         const vp = Number((p as any).valor_pago ?? (p as any).valor ?? 0);
         return s + (Number.isFinite(vp) ? vp : 0);
       }, 0);
-      return acc + Math.max(0, totalPagoEmp - valorEmprestado);
+      return acc + (totalPagoEmp - valorEmprestado);
     }, 0);
 
     return { totalEmp, totalParcelas, pagas, abertas, atrasadas, totalValorParcelas, totalValorPago, lucroRealizado };

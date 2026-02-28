@@ -450,7 +450,7 @@ function EmprestimoCardPasta({
   const totalPago = sumRecebido(parcelas);
   const restante = parcelas.length > 0 ? sumRestante(parcelas) : Math.max(totalReceber - totalPago, 0);
   const lucroPrevisto = Math.max(totalReceber - totalEmprestado, 0);
-  const lucroRealizado = Math.max(totalPago - totalEmprestado, 0);
+  const lucroRealizado = totalPago - totalEmprestado;
 
   const jurosPorParcela = (() => {
     const aplicado = String((emprestimo as any).jurosAplicado ?? "") as string;
@@ -692,7 +692,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
 
           <div className="bg-black/25 p-3 text-right">
             <div className="text-[11px] uppercase tracking-wide text-white/55">✅ Lucro Realizado</div>
-            <div className="mt-1 text-sm font-semibold text-emerald-200">{brl(Math.max(lucroRealizado, 0))}</div>
+            <div className="mt-1 text-sm font-semibold text-emerald-200">{brl(lucroRealizado)}</div>
           </div>
         </div>
 
