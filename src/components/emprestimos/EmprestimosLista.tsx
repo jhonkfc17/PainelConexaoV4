@@ -465,28 +465,27 @@ function EmprestimoCardPasta({
   const multa = calcularMultaEstimado(emprestimo);
 
 
-  // Exibição: o valor principal do card deve refletir multa/juros configurados,
-  // sem duplicar o que já foi gravado nas parcelas (multa_valor / juros_atraso).
-  const multaAplicada = (parcelas ?? []).reduce((acc: number, p: any) => {
-    if (p?.pago) return acc;
-    return acc + Number(p?.multa_valor ?? 0);
-  }, 0);
+// Exibição: o valor principal do card deve refletir multa/juros configurados,
+// sem duplicar o que já foi gravado nas parcelas (multa_valor / juros_atraso).
+const multaAplicada = (parcelas ?? []).reduce((acc: number, p: any) => {
+  if (p?.pago) return acc;
+  return acc + Number(p?.multa_valor ?? 0);
+}, 0);
 
-  const jurosAplicado = (parcelas ?? []).reduce((acc: number, p: any) => {
-    if (p?.pago) return acc;
-    return acc + Number(p?.juros_atraso ?? 0);
-  }, 0);
+const jurosAplicado = (parcelas ?? []).reduce((acc: number, p: any) => {
+  if (p?.pago) return acc;
+  return acc + Number(p?.juros_atraso ?? 0);
+}, 0);
 
-  const restanteSemMulta = sumRestanteSemMulta(parcelas);
-  const multaJaRefletidaNoRestante = Math.max(0, Number(restante ?? 0) - Number(restanteSemMulta ?? 0));
-  const multaManualFaltante = Math.max(0, Math.max(0, multaAplicada) - Math.max(0, multaJaRefletidaNoRestante));
+const restanteSemMulta = sumRestanteSemMulta(parcelas);
+const multaJaRefletidaNoRestante = Math.max(0, Number(restante ?? 0) - Number(restanteSemMulta ?? 0));
+const multaManualFaltante = Math.max(0, Math.max(0, multaAplicada) - Math.max(0, multaJaRefletidaNoRestante));
 
-  const multaConfigurada = Math.max(0, Number(multa.total ?? 0));
-  const jurosConfigurado = Math.max(0, Number(atraso.total ?? 0));
-  const multaExtra = Math.max(0, multaConfigurada - Math.max(0, multaAplicada, multaJaRefletidaNoRestante));
-  const jurosExtra = Math.max(0, jurosConfigurado - Math.max(0, jurosAplicado));
-  const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante + multaExtra + jurosExtra);
-
+const multaConfigurada = Math.max(0, Number(multa.total ?? 0));
+const jurosConfigurado = Math.max(0, Number(atraso.total ?? 0));
+const multaExtra = Math.max(0, multaConfigurada - Math.max(0, multaAplicada, multaJaRefletidaNoRestante));
+const jurosExtra = Math.max(0, jurosConfigurado - Math.max(0, jurosAplicado));
+const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante + multaExtra + jurosExtra);
   const proximaAberta = proximaParcelaAberta(emprestimo);
   const modalidadeLabel = String((emprestimo as any).modalidade ?? "mensal").toUpperCase();
   const proximoVenc = proximoVencimentoEmprestimo(emprestimo);
@@ -508,29 +507,29 @@ function EmprestimoCardPasta({
       const na = Number(a?.numero ?? 0);
       const nb = Number(b?.numero ?? 0);
       if (na !== nb) return na - nb;
-      return String(a?.vencimento ?? "").localeCompare(String(b?.vencimento ?? ""));
+      return String(a?.vencimento ?? '').localeCompare(String(b?.vencimento ?? ''));
     });
     return arr;
   }, [parcelas]);
 
-  const clienteTelefone = String((emprestimo as any).clienteContato ?? (emprestimo as any).clienteTelefone ?? (emprestimo as any).telefone ?? "");
+  const clienteTelefone = String((emprestimo as any).clienteContato ?? (emprestimo as any).clienteTelefone ?? (emprestimo as any).telefone ?? '');
   const clienteEndereco = (() => {
     const e = (emprestimo as any);
-    const direct = String(e?.clienteEndereco ?? e?.endereco ?? "");
+    const direct = String(e?.clienteEndereco ?? e?.endereco ?? '');
     if (direct) return direct;
-    const rua = String(e?.clienteRua ?? e?.rua ?? "");
-    const num = String(e?.clienteNumero ?? e?.numero ?? "");
-    const bairro = String(e?.clienteBairro ?? e?.bairro ?? "");
-    const cidade = String(e?.clienteCidade ?? e?.cidade ?? "");
+    const rua = String(e?.clienteRua ?? e?.rua ?? '');
+    const num = String(e?.clienteNumero ?? e?.numero ?? '');
+    const bairro = String(e?.clienteBairro ?? e?.bairro ?? '');
+    const cidade = String(e?.clienteCidade ?? e?.cidade ?? '');
     const parts = [rua && num ? `${rua}, ${num}` : rua || num, bairro, cidade].filter(Boolean);
-    return parts.join(" • ");
+    return parts.join(' • ');
   })();
 
-  const dataContrato = String((emprestimo as any).dataContrato ?? (emprestimo as any).created_at ?? (emprestimo as any).createdAt ?? "");
-  const dataInicio = String((emprestimo as any).inicio ?? (emprestimo as any).dataInicio ?? (emprestimo as any).inicioContrato ?? "");
-  const tipoJuros = String((emprestimo as any).tipoJuros ?? (emprestimo as any).jurosTipo ?? (emprestimo as any)?.payload?.tipo_juros ?? "Simples");
-  const modoJuros = String((emprestimo as any).jurosAplicado ?? (emprestimo as any)?.payload?.juros_aplicado ?? "total");
-  const modoJurosLabel = modoJuros === "por_parcela" ? "Por Parcela" : "Total";
+  const dataContrato = String((emprestimo as any).dataContrato ?? (emprestimo as any).created_at ?? (emprestimo as any).createdAt ?? '');
+  const dataInicio = String((emprestimo as any).inicio ?? (emprestimo as any).dataInicio ?? (emprestimo as any).inicioContrato ?? '');
+  const tipoJuros = String((emprestimo as any).tipoJuros ?? (emprestimo as any).jurosTipo ?? (emprestimo as any)?.payload?.tipo_juros ?? 'Simples');
+  const modoJuros = String((emprestimo as any).jurosAplicado ?? (emprestimo as any)?.payload?.juros_aplicado ?? 'total');
+  const modoJurosLabel = modoJuros === 'por_parcela' ? 'Por Parcela' : 'Total';
 
   const cobrancasAtraso = Number(
     (emprestimo as any).cobrancasAtraso ?? (emprestimo as any).cobrancas_whatsapp ?? (emprestimo as any).cobrancasWhatsapp ?? 0
@@ -539,54 +538,30 @@ function EmprestimoCardPasta({
   const irDetalhes = () => navigate(`/emprestimos/${(emprestimo as any).id}`);
 
   const montarMensagemPadraoWhatsApp = () => {
-    // Regra do produto:
-    // - contratos com 1 parcela → usar template "Cobrança (mensal)"
-    // - contratos com mais de 1 parcela → usar template "Cobrança (semanal)"
-    // (mesma regra aplicada para atraso)
-    const maisDeUmaParcela = totalParcelasCount > 1;
+    const modal = String((emprestimo as any).modalidade ?? "").toLowerCase();
+    const ehSemanalOuQuinzenal = modal.includes("semanal") || modal.includes("quinzenal");
     const key = atraso?.detalhe
-      ? maisDeUmaParcela
+      ? ehSemanalOuQuinzenal
         ? "atraso_semanal"
         : "atraso_mensal"
-      : maisDeUmaParcela
+      : ehSemanalOuQuinzenal
         ? "cobranca_semanal"
         : "cobranca_mensal";
 
     const prox = proximaAberta || cronogramaParcelas[0] || {};
-
-    // ✅ JUROS (novo): soma do valor pago - valor emprestado (lucro realizado)
-    const jurosCalculado = Number(totalPago ?? 0) - Number(totalEmprestado ?? 0);
-    const jurosStr = jurosCalculado > 0 ? brl(jurosCalculado) : "";
-
     const vars = {
       CLIENTE: (emprestimo as any).clienteNome ?? "Cliente",
       VALOR: brl(Number(prox?.valor ?? emprestimo.valorParcela ?? 0)),
       PARCELA: String(prox?.numero ?? 1),
       DATA: String(prox?.vencimento ?? proximoVenc ?? ""),
-      JUROS: jurosStr,
       PIX: lsGet("cfg_pix", ""),
       ASSINATURA: lsGet("cfg_assinatura", ""),
       DIAS_ATRASO: String(atraso?.detalhe?.dias ?? 0),
     };
 
-    let msg = fillTemplate(getMessageTemplate(key as any), vars);
-
-    // ✅ Se JUROS não existir, remove a linha inteira relacionada a juros (ex.: "valor mínimo : {JUROS}")
-    if (!jurosStr) {
-      msg = msg
-        .split("\n")
-        .filter((linha) => {
-          const l = linha.toLowerCase();
-          return !l.includes("{juros}") && !l.includes("valor mínimo") && !l.includes("juros");
-        })
-        .join("\n");
-    }
-
-    // limpa linhas vazias duplicadas
-    msg = msg.replace(/\n\s*\n/g, "\n").trim();
-
-    return msg;
+    return fillTemplate(getMessageTemplate(key as any), vars);
   };
+
 
   const abrirWhatsapp = (mensagem?: string) => {
     const phoneRaw =
@@ -699,15 +674,553 @@ function EmprestimoCardPasta({
         </div>
       </div>
 
-      {/* ... (restante do seu arquivo continua exatamente como você colou) ... */}
-      {/* Para não alterar nada além do necessário, mantenha o restante do código igual ao seu original. */}
+      <div className="border-t border-white/10">
+        <div className="grid grid-cols-2 gap-px bg-white/10">
+          <div className="bg-black/25 p-3">
+            <div className="text-[11px] uppercase tracking-wide text-white/55">Emprestado</div>
+            <div className="mt-1 text-sm font-semibold text-white">{brl(totalEmprestado)}</div>
+          </div>
+
+          <div className="bg-black/25 p-3 text-right">
+            <div className="text-[11px] uppercase tracking-wide text-white/55">Total a Receber</div>
+            <div className="mt-1 text-sm font-semibold text-white">{brl(totalReceber)}</div>
+          </div>
+
+          <div className="bg-black/25 p-3">
+            <div className="text-[11px] uppercase tracking-wide text-white/55">🪙 Lucro Previsto</div>
+            <div className="mt-1 text-sm font-semibold text-emerald-200">{brl(lucroPrevisto)}</div>
+          </div>
+
+          <div className="bg-black/25 p-3 text-right">
+            <div className="text-[11px] uppercase tracking-wide text-white/55">✅ Lucro Realizado</div>
+            <div className="mt-1 text-sm font-semibold text-emerald-200">{brl(Math.max(lucroRealizado, 0))}</div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-px bg-white/10">
+          <div className="bg-black/25 px-3 py-2 flex items-center justify-between">
+            <div className="text-[11px] uppercase tracking-wide text-white/55">$ Pago:</div>
+            <div className="text-sm font-semibold text-emerald-200">{brl(totalPago)}</div>
+          </div>
+        </div>
+      </div>
+
+      {detalhesAberto ? (
+        <div className="px-4 pt-3">
+          <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[11px] uppercase tracking-wide text-white/55">📅 Venc:</div>
+                  <button
+                    type="button"
+                    onClick={irDetalhes}
+                    className="h-7 w-7 rounded-lg border border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
+                    title="Editar vencimento"
+                  >
+                    ✎
+                  </button>
+                </div>
+                <div className="mt-1 text-sm font-semibold text-white">{fmtShort(proximoVenc)}</div>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[11px] uppercase tracking-wide text-white/55">💲 Pago:</div>
+                  <button
+                    type="button"
+                    onClick={irDetalhes}
+                    className="h-7 w-7 rounded-lg border border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
+                    title="Editar pagamentos"
+                  >
+                    ✎
+                  </button>
+                </div>
+                <div className="mt-1 text-sm font-semibold text-emerald-200">{brl(totalPago)}</div>
+              </div>
+
+              <div className="col-span-2 rounded-xl border border-white/10 bg-violet-500/10 px-3 py-2 flex items-center justify-between">
+                <div className="text-sm font-semibold text-violet-100">Só Juros (por parcela):</div>
+                <div className="text-sm font-extrabold text-violet-100">{brl(Math.max(jurosPorParcela, 0))}</div>
+              </div>
+            </div>
+
+            {/* NOVO: botões pedidos no card */}
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setJurosCfgAberto(true)}
+                className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-black/30"
+              >
+                ⚙️ Juros por atraso
+              </button>
+              <button
+                type="button"
+                onClick={() => setMultaAberto(true)}
+                className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-amber-100 hover:bg-black/30"
+              >
+                💰 Aplicar multa
+              </button>
+            </div>
+          </div>
+
+          {atraso.detalhe ? (
+            <div className="mt-3 rounded-2xl border border-red-500/25 bg-red-500/10 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-[13px] font-semibold text-red-100">
+                  Parcela {atraso.detalhe.parcelaNumero}/{atraso.detalhe.totalParcelas} em atraso
+                </div>
+                <div className="text-[12px] font-semibold text-red-100">{atraso.detalhe.dias} dias</div>
+              </div>
+
+              <div className="mt-2 grid grid-cols-2 gap-2 text-[12px] text-white/80">
+                <div>
+                  <div className="text-white/60">Vencimento</div>
+                  <div className="font-semibold text-white">{fmtShort(atraso.detalhe.vencimento)}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-white/60">Valor</div>
+                  <div className="font-semibold text-white">{brl(atraso.detalhe.valorParcela)}</div>
+                </div>
+                <div className="col-span-2">
+                  <div className="text-white/60">
+                    % Juros ({atraso.detalhe.tipo === "percentual_por_dia" ? `${atraso.detalhe.taxa}%/dia` : `${brl(atraso.detalhe.taxa)}/dia`})
+                  </div>
+                  <div className="mt-0.5 font-semibold text-red-100">+{brl(atraso.total)}</div>
+                </div>
+                {multaAplicada > 0 ? (
+                  <div className="col-span-2">
+                    <div className="text-white/60">Multa aplicada (manual)</div>
+                    <div className="mt-0.5 font-semibold text-amber-100">+{brl(multaAplicada)}</div>
+                  </div>
+                ) : null}
+                {multaExtra > 0 ? (
+                  <div className="col-span-2">
+                    <div className="text-white/60">Multa pendente (config)</div>
+                    <div className="mt-0.5 font-semibold text-amber-100">+{brl(multaExtra)}</div>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setJurosCfgAberto(true)}
+                  className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-red-100 hover:bg-black/30"
+                >
+                  ⚙️ Configurar Juros
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMultaAberto(true)}
+                  className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-amber-100 hover:bg-black/30"
+                >
+                  💰 Aplicar Multa
+                </button>
+              </div>
+
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={irDetalhes}
+                  className="w-full rounded-xl border border-white/10 bg-black/25 px-4 py-2 text-sm font-semibold text-red-100 hover:bg-black/35"
+                >
+                  ↗ Cobrar Atraso (WhatsApp)
+                </button>
+                {cobrancasAtraso > 0 ? (
+                  <div className="mt-2 text-center text-[11px] font-semibold text-red-200/90">Já cobrou {cobrancasAtraso}x</div>
+                ) : (
+                  <div className="mt-2 text-[11px] text-white/55">Pague a parcela em atraso para regularizar o empréstimo</div>
+                )}
+              </div>
+
+              <div className="mt-3 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => onRemover((emprestimo as any).id)}
+                  className="h-9 w-9 rounded-xl border border-red-500/25 bg-red-500/10 text-red-200 hover:bg-red-500/15"
+                  title="Excluir"
+                >
+                  🗑
+                </button>
+              </div>
+            </div>
+          ) : proximaAberta ? (
+            <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-[13px] font-semibold text-white/90">
+                  Próxima parcela {Number(proximaAberta?.numero ?? 0)}/{Number((emprestimo as any).numeroParcelas ?? (emprestimo as any).payload?.parcelas ?? 0)}
+                </div>
+                <div className="text-[12px] font-semibold text-white/70">
+                  {(() => {
+                    const hoje = todayISO();
+                    const v = String(proximaAberta?.vencimento ?? "");
+                    const dias = Math.max(0, Math.abs(daysDiffISO(hoje, v)));
+                    if (!v) return "—";
+                    return String(v) < hoje ? `${dias} dias` : `em ${dias} dias`;
+                  })()}
+                </div>
+              </div>
+
+              <div className="mt-2 grid grid-cols-2 gap-2 text-[12px] text-white/80">
+                <div>
+                  <div className="text-white/60">Vencimento</div>
+                  <div className="font-semibold text-white">{fmtShort(String(proximaAberta?.vencimento ?? ""))}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-white/60">Valor</div>
+                  <div className="font-semibold text-white">{brl(Number(proximaAberta?.valor ?? 0))}</div>
+                </div>
+                <div className="col-span-2 text-[11px] text-white/55">Pague a próxima parcela para manter o empréstimo em dia.</div>
+              </div>
+            </div>
+          ) : null}
+
+          {/* Seção adicional (expansão Detalhes): Progresso / Cronograma / Contato / Contrato */}
+          <div className="mt-3 space-y-3">
+            {/* Progresso */}
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+              <div className="flex items-center gap-2 text-white/90 font-semibold">
+                <span aria-hidden>📊</span> Progresso
+              </div>
+              <div className="mt-3 h-2 w-full rounded-full bg-black/30 overflow-hidden border border-white/10">
+                <div className="h-full bg-emerald-500/70" style={{ width: `${progressoPct}%` }} />
+              </div>
+              <div className="mt-2 flex items-center justify-between text-[12px] text-white/70">
+                <span>{progressoPct}%</span>
+                <span>{pagasCount} de {Math.max(totalParcelasCount, 0)} parcela(s) paga(s) • {restantesCount} restante(s)</span>
+              </div>
+            </div>
+
+            {/* Cronograma de Parcelas */}
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+              <div className="flex items-center gap-2 text-white/90 font-semibold">
+                <span aria-hidden>🗓️</span> Cronograma de Parcelas
+              </div>
+              <div className="mt-3 grid gap-2">
+                {(cronogramaParcelas.length > 0 ? cronogramaParcelas : (proximaAberta ? [proximaAberta] : [])).map((p: any, idx: number) => {
+                  const venc = String(p?.vencimento ?? "");
+                  const hoje = todayISO();
+				  const statusParcela = p?.pago === true
+                    ? { text: "Paga", tone: "border-emerald-500/25 bg-emerald-500/10 text-emerald-100" }
+                    : venc && venc < hoje
+                      ? { text: "Atrasada", tone: "border-red-500/25 bg-red-500/10 text-red-100" }
+                      : { text: "Aberta", tone: "border-white/10 bg-white/5 text-white/70" };
+                  const numero = Number(p?.numero ?? (idx + 1));
+                  const total = Math.max(totalParcelasCount || cronogramaParcelas.length || 1, 1);
+                  const valorP = Number(p?.valor ?? 0);
+                  return (
+                    <div key={`${String((p as any)?.id ?? idx)}-${numero}`} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                      <div className="min-w-0">
+                        <div className="text-[12px] font-semibold text-white/90">Parcela {numero}/{total}</div>
+                        <div className="mt-0.5 text-[11px] text-white/60">{brl(valorP)} • {fmtShort(venc)}</div>
+                      </div>
+                      <span className={`shrink-0 rounded-full border px-3 py-1 text-[11px] font-semibold ${statusParcela.tone}`}>{statusParcela.text}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <button type="button" onClick={irDetalhes} className="mt-3 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white/80 hover:bg-white/10">
+                Ver detalhes completos
+              </button>
+            </div>
+
+            {/* Contato do Cliente */}
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+              <div className="flex items-center gap-2 text-white/90 font-semibold">
+                <span aria-hidden>👤</span> Contato do Cliente
+              </div>
+              <div className="mt-3 grid gap-2 text-[12px] text-white/80">
+                <div className="flex items-center gap-2">
+                  <span aria-hidden className="text-white/60">📞</span>
+                  <span className="font-semibold">{clienteTelefone || "—"}</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span aria-hidden className="text-white/60 mt-0.5">📍</span>
+                  <span className="font-semibold">{clienteEndereco || "—"}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Detalhes do Contrato */}
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+              <div className="flex items-center gap-2 text-white/90 font-semibold">
+                <span aria-hidden>📄</span> Detalhes do Contrato
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-3 text-[12px] text-white/80">
+                <div>
+                  <div className="text-white/60">Data do Contrato</div>
+                  <div className="font-semibold text-white">{dataContrato ? fmtShort(dataContrato) : "—"}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-white/60">Início</div>
+                  <div className="font-semibold text-white">{dataInicio ? fmtShort(dataInicio) : (cronogramaParcelas[0]?.vencimento ? fmtShort(String(cronogramaParcelas[0]?.vencimento)) : "—")}</div>
+                </div>
+                <div>
+                  <div className="text-white/60">Tipo de Juros</div>
+                  <div className="font-semibold text-white">{tipoJuros}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-white/60">Modo de Juros</div>
+                  <div className="font-semibold text-white">{modoJurosLabel}</div>
+                </div>
+                <div>
+                  <div className="text-white/60">Total de Juros</div>
+                  <div className="font-semibold text-white">{brl(Math.max(lucroPrevisto, 0))}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-white/60">Tipo de Pagamento</div>
+                  <div className="font-semibold text-white">{modalidadeLabel}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* CTA WhatsApp (mantém sempre visível) */}
+      <div className="px-4 pt-3">
+              <button
+                type="button"
+                onClick={() => abrirWhatsapp()}
+                className={`w-full rounded-xl border px-4 py-2 text-sm font-semibold hover:bg-emerald-500/15 ${
+                  atraso.detalhe
+                    ? "border-red-500/25 bg-red-500/10 text-red-100 hover:bg-red-500/15"
+                    : "border-emerald-500/25 bg-emerald-500/10 text-emerald-100"
+                }`}
+              >
+                {atraso.detalhe ? "Cobrar Atraso (WhatsApp)" : "Cobrar via WhatsApp"}
+              </button>
+      </div>
+
+      <div className="px-4 pt-3 pb-4">
+        <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => onPagar?.(emprestimo)}
+              disabled={isQuitado || isCancelado}
+              className={
+                "rounded-xl border px-3 py-2 text-sm font-semibold transition " +
+                (isQuitado || isCancelado
+                  ? "border-white/10 bg-white/5 text-white/30 cursor-not-allowed"
+                  : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10")
+              }
+            >
+              <span className="inline-flex items-center justify-center gap-2">
+                <span aria-hidden>🧾</span> Pagar
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setRenegociarAberto(true)}
+              disabled={isQuitado || isCancelado}
+              className={
+                "rounded-xl border px-3 py-2 text-sm font-semibold transition " +
+                (isQuitado || isCancelado
+                  ? "border-white/10 bg-white/5 text-white/30 cursor-not-allowed"
+                  : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10")
+              }
+            >
+              <span className="inline-flex items-center justify-center gap-2">
+                <span aria-hidden>💲</span> Pagar Juros
+              </span>
+            </button>
+          </div>
+
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={irDetalhes}
+                className="h-9 w-9 rounded-xl border border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
+                title="Abrir detalhes"
+              >
+                ↗
+              </button>
+              <button
+                type="button"
+                onClick={() => onComprovante?.(emprestimo)}
+                className="h-9 w-9 rounded-xl border border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
+                title="Comprovante"
+              >
+                🧾
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditarAberto(true)}
+                className="h-9 w-9 rounded-xl border border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
+                title="Editar empréstimo e vencimentos"
+              >
+                ✏️
+              </button>
+              <button
+                type="button"
+                onClick={() => setHistoricoAberto(true)}
+                className="h-9 w-9 rounded-xl border border-emerald-500/25 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/15"
+                title="Ver histórico de pagamentos (pode excluir pagamentos errados)"
+              >
+                ↺
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => onRemover((emprestimo as any).id)}
+              className="h-9 w-9 rounded-xl border border-red-500/25 bg-red-500/10 text-red-200 hover:bg-red-500/15"
+              title="Excluir"
+            >
+              🗑
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
-// (o restante do arquivo segue igual ao que você colou)
+function PastaClienteCard({
+  clienteNome,
+  emprestimos,
+  groupDue,
+  onAbrirPasta,
+}: {
+  clienteNome: string;
+  emprestimos: Emprestimo[];
+  groupDue: DueStatus;
+  onAbrirPasta: () => void;
+}) {
+  const totalEmprestado = useMemo(
+    () => emprestimos.reduce((acc, e) => acc + Number((e as any).valor ?? 0), 0),
+    [emprestimos]
+  );
+  const totalReceber = useMemo(() => {
+    return emprestimos.reduce((acc, e) => {
+      const parcelas = Array.isArray((e as any).parcelasDb) ? ((e as any).parcelasDb as any[]) : [];
+      const total = parcelas.length > 0 ? sumParcelasValor(parcelas) : Number((e as any).totalReceber ?? 0);
+      return acc + total;
+    }, 0);
+  }, [emprestimos]);
+  const totalPago = useMemo(() => {
+    return emprestimos.reduce((acc, e) => {
+      const parcelas = Array.isArray((e as any).parcelasDb) ? ((e as any).parcelasDb as any[]) : [];
+      return acc + sumRecebido(parcelas);
+    }, 0);
+  }, [emprestimos]);
+
+  const restante = useMemo(() => {
+    // soma do saldo pendente real (considera parciais/adiantamentos)
+    return emprestimos.reduce((acc, e) => {
+      const parcelas = Array.isArray((e as any).parcelasDb) ? ((e as any).parcelasDb as any[]) : [];
+      if (parcelas.length === 0) {
+        const tr = Number((e as any).totalReceber ?? 0);
+        // fallback simples
+        return acc + Math.max(tr, 0);
+      }
+      return acc + sumRestante(parcelas);
+    }, 0);
+  }, [emprestimos]);
+  const lucroPrevisto = Math.max(totalReceber - totalEmprestado, 0);
+
+  const badge = dueBadge(groupDue);
+
+  return (
+    <div className={`w-full min-w-0 rounded-2xl border bg-gradient-to-b ${dueCardTone(groupDue)} ${glowClass(groupDue)} ${pulseClass(groupDue)}`}>
+      <div className="p-4 sm:p-4">
+        <div className="rounded-xl border border-white/10 bg-black/25 px-4 py-2 text-center">
+          <div className="truncate text-white font-semibold">{clienteNome}</div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2 justify-center sm:justify-start">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-100 text-sm font-extrabold border border-emerald-500/20">
+            {initials(clienteNome)}
+          </div>
+
+          <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[12px] ${chipTone("muted")}`}>
+            📁 {emprestimos.length} empréstimos
+          </span>
+
+          <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[12px] ${chipTone(badge.tone)}`}>
+            <span aria-hidden>{badge.icon}</span> {badge.text}
+          </span>
+        </div>
+
+        <div className="mt-4 text-center">
+          <div className="text-4xl font-extrabold tracking-tight text-white">{brl(restante)}</div>
+          <div className="mt-1 text-xs text-white/60">restante a receber</div>
+        </div>
+      </div>
+
+      <div className="mt-1 border-t border-white/10">
+        <div className="grid grid-cols-2 gap-px bg-white/10">
+          <div className="bg-black/25 p-3">
+            <div className="text-[11px] uppercase tracking-wide text-white/55">Emprestado</div>
+            <div className="mt-1 text-lg font-semibold text-white">{brl(totalEmprestado)}</div>
+          </div>
+
+          <div className="bg-black/25 p-3 text-right">
+            <div className="text-[11px] uppercase tracking-wide text-white/55">Total a receber</div>
+            <div className="mt-1 text-lg font-semibold text-white">{brl(totalReceber)}</div>
+          </div>
+
+          <div className="bg-black/25 p-3">
+            <div className="text-[11px] uppercase tracking-wide text-white/55">🪙 Lucro previsto</div>
+            <div className="mt-1 text-lg font-semibold text-white">{brl(lucroPrevisto)}</div>
+          </div>
+
+          <div className="bg-black/25 p-3 text-right">
+            <div className="text-[11px] uppercase tracking-wide text-white/55">✅ Recebido</div>
+            <div className="mt-1 text-lg font-semibold text-emerald-300">{brl(totalPago)}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="px-4 pt-4 pb-4">
+        <div className="text-[12px] font-semibold tracking-wide text-white/60">EMPRÉSTIMOS NA PASTA</div>
+
+        <div className="mt-3 grid gap-2">
+          {emprestimos.slice(0, 4).map((e) => {
+            const venc = proximoVencimentoEmprestimo(e);
+            return (
+              <div
+                key={(e as any).id}
+                className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-white/90">
+                    <span className="text-white/60">$</span>
+                    <span className="font-semibold">{brl(Number((e as any).valor ?? 0))}</span>
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-white/55">• Venc: {fmtShort(venc)}</div>
+                </div>
+
+                <span className="shrink-0 rounded-full border border-white/10 bg-black/30 px-3 py-1 text-xs font-semibold text-white">
+                  {brl(Number((e as any).totalReceber ?? 0))}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        <button
+          type="button"
+          onClick={onAbrirPasta}
+          className="mt-4 w-full rounded-xl bg-emerald-500 px-4 py-3 text-sm font-extrabold text-slate-950 hover:bg-emerald-400"
+        >
+          <span className="flex items-center justify-center gap-2">
+            <span aria-hidden>📁</span>
+            <span>Abrir Pasta</span>
+            <span className="ml-1" aria-hidden>
+              ›
+            </span>
+          </span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function EmprestimosLista({ viewMode = "grid", lista, onRemover, onPagar, onComprovante }: Props) {
- 
   const [pastaAberta, setPastaAberta] = useState<null | {
     clienteNome: string;
     clienteIdForRoute?: string;

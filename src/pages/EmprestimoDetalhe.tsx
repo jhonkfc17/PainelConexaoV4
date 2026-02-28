@@ -153,22 +153,6 @@ export default function EmprestimoDetalhe() {
   const pixPadrao = lsGet("cfg_pix", "");
   const assinaturaPadrao = lsGet("cfg_assinatura", "");
 
-  function calcularJurosAtrasoEstimadoLocal() {
-    if (!parcelaParaCobrar?.isAtraso || !parcelaParaCobrar?.diasAtraso) return 0;
-    const payload = ((emprestimo as any)?.payload ?? {}) as any;
-    const cfg = (payload?.juros_atraso_config ?? null) as any;
-    const aplicar = Boolean(cfg?.aplicar ?? (emprestimo as any).aplicarJurosAtraso);
-    const tipo = (cfg?.tipo ?? (emprestimo as any).jurosAtrasoTipo ?? "valor_por_dia") as string;
-    const taxa = Number(cfg?.taxa ?? (emprestimo as any).jurosAtrasoTaxa ?? 0);
-    if (!aplicar || !taxa) return 0;
-
-    const valorParcela = Number(parcelaParaCobrar.valor ?? 0);
-    const porDia = tipo === "percentual_por_dia" ? valorParcela * (taxa / 100) : taxa;
-    return Math.max(0, porDia * Number(parcelaParaCobrar.diasAtraso));
-  }
-
-  const jurosEstimado = calcularJurosAtrasoEstimadoLocal();
-
   const varsBase: Record<string, string> = {
     CLIENTE: emprestimo.clienteNome,
     VALOR: parcelaParaCobrar ? brl(parcelaParaCobrar.valor) : brl(emprestimo.valorParcela),
@@ -181,23 +165,18 @@ export default function EmprestimoDetalhe() {
   const textoNovoContrato = fillTemplate(getMessageTemplate("novo_contrato"), varsBase);
 
   const textoCobranca = (() => {
-    // Regra do produto:
-    // - contratos com 1 parcela → usar template "Cobrança (mensal)"
-    // - contratos com mais de 1 parcela → usar template "Cobrança (semanal)"
-    // (mesma regra aplicada para atraso)
-    const maisDeUmaParcela = Number(emprestimo.numeroParcelas ?? 0) > 1;
-
-    const key = parcelaParaCobrar?.isAtraso
-      ? maisDeUmaParcela
-        ? "atraso_semanal"
-        : "atraso_mensal"
-      : maisDeUmaParcela
-        ? "cobranca_semanal"
+    const key =
+      emprestimo.modalidade === "semanal"
+        ? parcelaParaCobrar?.isAtraso
+          ? "atraso_semanal"
+          : "cobranca_semanal"
+        : parcelaParaCobrar?.isAtraso
+        ? "atraso_mensal"
         : "cobranca_mensal";
 
     const tpl = getMessageTemplate(key);
 
-    // ✅ JUROS (novo): total pago - valor emprestado
+    // JUROS: total pago - valor emprestado
     const valorEmprestado = Number((emprestimo as any).valor ?? 0);
 
     const valorPago = (parcelas ?? []).reduce((total: number, p: any) => {
@@ -210,34 +189,37 @@ export default function EmprestimoDetalhe() {
 
     const vars = {
       ...varsBase,
-      DATA: parcelaParaCobrar?.vencimento ?? "",
+      VENCIMENTO: parcelaParaCobrar?.vencimento ?? "",
       DIAS_ATRASO: String(parcelaParaCobrar?.diasAtraso ?? 0),
       PARCELA: parcelaParaCobrar ? String(parcelaParaCobrar.idx + 1) : "",
-      PARCELAS: String(emprestimo.numeroParcelas ?? ""),
-      JUROS: jurosStr,
-      // Mantém disponível caso algum template use (não altera seu fluxo atual):
-      JUROS_ATRASO: jurosEstimado > 0 ? brl(jurosEstimado) : "",
+      TOTAL_PARCELAS: String(emprestimo.numeroParcelas ?? ""),
     };
 
     let msg = fillTemplate(tpl, vars);
 
-    // ✅ Se JUROS <= 0, remove a linha inteira relacionada a juros
-    // (cobre templates como "valor mínimo : {JUROS}" ou "Juros: {JUROS}")
+    // Se JUROS <= 0, remove a linha inteira relacionada a juros
+    // (cobre templates como "valor minimo : {JUROS}" ou "Juros: {JUROS}")
     if (!jurosStr) {
       msg = msg
-        .split("\n")
+        .split("
+")
         .filter((linha) => {
           const l = linha.toLowerCase();
-          return !l.includes("{juros}") && !l.includes("valor mínimo") && !l.includes("juros");
+          return !l.includes("{juros}") && !l.includes("valor minimo") && !l.includes("juros");
         })
-        .join("\n");
+        .join("
+");
     }
 
-    // ✅ Limpa linhas vazias duplicadas
-    msg = msg.replace(/\n\s*\n/g, "\n").trim();
+    // Limpa linhas vazias duplicadas
+    msg = msg.replace(/
+\s*
+/g, "
+").trim();
 
     return msg;
   })();
+
 
   return (
     <div className="p-4 sm:p-6 text-white">
