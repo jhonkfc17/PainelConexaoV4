@@ -47,7 +47,7 @@ export default function ClienteDetalhe() {
   const [pagarOpen, setPagarOpen] = useState(false);
   const [emprestimoSelecionado, setEmprestimoSelecionado] = useState<any | null>(null);
 
-  const { emprestimos, fetchEmprestimos, removerEmprestimo, mudarStatus } = useEmprestimosStore();
+  const { emprestimos, fetchEmprestimos, removerEmprestimo, mudarStatus, pagamentosByEmprestimo } = useEmprestimosStore();
   const [empLoading, setEmpLoading] = useState(false);
   const [pagamentosCliente, setPagamentosCliente] = useState<PagamentoDb[]>([]);
   const [pagLoading, setPagLoading] = useState(false);
@@ -382,6 +382,7 @@ export default function ClienteDetalhe() {
                 onMudarStatus={onMudarStatus as any}
                 onPagar={abrirPagamento as any}
                 onComprovante={abrirComprovanteEmprestimo as any}
+                pagamentosMapa={pagamentosByEmprestimo as any}
               />
             </div>
           )}

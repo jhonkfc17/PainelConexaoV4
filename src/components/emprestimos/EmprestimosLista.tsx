@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Emprestimo } from "@/store/useEmprestimosStore";
+import type { PagamentoDb } from "@/services/emprestimos.service";
 import RenegociarDividaModal from "./RenegociarDividaModal";
 import EditarEmprestimoModal from "./EditarEmprestimoModal";
 import JurosAtrasoConfigModal from "./JurosAtrasoConfigModal";
@@ -16,6 +17,7 @@ type Props = {
   onMudarStatus: (id: string, status: Emprestimo["status"]) => void;
   onPagar?: (emprestimo: Emprestimo) => void;
   onComprovante?: (emprestimo: Emprestimo) => void;
+  pagamentosMapa?: Record<string, PagamentoDb[]>;
 };
 
 function brl(v: number) {
@@ -129,6 +131,12 @@ function sumRecebido(parcelas: any[]): number {
     if (acumulado > 0) return acc + acumulado;
     return acc;
   }, 0);
+}
+
+function sumPagamentos(pags: PagamentoDb[] | undefined): number {
+  return (pags ?? [])
+    .filter((p) => !(p as any)?.estornado_em)
+    .reduce((acc, p) => acc + Number((p as any).valor ?? 0) + Number((p as any).juros_atraso ?? 0), 0);
 }
 
 function saldoPendenteParcela(p: any) {
@@ -447,7 +455,9 @@ function EmprestimoCardPasta({
   // Após amortização, o total correto vem da soma das parcelas do banco.
   // (o payload pode continuar com o total antigo)
   const totalReceber = parcelas.length > 0 ? sumParcelasValor(parcelas) : Number((emprestimo as any).totalReceber ?? 0);
-  const totalPago = sumRecebido(parcelas);
+  const totalPago =
+    sumPagamentos(pagamentosMapa?.[emprestimo.id]) ||
+    sumRecebido(parcelas);
   const restante = parcelas.length > 0 ? sumRestante(parcelas) : Math.max(totalReceber - totalPago, 0);
   const lucroPrevisto = Math.max(totalReceber - totalEmprestado, 0);
   const lucroRealizado = totalPago - totalEmprestado;
@@ -1219,7 +1229,14 @@ function PastaClienteCard({
   );
 }
 
-export default function EmprestimosLista({ viewMode = "grid", lista, onRemover, onPagar, onComprovante }: Props) {
+export default function EmprestimosLista({
+  viewMode = "grid",
+  lista,
+  onRemover,
+  onPagar,
+  onComprovante,
+  pagamentosMapa,
+}: Props) {
   const [pastaAberta, setPastaAberta] = useState<null | {
     clienteNome: string;
     clienteIdForRoute?: string;

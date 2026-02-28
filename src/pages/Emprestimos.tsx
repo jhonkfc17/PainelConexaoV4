@@ -46,7 +46,7 @@ export default function Emprestimos() {
   const [emprestimoSelecionado, setEmprestimoSelecionado] = useState<Emprestimo | null>(null);
 
   const { clientes, fetchClientes } = useClientesStore();
-  const { emprestimos, fetchEmprestimos, criarEmprestimo, removerEmprestimo, mudarStatus } =
+  const { emprestimos, fetchEmprestimos, criarEmprestimo, removerEmprestimo, mudarStatus, pagamentosByEmprestimo } =
     useEmprestimosStore();
 
   // ✅ mantém o empréstimo selecionado sincronizado com o store (atualiza totais após pagamentos)
@@ -257,6 +257,7 @@ export default function Emprestimos() {
           onMudarStatus={onMudarStatus}
           onPagar={abrirPagamento}
           onComprovante={abrirComprovanteEmprestimo}
+          pagamentosMapa={pagamentosByEmprestimo as any}
         />
       </div>
 
