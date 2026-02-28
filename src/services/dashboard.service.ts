@@ -409,6 +409,10 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
     .filter((r) => String(r.paidDate) >= monthStartISO && String(r.paidDate) <= todayISO)
     .reduce((acc, r) => acc + valorRecebidoTotal(r.p), 0);
 
+  const principalMes = pagosComData
+    .filter((r) => String(r.paidDate) >= monthStartISO && String(r.paidDate) <= todayISO)
+    .reduce((acc, r) => acc + safeNum(r.p.valor), 0);
+
   // Recebido no mês (até hoje) = principal + juros + multa de parcelas pagas
   const totalRecebidoMes = totalRecebidoDuranteMes;
   // Pagamentos registrados (inclusive juros-only) – capturados na tabela de pagamentos
