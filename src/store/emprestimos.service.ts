@@ -245,15 +245,31 @@ export function lucroRealizado(params: {
   pagamentos: PagamentoDb[];
 }): number {
   const principal = params.emprestimo.valor ?? 0;
+  const pagos = (params.pagamentos ?? []).filter((p) => !p.estornado_em);
 
-  const totalRecebido = (params.pagamentos ?? [])
-    .filter((p) => !p.estornado_em)
-    .reduce((acc, p) => acc + (p.valor ?? 0), 0);
+  const isLucroDireto = (p: PagamentoDb) => {
+    const flags: any = (p as any).flags ?? {};
+    const modo = String(flags.modo ?? "");
+    return Boolean(
+      flags.contabilizar_como_lucro ||
+        modo === "JUROS" ||
+        flags.juros_composto ||
+        (p.tipo === "ADIANTAMENTO_MANUAL" && Number((p as any).juros_atraso ?? 0) > 0)
+    );
+  };
 
-  const principalRecuperado = Math.min(totalRecebido, principal);
+  const totalRecebido = pagos.reduce(
+    (acc, p) => acc + Number((p as any).valor ?? 0) + Number((p as any).juros_atraso ?? 0),
+    0
+  );
+
+  const totalQueRecuperaPrincipal = pagos
+    .filter((p) => !isLucroDireto(p))
+    .reduce((acc, p) => acc + Number((p as any).valor ?? 0), 0);
+
+  const principalRecuperado = Math.min(totalQueRecuperaPrincipal, principal);
   const lucro = totalRecebido - principalRecuperado;
 
   return Math.round(lucro * 100) / 100;
 }
-
 

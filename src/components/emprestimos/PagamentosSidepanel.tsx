@@ -38,6 +38,18 @@ function isEstornado(p: PagamentoDb) {
   return Boolean(p.estornado_em);
 }
 
+function isLucroDireto(p: PagamentoDb) {
+  const flags: any = (p as any)?.flags ?? {};
+  const modo = String(flags.modo ?? "");
+  // Pagamento de Juros (fluxo "Pagar Juros") vem como ADIANTAMENTO_MANUAL com flags.modo="JUROS" ou contabilizar_como_lucro=true
+  return Boolean(
+    flags.contabilizar_como_lucro ||
+      modo === "JUROS" ||
+      flags.juros_composto ||
+      (p.tipo === "ADIANTAMENTO_MANUAL" && Number(p.juros_atraso ?? 0) > 0)
+  );
+}
+
 function tipoLabel(tipo?: string | null) {
   const t = String(tipo ?? "").toUpperCase();
   if (t === "PARCELA_INTEGRAL") return "Parcela integral";
@@ -109,15 +121,21 @@ export default function PagamentosSidepanel({ open, onClose, emprestimo }: Props
   const lucroRealizado = useMemo(() => {
     const principal = Number(emprestimo?.valor ?? 0);
 
-    // Pagamentos marcados com flags.contabilizar_como_lucro não reduzem principal.
-    const totalQueRecuperaPrincipal = (pagamentos ?? [])
-      .filter((p) => !isEstornado(p))
-      .filter((p) => !(p as any)?.flags?.contabilizar_como_lucro)
+    const pagosValidos = (pagamentos ?? []).filter((p) => !isEstornado(p));
+
+    const totalRecebidoBruto = pagosValidos.reduce(
+      (acc, p) => acc + Number(p.valor ?? 0) + Number(p.juros_atraso ?? 0),
+      0
+    );
+
+    // Só amortiza principal se não for marcado como lucro direto (Pagar Juros).
+    const totalQueRecuperaPrincipal = pagosValidos
+      .filter((p) => !isLucroDireto(p))
       .reduce((acc, p) => acc + Number(p.valor ?? 0), 0);
 
     const principalRecuperado = Math.min(totalQueRecuperaPrincipal, principal);
-    return totalPagoNaoEstornado - principalRecuperado;
-  }, [emprestimo, pagamentos, totalPagoNaoEstornado]);
+    return totalRecebidoBruto - principalRecuperado;
+  }, [emprestimo, pagamentos]);
 
   useEffect(() => {
     if (!open || !emprestimo?.id) return;
