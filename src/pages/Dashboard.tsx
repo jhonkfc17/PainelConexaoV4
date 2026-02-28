@@ -1,6 +1,5 @@
 import DashboardHeader from "../components/dashboard/DashboardHeader";
 import InstallBanner from "../components/dashboard/InstallBanner";
-import UpgradeBanner from "../components/dashboard/UpgradeBanner";
 import WeekSummary from "../components/dashboard/WeekSummary";
 import ChartsSection from "../components/dashboard/ChartsSection";
 import OperationHealth from "../components/dashboard/OperationHealth";
@@ -336,40 +335,33 @@ const header = data?.header ?? {
       </div>
 
 
-      <div className="mt-4 space-y-3">
+      <div className="mt-4">
         <InstallBanner
           title="Instale o Raposacobra no seu celular"
           desc="Tenha acesso rápido direto do seu celular. Indicado p/ offline e como um app nativo!"
           button="Ver instruções"
           onClick={() => alert("Abrir instruções de instalação (mock)")}
         />
-
-        <UpgradeBanner
-          title="Expanda seu Negócio!"
-          desc={
-            "Adicione funcionários para ajudar no dia a dia. A partir de R$ 25,00/mês.\n" +
-            "✓ Controle total de permissões  ✓ Acompanhamento de produtividade  ✓ Notificações via WhatsApp  ✓ Relatórios por funcionário"
-          }
-          button="Ver Funcionários"
-          onClick={() => alert("Abrir funcionários (mock)")}
-        />
       </div>
 
       {atrasoValor > 0 ? (
-        <div className="sticky top-3 z-40 mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="font-semibold text-red-100">Atenção: existem parcelas em atraso</div>
-              <div className="text-sm text-red-100/70">
-                Clique para abrir a lista e cobrar/pagar agora.
+        <>
+          <div className="h-[96px]" aria-hidden="true" />
+          <div className="fixed inset-x-0 top-16 z-50 flex justify-center px-3 sm:px-6 pointer-events-none">
+            <div className="pointer-events-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-500/35 bg-red-500/15 p-4 shadow-[0_14px_36px_rgba(239,68,68,0.22)] backdrop-blur">
+              <div>
+                <div className="font-semibold text-red-100">Atenção: existem parcelas em atraso</div>
+                <div className="text-sm text-red-100/80">
+                  Clique para abrir a lista e cobrar/pagar agora.
+                </div>
               </div>
-            </div>
 
-            <button className="rc-btn-primary" onClick={() => navigate("/parcelas/atrasadas")}>
-              Ver atrasos
-            </button>
+              <button className="rc-btn-primary" onClick={() => navigate("/parcelas/atrasadas")}>
+                Ver atrasos
+              </button>
+            </div>
           </div>
-        </div>
+        </>
       ) : null}
 
       {error ? (
