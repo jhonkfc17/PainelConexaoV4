@@ -316,6 +316,21 @@ export default function RelatorioOperacional() {
     return Math.max(0, totalReceber - principal);
   }, [emprestimosAtivos]);
 
+  // Estimativa de lucro realizado no período (mês):
+  // Considera que o principal é recuperado primeiro; o excedente recebido vira lucro.
+  const principalAtivos = useMemo(
+    () => emprestimosAtivos.reduce((a, e) => a + safeNumber((e as any).valor ?? 0), 0),
+    [emprestimosAtivos]
+  );
+  const principalRecuperadoNoMes = useMemo(
+    () => Math.min(principalAtivos, pagamentosRecebidosMes),
+    [principalAtivos, pagamentosRecebidosMes]
+  );
+  const lucroRealizadoMes = useMemo(
+    () => Math.max(0, pagamentosRecebidosMes - principalRecuperadoNoMes),
+    [pagamentosRecebidosMes, principalRecuperadoNoMes]
+  );
+
   const pagoTotalAtivos = useMemo(() => {
     return emprestimosAtivos.reduce((a, e) => a + sumPago((e as any).parcelasDb ?? []), 0);
   }, [emprestimosAtivos]);
@@ -338,9 +353,9 @@ export default function RelatorioOperacional() {
       totalRecebido: pagamentosRecebidosMes,
       jurosRecebidos: jurosRecebidosMes,
       emAtraso,
-      lucroRealizado: jurosRecebidosMes,
+      lucroRealizado: lucroRealizadoMes,
     };
-  }, [capitalNaRua, jurosAReceber, pagamentosRecebidosMes, jurosRecebidosMes, emAtraso]);
+  }, [capitalNaRua, jurosAReceber, pagamentosRecebidosMes, jurosRecebidosMes, emAtraso, lucroRealizadoMes]);
 
   const saidas: MoneyRow[] = useMemo(
     () => [
