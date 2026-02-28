@@ -405,6 +405,7 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   // Pagamentos registrados (inclusive juros-only) – capturados na tabela de pagamentos
   // para contemplar "Pagar Juros" e adiantamentos que não liquidam parcelas.
   let pagamentosMesValor = 0;
+  let pagamentosMesJuros = 0;
   try {
     const pagamentosQuery = supabase
       .from("pagamentos")
@@ -428,13 +429,15 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
       (acc, p) => acc + safeNum(p.valor) + safeNum((p as any).juros_atraso),
       0
     );
+    pagamentosMesJuros = pagamentosMes.reduce((acc, p) => acc + safeNum((p as any).juros_atraso), 0);
   } catch {
     // Em caso de falha, seguimos apenas com parcelas para não quebrar o dashboard.
     pagamentosMesValor = 0;
+    pagamentosMesJuros = 0;
   }
 
   const totalRecebidoMesComPagamentos = totalRecebidoMes + pagamentosMesValor;
-  const lucroMes = (totalRecebidoMes - principalMes) + pagamentosMesValor;
+  const lucroMes = Math.max(0, (totalRecebidoMes - principalMes) + pagamentosMesJuros);
 
   // Alocação simples de principal para descobrir lucro (juros/multa):
   // - Recupera principal até o limite do capital emprestado, na ordem temporal.
