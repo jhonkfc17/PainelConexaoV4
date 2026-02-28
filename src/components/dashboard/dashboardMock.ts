@@ -22,7 +22,7 @@ export const dashboardMock = {
   weekSummary: {
     cards: [
       { label: "Cobranças", value: 0, hint: "esta semana" },
-      { label: "Recebido", value: "R$ 0,00", hint: "esta semana" },
+      { label: "Recebido no mês", value: "R$ 0,00", hint: "total registrado no mês" },
       { label: "Vence hoje", value: 0, hint: "cobranças" },
 
       { label: "Empréstimos", value: 0, hint: "esta semana" },
@@ -31,8 +31,8 @@ export const dashboardMock = {
       { label: "Contratos", value: 0, hint: "esta semana" },
 
       { label: "Juros a receber", value: "R$ 0,00", hint: "últimos 6 meses" },
-      { label: "Recebido", value: "R$ 0,00", hint: "total recebido" },
-      { label: "Capital em mão", value: "R$ 0,00", hint: "capital emprestado" },
+      { label: "Lucro no mês", value: "R$ 0,00", hint: "lucro no mês" },
+      { label: "Capital na Rua", value: "R$ 0,00", hint: "capital emprestado" },
       { label: "Juros recebidos", value: "R$ 0,00", hint: "últimos pagamentos" },
 
       { label: "Clientes", value: 0, hint: "cadastrados" },

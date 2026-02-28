@@ -250,8 +250,8 @@ function buildEmptyDashboard(range: DashboardRange): DashboardData {
     header: { title: "Dashboard", subtitle: title, roleLabel: "" },
     weekCards: [
       { label: "Emprestado", value: "R$ 0,00", hint: "0 contratos" },
-      { label: "Recebido", value: "R$ 0,00", hint: "0 parcelas pagas" },
-      { label: "Lucro", value: "R$ 0,00", hint: "lucro realizado" },
+      { label: "Recebido no mês", value: "R$ 0,00", hint: "0 parcelas pagas" },
+      { label: "Lucro no mês", value: "R$ 0,00", hint: "lucro realizado" },
     ],
     charts: {
       evolucao: { title: "Evolução", data: emptySeries, keys: ["emprestado", "recebido"] },
@@ -397,6 +397,13 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
     .filter((r) => String(r.paidDate) >= weekStartISO && String(r.paidDate) <= todayISO)
     .reduce((acc, r) => acc + valorRecebidoTotal(r.p), 0);
 
+  // Mês atual (calendário)
+  const currentMonthKey = monthKey(now);
+  const pagosMes = pagosComData.filter((r) => monthKey(isoFromAny(r.paidDate)) === currentMonthKey);
+  const totalRecebidoMes = pagosMes.reduce((acc, r) => acc + valorRecebidoTotal(r.p), 0);
+  const principalMes = pagosMes.reduce((acc, r) => acc + safeNum(r.p.valor), 0);
+  const lucroMes = totalRecebidoMes - principalMes;
+
   // Alocação simples de principal para descobrir lucro (juros/multa):
   // - Recupera principal até o limite do capital emprestado, na ordem temporal.
   const principalTotal = capitalEmprestado;
@@ -538,16 +545,16 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   const weekCards: DashboardWeekCard[] = [
     { label: "Cobranças", value: cobrancasSemana, hint: "esta semana" },
     // Recebido (lucro/juros/multa) na semana
-    { label: "Recebido", value: brl(lucroSemana), hint: "lucro (juros/multa) esta semana" },
+    { label: "Recebido no mês", value: brl(totalRecebidoMes), hint: "total registrado no mês" },
     { label: "Vence hoje", value: venceHoje, hint: "cobranças" },
     { label: "Vence amanhã", value: venceAmanha, hint: "cobranças" },
     { label: "Empréstimos", value: emprestimosSemana, hint: "esta semana" },
     { label: "Produtos", value: 0, hint: "esta semana" },
     { label: "Previsão de Lucro", value: brl(lucroPrevisto), hint: "valor a receber - capital" },
     { label: "Contratos", value: emprestimos.length, hint: "total" },
-    { label: "Capital em mão", value: brl(capitalEmprestado), hint: "capital emprestado" },
-    // Recebido total (lucro/juros/multa) até hoje
-    { label: "Recebido", value: brl(lucroRealizadoTotal), hint: "lucro realizado (juros/multa)" },
+    { label: "Capital na Rua", value: brl(capitalEmprestado), hint: "capital emprestado" },
+    // Lucro do mês (recebido - principal + 100% juros)
+    { label: "Lucro no mês", value: brl(lucroMes), hint: "lucro (juros/multa) no mês" },
     { label: "Em atraso", value: brl(totalAtrasadoEmAberto), hint: "aberto" },
     { label: "Clientes", value: clientesCount ?? 0, hint: "cadastrados" },
   ];

@@ -238,15 +238,15 @@ const header = data?.header ?? {
 
   const fallbackWeekCards = [
     { label: "Cobranças", value: "—", hint: "esta semana" },
-    { label: "Recebido", value: "—", hint: "esta semana" },
+    { label: "Recebido no mês", value: "—", hint: "total registrado no mês" },
     { label: "Vence hoje", value: "—", hint: "cobranças" },
     { label: "Empréstimos", value: "—", hint: "esta semana" },
     { label: "Produtos", value: 0, hint: "esta semana" },
     { label: "Previsão de Lucro", value: "—", hint: "valor a receber - capital" },
     { label: "Contratos", value: "—", hint: "total" },
     { label: "Juros a receber", value: "—", hint: "últimos 6 meses" },
-    { label: "Recebido", value: "—", hint: "total recebido (vencidas)" },
-    { label: "Capital em mão", value: "—", hint: "capital emprestado" },
+    { label: "Lucro no mês", value: "—", hint: "lucro (mês atual)" },
+    { label: "Capital na Rua", value: "—", hint: "capital emprestado" },
     { label: "Juros recebidos", value: "—", hint: "total" },
     { label: "Clientes", value: "—", hint: "cadastrados" },
   ];
