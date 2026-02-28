@@ -413,11 +413,13 @@ function EmprestimoCardPasta({
   onRemover,
   onPagar,
   onComprovante,
+  pagamentosMapa,
 }: {
   emprestimo: Emprestimo;
   onRemover: (id: string) => void;
   onPagar?: (e: Emprestimo) => void;
   onComprovante?: (e: Emprestimo) => void;
+  pagamentosMapa?: Record<string, PagamentoDb[]>;
 }) {
   const navigate = useNavigate();
   const [detalhesAberto, setDetalhesAberto] = useState(false);
@@ -456,7 +458,7 @@ function EmprestimoCardPasta({
   // (o payload pode continuar com o total antigo)
   const totalReceber = parcelas.length > 0 ? sumParcelasValor(parcelas) : Number((emprestimo as any).totalReceber ?? 0);
   const totalPago =
-    sumPagamentos(pagamentosMapaSafe?.[emprestimo.id]) ||
+    sumPagamentos(pagamentosMapa?.[emprestimo.id]) ||
     sumRecebido(parcelas);
   const restante = parcelas.length > 0 ? sumRestante(parcelas) : Math.max(totalReceber - totalPago, 0);
   const lucroPrevisto = Math.max(totalReceber - totalEmprestado, 0);
@@ -1331,7 +1333,14 @@ export default function EmprestimosLista({
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
           {pastaAberta.emprestimos.map((e) => (
-            <EmprestimoCardPasta key={(e as any).id} emprestimo={e} onRemover={onRemover} onPagar={onPagar} onComprovante={onComprovante} />
+            <EmprestimoCardPasta
+              key={(e as any).id}
+              emprestimo={e}
+              onRemover={onRemover}
+              onPagar={onPagar}
+              onComprovante={onComprovante}
+              pagamentosMapa={pagamentosMapaSafe}
+            />
           ))}
         </div>
       </div>
@@ -1350,6 +1359,7 @@ export default function EmprestimosLista({
               onRemover={onRemover}
               onPagar={onPagar}
               onComprovante={onComprovante}
+              pagamentosMapa={pagamentosMapaSafe}
             />
           );
         }
