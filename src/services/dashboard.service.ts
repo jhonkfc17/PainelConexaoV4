@@ -406,10 +406,14 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   // para contemplar "Pagar Juros" e adiantamentos que não liquidam parcelas.
   let pagamentosMesValor = 0;
   let pagamentosMesJuros = 0;
+  let pagamentosMesLucroFlags = 0;
   try {
     const pagamentosQuery = supabase
       .from("pagamentos")
-      .select("valor, juros_atraso, data_pagamento, created_at, estornado_em, emprestimo_id");
+      .select("valor, juros_atraso, data_pagamento, created_at, estornado_em, emprestimo_id, tipo, flags")
+      // reduz tráfego: apenas mês corrente
+      .gte("data_pagamento", toDateOnlyISO(new Date(now.getFullYear(), now.getMonth(), 1)))
+      .lte("data_pagamento", toDateOnlyISO(new Date(now.getFullYear(), now.getMonth() + 1, 0)));
 
     const { data: pagamentosData } = await pagamentosQuery;
     const pagamentos = (pagamentosData ?? []) as any[];
@@ -430,14 +434,35 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
       0
     );
     pagamentosMesJuros = pagamentosMes.reduce((acc, p) => acc + safeNum((p as any).juros_atraso), 0);
+    // Marcações explícitas de lucro (ex: "Pagar Juros")
+    pagamentosMesLucroFlags = pagamentosMes.reduce((acc, p) => {
+      const tipo = String((p as any).tipo ?? "").toUpperCase();
+      const flags = (() => {
+        try {
+          const f = (p as any).flags;
+          if (!f) return null;
+          if (typeof f === "string") return JSON.parse(f);
+          return f;
+        } catch {
+          return null;
+        }
+      })();
+      const contabilizar = Boolean((flags as any)?.contabilizar_como_lucro);
+      const isJurosTipo = tipo.includes("JUROS");
+      const deveContarComoLucro = contabilizar || isJurosTipo;
+      if (!deveContarComoLucro) return acc;
+      return acc + safeNum(p.valor) + safeNum((p as any).juros_atraso);
+    }, 0);
   } catch {
     // Em caso de falha, seguimos apenas com parcelas para não quebrar o dashboard.
     pagamentosMesValor = 0;
     pagamentosMesJuros = 0;
+    pagamentosMesLucroFlags = 0;
   }
 
   const totalRecebidoMesComPagamentos = totalRecebidoMes + pagamentosMesValor;
-  const lucroMes = Math.max(0, (totalRecebidoMes - principalMes) + pagamentosMesJuros);
+  // Lucro = juros das parcelas pagas + valores de pagamentos marcados explicitamente como lucro (juros-only)
+  const lucroMes = Math.max(0, (totalRecebidoMes - principalMes) + pagamentosMesJuros + pagamentosMesLucroFlags);
 
   // Alocação simples de principal para descobrir lucro (juros/multa):
   // - Recupera principal até o limite do capital emprestado, na ordem temporal.
