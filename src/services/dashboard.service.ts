@@ -167,17 +167,33 @@ function isoFromAny(iso: string): string {
   return String(iso).slice(0, 10);
 }
 
-function parcelaJurosRecebido(p: ParcelaRow): number {
-  // Heurística:
-  // - juros_atraso é explícito
-  // - se valor_pago veio preenchido, consideramos excedente acima do valor
-  const valor = safeNum(p.valor);
-  const jurosAtraso = safeNum(p.juros_atraso);
-  const valorPago = valorPagoAcumulado(p);
+function jurosPrevistoPorParcela(e: EmprestimoRow): number {
+  const payload = (e.payload ?? {}) as any;
+  const principal = safeNum(payload.valor);
+  const totalReceber = safeNum(payload.totalReceber ?? payload.total_receber ?? payload.total_receber_calc);
+  const n = Math.max(1, Math.floor(safeNum(payload.parcelas ?? payload.numeroParcelas ?? payload.numero_parcelas)));
+  const jurosPrevisto = Math.max(0, totalReceber - principal);
+  return jurosPrevisto / n;
+}
 
-  if (valorPago <= 0) return jurosAtraso;
-  const excedente = Math.max(0, valorPago - valor);
-  return Math.max(excedente, jurosAtraso);
+function parcelaJurosRecebido(p: ParcelaRow, e?: EmprestimoRow): number {
+  // Lucro = juros recebidos (independe de recuperar capital).
+  // Heurística usada no app:
+  // 1) Juros base (embutido) por parcela = (totalReceber - principal) / nParcelas
+  // 2) Proporcional ao quanto foi pago (em pagamentos parciais)
+  // 3) Soma juros de atraso (explicitamente registrado) ou excedente acima do valor da parcela
+
+  const valorParcela = safeNum(p.valor);
+  const valorPago = valorPagoAcumulado(p);
+  const fracaoPaga = valorParcela > 0 ? Math.max(0, Math.min(1, valorPago / valorParcela)) : 0;
+
+  const jurosBase = e ? jurosPrevistoPorParcela(e) * fracaoPaga : 0;
+
+  const jurosAtraso = safeNum(p.juros_atraso);
+  const excedente = Math.max(0, valorPago - valorParcela);
+  const jurosExtra = Math.max(jurosAtraso, excedente);
+
+  return Math.max(0, jurosBase + jurosExtra);
 }
 
 type Bucket = {
@@ -472,27 +488,48 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
 
   const totalRecebidoMesComPagamentos = totalRecebidoMes + pagamentosMesValor;
 
-  // Lucro realizado no mês:
-  // - Aloca primeiro o principal total dos empréstimos; pagamentos antes do mês abatem esse principal.
-  // - Do que foi recebido no mês, a parcela que exceder o principal restante vira lucro.
-  // - Soma ainda juros_atraso e pagamentos explicitamente marcados como lucro.
-  const principalRecuperadoAntesMes = Math.min(totalRecebidoAntesMes, capitalEmprestado);
-  const principalRestanteNoMes = Math.max(0, capitalEmprestado - principalRecuperadoAntesMes);
-  const principalRecuperadoNoMes = Math.min(totalRecebidoMes, principalRestanteNoMes);
-  const lucroMesParcelas = Math.max(0, totalRecebidoMes - principalRecuperadoNoMes);
-  const lucroMes = Math.max(0, lucroMesParcelas + pagamentosMesJuros + pagamentosMesLucroFlags);
+  // Lucro (mês) = juros recebidos (independe de recuperar capital)
+  const emprestimoById = new Map<string, EmprestimoRow>();
+  for (const e of emprestimos) emprestimoById.set(String(e.id), e);
 
-  // Alocação simples de principal para descobrir lucro (juros/multa):
-  // - Recupera principal até o limite do capital emprestado, na ordem temporal.
-  const principalTotal = capitalEmprestado;
-  const principalRecuperadoAntes = Math.min(totalRecebidoAntesSemana, principalTotal);
-  const principalRestanteAntes = Math.max(0, principalTotal - principalRecuperadoAntes);
-  const principalRecuperadoSemana = Math.min(principalRestanteAntes, totalRecebidoDuranteSemana);
+  const jurosRecebidosMesParcelas = parcelas
+    .filter((p) => {
+      const paidDate = paidDateOrToday(p, todayISO);
+      if (!paidDate) return false;
+      return monthKey(new Date(paidDate)) === currentMonthKey;
+    })
+    .reduce((acc, p) => {
+      const e = emprestimoById.get(String(p.emprestimo_id ?? ""));
+      return acc + parcelaJurosRecebido(p, e);
+    }, 0);
 
-  const lucroSemana = totalRecebidoDuranteSemana - principalRecuperadoSemana;
+  // pagamentosMesLucroFlags cobre o fluxo "Pagar Juros" (juros manuais)
+  const lucroMes = Math.max(0, jurosRecebidosMesParcelas + pagamentosMesLucroFlags);
 
-  const principalRecuperadoTotal = Math.min(totalRecebidoBruto, principalTotal);
-  const lucroRealizadoTotal = totalRecebidoBruto - principalRecuperadoTotal;
+  // Lucro (semana/total) = juros recebidos (estimado)
+  const jurosRecebidosSemana = parcelas
+    .filter((p) => {
+      const paidDate = paidDateOrToday(p, todayISO);
+      if (!paidDate) return false;
+      const dt = new Date(paidDate);
+      return dt >= weekStart && dt <= weekEnd;
+    })
+    .reduce((acc, p) => {
+      const e = emprestimoById.get(String(p.emprestimo_id ?? ""));
+      return acc + parcelaJurosRecebido(p, e);
+    }, 0);
+
+  const lucroSemana = jurosRecebidosSemana;
+
+  const lucroRealizadoTotal = parcelas
+    .filter((p) => {
+      const paidDate = paidDateOrToday(p, todayISO);
+      return Boolean(paidDate) && isPaidByDate(p, todayISO);
+    })
+    .reduce((acc, p) => {
+      const e = emprestimoById.get(String(p.emprestimo_id ?? ""));
+      return acc + parcelaJurosRecebido(p, e);
+    }, 0);
 
   // =========================
   // Chart series
@@ -542,7 +579,8 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
       const idx = idxByKey.get(key);
       if (idx != null) {
         evolucaoData[idx].recebido = safeNum(evolucaoData[idx].recebido) + valorRecebidoTotal(p);
-        jurosData[idx].juros = safeNum(jurosData[idx].juros) + safeNum(parcelaJurosRecebido(p));
+        const e = emprestimoById.get(String(p.emprestimo_id ?? ""));
+        jurosData[idx].juros = safeNum(jurosData[idx].juros) + safeNum(parcelaJurosRecebido(p, e));
       }
     }
   }

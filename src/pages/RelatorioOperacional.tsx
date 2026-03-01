@@ -295,45 +295,46 @@ export default function RelatorioOperacional() {
   }, [emprestimos]);
 
   const pagamentosRecebidosMes = useMemo(() => pagamentosMes.reduce((a, p) => a + safeNumber(p.valor), 0), [pagamentosMes]);
-  const jurosRecebidosMes = useMemo(() => pagamentosMes.reduce((a, p) => a + safeNumber(p.juros_atraso ?? 0), 0), [pagamentosMes]);
 
-  const totalPagoAntesMes = useMemo(
-    () =>
-      sumPagoPeriodo(emprestimos, (p) => {
+  // Lucro = juros recebidos (independe de recuperar capital)
+  const jurosRecebidosMes = useMemo(() => {
+    const inicio = inicioMesISO;
+    const fim = hojeISO;
+
+    function jurosPrevistoPorParcela(e: any) {
+      const principal = safeNumber((e as any).valor ?? (e as any).payload?.valor ?? 0);
+      const totalReceber = safeNumber((e as any).totalReceber ?? (e as any).payload?.totalReceber ?? 0);
+      const n = Math.max(1, Math.floor(safeNumber((e as any).numeroParcelas ?? (e as any).payload?.parcelas ?? 0)));
+      return Math.max(0, totalReceber - principal) / n;
+    }
+
+    let jurosParcelas = 0;
+    for (const e of emprestimosAtivos) {
+      const jurosBase = jurosPrevistoPorParcela(e);
+      const parcelas = ((e as any).parcelasDb ?? []) as any[];
+      for (const p of parcelas) {
         const pagoEm = toISODateOnly((p as any).pago_em ?? "");
-        return pagoEm && pagoEm < inicioMesISO;
-      }),
-    [emprestimos, inicioMesISO]
-  );
+        if (!pagoEm || pagoEm < inicio || pagoEm > fim) continue;
+        const valorParcela = safeNumber((p as any).valor ?? 0);
+        const valorPago = safeNumber((p as any).valor_pago_acumulado ?? (p as any).valor_pago ?? 0);
+        const fracao = valorParcela > 0 ? Math.max(0, Math.min(1, valorPago / valorParcela)) : 0;
+        const base = jurosBase * fracao;
+        const jurosAtraso = safeNumber((p as any).juros_atraso ?? 0);
+        const excedente = Math.max(0, valorPago - valorParcela);
+        const extra = Math.max(jurosAtraso, excedente);
+        jurosParcelas += Math.max(0, base + extra);
+      }
+    }
 
-  const totalPagoNoMes = useMemo(
-    () =>
-      sumPagoPeriodo(emprestimos, (p) => {
-        const pagoEm = toISODateOnly((p as any).pago_em ?? "");
-        return pagoEm && pagoEm >= inicioMesISO && pagoEm <= hojeISO;
-      }),
-    [emprestimos, inicioMesISO, hojeISO]
-  );
+    // Juros manuais (fluxo "Pagar Juros") vêm do array pagamentosMes
+    // OBS: aqui pagamentosMes já é do mês; consideramos todo valor como juros (porque é um pagamento avulso de juros)
+    const jurosManuais = pagamentosMes.reduce((a, p) => a + safeNumber(p.valor), 0);
 
-  const principalTotalContratos = useMemo(() => emprestimos.reduce((a, e) => a + safeNumber((e as any).valor ?? 0), 0), [emprestimos]);
+    return Math.max(0, jurosParcelas + jurosManuais);
+  }, [emprestimosAtivos, pagamentosMes, inicioMesISO, hojeISO]);
 
-  const principalRecuperadoAntesMes = useMemo(
-    () => Math.min(totalPagoAntesMes, principalTotalContratos),
-    [totalPagoAntesMes, principalTotalContratos]
-  );
-  const principalRestanteParaMes = useMemo(
-    () => Math.max(0, principalTotalContratos - principalRecuperadoAntesMes),
-    [principalTotalContratos, principalRecuperadoAntesMes]
-  );
-  const principalRecuperadoNoMes = useMemo(
-    () => Math.min(totalPagoNoMes, principalRestanteParaMes),
-    [totalPagoNoMes, principalRestanteParaMes]
-  );
-
-  const lucroRealizadoMes = useMemo(
-    () => Math.max(0, totalPagoNoMes - principalRecuperadoNoMes),
-    [totalPagoNoMes, principalRecuperadoNoMes]
-  );
+  // Lucro realizado (mês) segue a regra definida: lucro = juros recebidos
+  const lucroRealizadoMes = useMemo(() => Math.max(0, jurosRecebidosMes), [jurosRecebidosMes]);
 
   const emprestimosConcedidosMes = useMemo(() => {
     return emprestimos
@@ -361,20 +362,7 @@ export default function RelatorioOperacional() {
     return Math.max(0, totalReceber - principal);
   }, [emprestimosAtivos]);
 
-  // Estimativa de lucro realizado no período (mês):
-  // Considera que o principal é recuperado primeiro; o excedente recebido vira lucro.
-  const principalAtivos = useMemo(
-    () => emprestimosAtivos.reduce((a, e) => a + safeNumber((e as any).valor ?? 0), 0),
-    [emprestimosAtivos]
-  );
-  const principalRecuperadoNoMes = useMemo(
-    () => Math.min(principalAtivos, pagamentosRecebidosMes),
-    [principalAtivos, pagamentosRecebidosMes]
-  );
-  const lucroRealizadoMes = useMemo(
-    () => Math.max(0, pagamentosRecebidosMes - principalRecuperadoNoMes),
-    [pagamentosRecebidosMes, principalRecuperadoNoMes]
-  );
+  // (removido) regra antiga de alocar principal antes do lucro
 
   const pagoTotalAtivos = useMemo(() => {
     return emprestimosAtivos.reduce((a, e) => a + sumPago((e as any).parcelasDb ?? []), 0);

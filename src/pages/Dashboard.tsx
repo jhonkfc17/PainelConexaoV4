@@ -172,7 +172,7 @@ useEffect(() => {
       if (!alive) return;
       setStaffCommissionPct(pct);
 
-      // 2) Calcula lucro realizado total (tenant) e comissão
+      // 2) Calcula lucro realizado (juros recebidos) e comissão
       const { data: loans, error: loansErr } = await supabase
         .from("emprestimos")
         .select("id,payload,created_by")
@@ -182,24 +182,72 @@ useEffect(() => {
 
       const { data: pays, error: paysErr } = await supabase
         .from("parcelas")
-        .select("emprestimo_id,valor,valor_pago_acumulado,juros_atraso,pago")
+        .select("emprestimo_id,valor,valor_pago_acumulado,valor_pago,juros_atraso,pago")
         .eq("pago", true)
         .in("emprestimo_id", ((loans ?? []) as any[]).map((l) => String(l.id)));
 
       if (paysErr) throw paysErr;
 
-      const receivedByLoan = new Map<string, number>();
-      for (const p of (pays ?? []) as any[]) {
-        const id = String(p.emprestimo_id ?? "");
-        const val = Number(p.valor_pago_acumulado ?? p.valor ?? 0) + Number(p.juros_atraso ?? 0);
-        receivedByLoan.set(id, (receivedByLoan.get(id) ?? 0) + (Number.isFinite(val) ? val : 0));
+      function safeNum(v: any) {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+      }
+      function jurosPrevistoPorParcela(payload: any) {
+        const principal = safeNum(payload?.valor);
+        const totalReceber = safeNum(payload?.totalReceber ?? payload?.total_receber ?? payload?.total_receber_calc);
+        const n = Math.max(1, Math.floor(safeNum(payload?.parcelas ?? payload?.numeroParcelas ?? payload?.numero_parcelas)));
+        return Math.max(0, totalReceber - principal) / n;
+      }
+      function jurosRecebidosParcela(p: any, payload: any) {
+        const valorParcela = safeNum(p.valor);
+        const valorPago = safeNum(p.valor_pago_acumulado ?? p.valor_pago ?? 0);
+        const fracao = valorParcela > 0 ? Math.max(0, Math.min(1, valorPago / valorParcela)) : 0;
+        const base = jurosPrevistoPorParcela(payload) * fracao;
+        const jurosAtraso = safeNum(p.juros_atraso);
+        const excedente = Math.max(0, valorPago - valorParcela);
+        const extra = Math.max(jurosAtraso, excedente);
+        return Math.max(0, base + extra);
       }
 
-      let lucroReal = 0;
+      const payloadByLoan = new Map<string, any>();
+      for (const l of (loans ?? []) as any[]) payloadByLoan.set(String(l.id), l.payload ?? {});
+
+      const jurosByLoan = new Map<string, number>();
+      for (const p of (pays ?? []) as any[]) {
+        const id = String(p.emprestimo_id ?? "");
+        const payload = payloadByLoan.get(id) ?? {};
+        jurosByLoan.set(id, (jurosByLoan.get(id) ?? 0) + jurosRecebidosParcela(p, payload));
+      }
+
+      // Inclui pagamentos manuais de juros (fluxo "Pagar Juros")
+      const { data: manualPays } = await supabase
+        .from("pagamentos")
+        .select("emprestimo_id,valor,juros_atraso,estornado_em,tipo,flags")
+        .is("estornado_em", null)
+        .in("emprestimo_id", ((loans ?? []) as any[]).map((l) => String(l.id)));
+
+      let jurosManuais = 0;
+      for (const mp of (manualPays ?? []) as any[]) {
+        const tipo = String(mp?.tipo ?? "").toUpperCase();
+        const flags = (() => {
+          try {
+            const f = mp?.flags;
+            if (!f) return null;
+            if (typeof f === "string") return JSON.parse(f);
+            return f;
+          } catch {
+            return null;
+          }
+        })();
+        const contabilizar = Boolean((flags as any)?.contabilizar_como_lucro);
+        const isJurosTipo = tipo.includes("JUROS");
+        if (!contabilizar && !isJurosTipo) continue;
+        jurosManuais += safeNum(mp.valor) + safeNum(mp.juros_atraso);
+      }
+
+      let lucroReal = jurosManuais;
       for (const l of (loans ?? []) as any[]) {
-        const principal = Number(l?.payload?.valor ?? 0);
-        const rec = receivedByLoan.get(String(l.id)) ?? 0;
-        lucroReal += Math.max(0, rec - principal);
+        lucroReal += jurosByLoan.get(String(l.id)) ?? 0;
       }
 
       if (!alive) return;

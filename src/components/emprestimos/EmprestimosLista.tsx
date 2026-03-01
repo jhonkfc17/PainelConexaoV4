@@ -463,7 +463,49 @@ function EmprestimoCardPasta({
     sumRecebido(parcelas);
   const restante = parcelas.length > 0 ? sumRestante(parcelas) : Math.max(totalReceber - totalPago, 0);
   const lucroPrevisto = Math.max(totalReceber - totalEmprestado, 0);
-  const lucroRealizado = Math.max(totalPago - totalEmprestado, 0);
+
+  // Regra: lucro = juros recebidos (não depende de recuperar capital)
+  const lucroRealizado = (() => {
+    const n = Math.max(1, Number((emprestimo as any).numeroParcelas ?? 1));
+    const jurosPorParcelaBase = lucroPrevisto / n;
+
+    // 1) Juros embutido nas parcelas pagas (estimado) + juros de atraso
+    const jurosParcelas = (parcelas ?? [])
+      .filter((p: any) => Boolean(p?.pago))
+      .reduce((acc: number, p: any) => {
+        const valorParcela = Number(p?.valor ?? 0);
+        const valorPago = Number(p?.valor_pago_acumulado ?? p?.valor_pago ?? 0);
+        const fracao = valorParcela > 0 ? Math.max(0, Math.min(1, valorPago / valorParcela)) : 0;
+        const base = jurosPorParcelaBase * fracao;
+        const jurosAtraso = Number(p?.juros_atraso ?? 0);
+        const excedente = Math.max(0, valorPago - valorParcela);
+        const extra = Math.max(jurosAtraso, excedente);
+        return acc + Math.max(0, base + extra);
+      }, 0);
+
+    // 2) Juros manuais (fluxo "Pagar Juros") vindos da tabela pagamentos
+    const pagamentos = (pagamentosMapaSafe?.[emprestimo.id] ?? []) as any[];
+    const jurosManuais = pagamentos.reduce((acc: number, p: any) => {
+      if (p?.estornado_em) return acc;
+      const tipo = String(p?.tipo ?? "").toUpperCase();
+      const flags = (() => {
+        try {
+          const f = p?.flags;
+          if (!f) return null;
+          if (typeof f === "string") return JSON.parse(f);
+          return f;
+        } catch {
+          return null;
+        }
+      })();
+      const contabilizar = Boolean((flags as any)?.contabilizar_como_lucro);
+      const isJurosTipo = tipo.includes("JUROS");
+      if (!contabilizar && !isJurosTipo) return acc;
+      return acc + Number(p?.valor ?? 0) + Number(p?.juros_atraso ?? 0);
+    }, 0);
+
+    return Math.max(0, jurosParcelas + jurosManuais);
+  })();
 
   const jurosPorParcela = (() => {
     const aplicado = String((emprestimo as any).jurosAplicado ?? "") as string;
