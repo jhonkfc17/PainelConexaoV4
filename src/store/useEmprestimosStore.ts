@@ -628,17 +628,6 @@ stopRealtime:
         cliente_contato: cliente?.telefone ?? "",
         status: "ativo",
         modalidade: payload.modalidade,
-        // Nova estrutura: persistir campos financeiros para cálculo de lucro/relatórios
-        principal: Number(payload.valor ?? 0),
-        numero_parcelas: Number(payload.parcelas ?? 1),
-        total_receber: Number(calcularTotais({
-          valor: Number(payload.valor ?? 0),
-          taxaJuros: Number(payload.taxaJuros ?? 0),
-          parcelas: Number(payload.parcelas ?? 1),
-          jurosAplicado: payload.jurosAplicado,
-          modalidade: payload.modalidade,
-        }).totalAReceber),
-        taxa_mensal: Number(payload.taxaJuros ?? 0),
         payload: {
           ...payload,
           clienteNome: cliente?.nomeCompleto ?? "",

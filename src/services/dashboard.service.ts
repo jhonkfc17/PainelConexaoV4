@@ -32,25 +32,6 @@ export type DashboardData = {
   health: DashboardHealth;
 };
 
-export type DashboardMetricsViewRow = {
-  total_recebido_mes: number | null;
-  lucro_mes: number | null;
-  juros_embutido_mes?: number | null;
-  juros_atraso_mes?: number | null;
-  multa_mes?: number | null;
-  parcelas_pagas_mes?: number | null;
-  em_atraso_valor?: number | null;
-  em_atraso_qtd?: number | null;
-};
-
-export type DashboardMetrics30dViewRow = {
-  total_recebido_30d: number | null;
-  lucro_30d: number | null;
-  juros_embutido_30d?: number | null;
-  juros_atraso_30d?: number | null;
-  multa_30d?: number | null;
-};
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Ultra-perf: in-memory cache (SWR) + inflight de-duplication
 // ─────────────────────────────────────────────────────────────────────────────
@@ -97,10 +78,6 @@ type EmprestimoRow = {
   id: string;
   created_at: string;
   payload: any;
-  principal?: number | null;
-  total_receber?: number | null;
-  numero_parcelas?: number | null;
-  taxa_mensal?: number | null;
 };
 
 function brl(n: number): string {
@@ -191,33 +168,13 @@ function isoFromAny(iso: string): string {
 }
 
 function jurosPrevistoPorParcela(e: EmprestimoRow): number {
-  // Preferimos colunas normalizadas (nova estrutura).
-  const principalCol = safeNum((e as any).principal);
-  const totalReceberCol = safeNum((e as any).total_receber);
-  const nCol = Math.max(1, Math.floor(safeNum((e as any).numero_parcelas)));
-
-  if (principalCol > 0 && totalReceberCol > 0 && nCol > 0) {
-    const jurosPrevisto = Math.max(0, totalReceberCol - principalCol);
-    return jurosPrevisto / nCol;
-  }
-
-  // Fallback: contratos antigos (quando ainda estava tudo no payload jsonb)
   const payload = (e.payload ?? {}) as any;
-  const principal = safeNum(payload.valor ?? payload.principal ?? payload.capital ?? payload.valor_emprestado ?? payload.valorEmprestado);
-  const totalReceber = safeNum(
-    payload.totalReceber ??
-      payload.total_receber ??
-      payload.total_receber_calc ??
-      payload.total_receber_previsto ??
-      payload.valor_total ??
-      payload.valorTotal ??
-      payload.total
-  );
-  const n = Math.max(1, Math.floor(safeNum(payload.parcelas ?? payload.numeroParcelas ?? payload.numero_parcelas ?? payload.qtd_parcelas ?? payload.parcelas_total)));
+  const principal = safeNum(payload.valor);
+  const totalReceber = safeNum(payload.totalReceber ?? payload.total_receber ?? payload.total_receber_calc);
+  const n = Math.max(1, Math.floor(safeNum(payload.parcelas ?? payload.numeroParcelas ?? payload.numero_parcelas)));
   const jurosPrevisto = Math.max(0, totalReceber - principal);
   return jurosPrevisto / n;
 }
-
 
 function parcelaJurosRecebido(p: ParcelaRow, e?: EmprestimoRow): number {
   // Lucro = juros recebidos (independe de recuperar capital).
@@ -372,9 +329,10 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   const now = new Date();
   const todayISO = toDateOnlyISO(now);
   const tomorrowISO = toDateOnlyISO(addDays(now, 1));
-  const weekStartISO = toDateOnlyISO(startOfWeek(now));
-  const weekStartDate = new Date(`${weekStartISO}T00:00:00`);
-  const weekEndDate = new Date(`${todayISO}T23:59:59`);
+  const weekStart = startOfWeek(now);
+  const weekEnd = addDays(weekStart, 6);
+  weekEnd.setHours(23, 59, 59, 999);
+  const weekStartISO = toDateOnlyISO(weekStart);
   const { buckets, startISO } = makeBuckets(now, range);
 
   // =========================
@@ -390,7 +348,7 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   // =========================
   let empQuery = supabase
     .from("emprestimos")
-    .select("id, created_at, payload, principal, total_receber, numero_parcelas, taxa_mensal")
+    .select("id, created_at, payload")
     .gte("created_at", new Date(`${startISO}T00:00:00`).toISOString())
     .order("created_at", { ascending: true });
 
@@ -462,32 +420,6 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   const currentMonthKey = monthKey(now);
   const monthStartISO = toDateOnlyISO(new Date(now.getFullYear(), now.getMonth(), 1));
 
-  // =========================
-  // DB Views (preferível): métricas prontas (Lucro = juros recebidos)
-  // =========================
-  let metricsMes: DashboardMetricsViewRow | null = null;
-  let metrics30d: DashboardMetrics30dViewRow | null = null;
-
-  try {
-    const { data } = await supabase.from('v_dashboard_metrics').select('*').maybeSingle();
-    metricsMes = (data as any) ?? null;
-  } catch {
-    metricsMes = null;
-  }
-  try {
-    const { data } = await supabase.from('v_dashboard_metrics_30d').select('*').maybeSingle();
-    metrics30d = (data as any) ?? null;
-  } catch {
-    metrics30d = null;
-  }
-
-  try {
-    const { data } = await supabase.from('v_dashboard_metrics_30d').select('*').maybeSingle();
-    metrics30d = (data as any) ?? null;
-  } catch {
-    metrics30d = null;
-  }
-
   const totalRecebidoAntesMes = pagosComData
     .filter((r) => String(r.paidDate) < monthStartISO)
     .reduce((acc, r) => acc + valorRecebidoTotal(r.p), 0);
@@ -557,12 +489,7 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
     pagamentosMesLucroFlags = 0;
   }
 
-  const totalRecebidoMesView =
-    range === "30d"
-      ? safeNum((metrics30d as any)?.total_recebido_30d)
-      : safeNum((metricsMes as any)?.total_recebido_mes);
-  const totalRecebidoMesComPagamentos =
-    (totalRecebidoMesView > 0 ? totalRecebidoMesView : totalRecebidoMes) + pagamentosMesValor;
+  const totalRecebidoMesComPagamentos = totalRecebidoMes + pagamentosMesValor;
 
   // Lucro (mês) = juros recebidos (independe de recuperar capital)
   const emprestimoById = new Map<string, EmprestimoRow>();
@@ -580,10 +507,7 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
     }, 0);
 
   // pagamentosMesLucroFlags cobre o fluxo "Pagar Juros" (juros manuais)
-  const lucroMesView =
-    range === "30d" ? safeNum((metrics30d as any)?.lucro_30d) : safeNum((metricsMes as any)?.lucro_mes);
-  const lucroMesCalc = Math.max(0, totalRecebidoMes - principalMes + pagamentosMesJuros + pagamentosMesLucroFlags);
-  const lucroMes = lucroMesView > 0 ? lucroMesView : lucroMesCalc;
+  const lucroMes = Math.max(0, jurosRecebidosMesParcelas + pagamentosMesLucroFlags);
 
   // Lucro (semana/total) = juros recebidos (estimado)
   const jurosRecebidosSemana = parcelas
@@ -591,7 +515,7 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
       const paidDate = paidDateOrToday(p, todayISO);
       if (!paidDate) return false;
       const dt = new Date(paidDate);
-      return dt >= weekStartDate && dt <= weekEndDate;
+      return dt >= weekStart && dt <= weekEnd;
     })
     .reduce((acc, p) => {
       const e = emprestimoById.get(String(p.emprestimo_id ?? ""));
