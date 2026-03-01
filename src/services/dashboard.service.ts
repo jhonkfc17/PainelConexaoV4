@@ -472,6 +472,12 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   } catch {
     metricsMes = null;
   }
+  try {
+    const { data } = await supabase.from('v_dashboard_metrics_30d').select('*').maybeSingle();
+    metrics30d = (data as any) ?? null;
+  } catch {
+    metrics30d = null;
+  }
 
   try {
     const { data } = await supabase.from('v_dashboard_metrics_30d').select('*').maybeSingle();
@@ -549,8 +555,12 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
     pagamentosMesLucroFlags = 0;
   }
 
-  const totalRecebidoMesView = safeNum((metricsMes as any)?.total_recebido_mes);
-  const totalRecebidoMesComPagamentos = (totalRecebidoMesView > 0 ? totalRecebidoMesView : totalRecebidoMes) + pagamentosMesValor;
+  const totalRecebidoMesView =
+    range === "30d"
+      ? safeNum((metrics30d as any)?.total_recebido_30d)
+      : safeNum((metricsMes as any)?.total_recebido_mes);
+  const totalRecebidoMesComPagamentos =
+    (totalRecebidoMesView > 0 ? totalRecebidoMesView : totalRecebidoMes) + pagamentosMesValor;
 
   // Lucro (mês) = juros recebidos (independe de recuperar capital)
   const emprestimoById = new Map<string, EmprestimoRow>();
@@ -568,8 +578,10 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
     }, 0);
 
   // pagamentosMesLucroFlags cobre o fluxo "Pagar Juros" (juros manuais)
-  const lucroMesView = safeNum((metricsMes as any)?.lucro_mes);
-  const lucroMes = (lucroMesView > 0 ? lucroMesView : jurosRecebidosMesParcelas) + pagamentosMesLucroFlags;
+  const lucroMesView =
+    range === "30d" ? safeNum((metrics30d as any)?.lucro_30d) : safeNum((metricsMes as any)?.lucro_mes);
+  const lucroMesCalc = Math.max(0, totalRecebidoMes - principalMes + pagamentosMesJuros + pagamentosMesLucroFlags);
+  const lucroMes = lucroMesView > 0 ? lucroMesView : lucroMesCalc;
 
   // Lucro (semana/total) = juros recebidos (estimado)
   const jurosRecebidosSemana = parcelas
