@@ -14,7 +14,7 @@ type Settings = {
 };
 
 type Target = {
-  parcela_id: number;
+  parcela_id: string; // uuid
   tenant_id: string;
   emprestimo_id: string | null;
   cliente_id: string | null;
