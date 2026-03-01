@@ -373,6 +373,8 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   const todayISO = toDateOnlyISO(now);
   const tomorrowISO = toDateOnlyISO(addDays(now, 1));
   const weekStartISO = toDateOnlyISO(startOfWeek(now));
+  const weekStartDate = new Date(`${weekStartISO}T00:00:00`);
+  const weekEndDate = new Date(`${todayISO}T23:59:59`);
   const { buckets, startISO } = makeBuckets(now, range);
 
   // =========================
@@ -589,7 +591,7 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
       const paidDate = paidDateOrToday(p, todayISO);
       if (!paidDate) return false;
       const dt = new Date(paidDate);
-      return dt >= weekStart && dt <= weekEnd;
+      return dt >= weekStartDate && dt <= weekEndDate;
     })
     .reduce((acc, p) => {
       const e = emprestimoById.get(String(p.emprestimo_id ?? ""));
