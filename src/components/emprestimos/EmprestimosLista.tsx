@@ -594,7 +594,9 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
     const texto = mensagem ?? montarMensagemPadraoWhatsApp();
     const url = `https://wa.me/${waPhone}${texto ? `?text=${encodeURIComponent(texto)}` : ""}`;
     const opened = window.open(url, "_blank", "noopener,noreferrer");
-    if (!opened) window.location.href = url;
+    if (!opened) {
+      alert("Não foi possível abrir o WhatsApp em uma nova aba (bloqueio de pop-up). Libere pop-ups para este site e tente novamente.");
+    }
   };
 
   const emprestimoModal = useMemo(() => {
