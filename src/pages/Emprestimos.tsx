@@ -171,31 +171,48 @@ export default function Emprestimos() {
 
 
   function getDueStatus(e: Emprestimo): "atrasado" | "hoje" | "amanha" | "ok" {
-    const parcelas = Array.isArray((e as any).parcelasDb) ? (e as any).parcelasDb : [];
-    const abertas = parcelas.filter((p: any) => !p.pago);
-    if (abertas.length === 0) return "ok";
+    // Preferir campos calculados do backend (view v_emprestimos_status)
+    const emAtraso = Boolean((e as any).emAtraso ?? (e as any).em_atraso ?? false);
+    if (emAtraso) return "atrasado";
+
+    const prox = String((e as any).proximoVencimentoEmAberto ?? (e as any).proximo_vencimento_em_aberto ?? "").trim();
 
     const hoje = new Date();
     hoje.setHours(0, 0, 0, 0);
     const amanha = new Date(hoje);
     amanha.setDate(hoje.getDate() + 1);
 
-    // prioridade: atrasado > hoje > amanhã
-    for (const p of abertas) {
-      const venc = new Date(String(p.vencimento) + "T00:00:00");
+    if (prox) {
+      const venc = new Date(prox + "T00:00:00");
       venc.setHours(0, 0, 0, 0);
+      if (!Number.isNaN(venc.getTime())) {
+        if (venc.getTime() === hoje.getTime()) return "hoje";
+        if (venc.getTime() === amanha.getTime()) return "amanha";
+      }
+    }
+
+    // Fallback: calcula pelas parcelas locais
+    const parcelas = Array.isArray((e as any).parcelasDb) ? (e as any).parcelasDb : [];
+    const abertas = parcelas.filter((p: any) => !p?.pago);
+
+    let hasHoje = false;
+    let hasAmanha = false;
+
+    for (const p of abertas) {
+      const v = String(p?.vencimento ?? "");
+      if (!v) continue;
+
+      const venc = new Date(v + "T00:00:00");
+      venc.setHours(0, 0, 0, 0);
+      if (Number.isNaN(venc.getTime())) continue;
+
       if (venc < hoje) return "atrasado";
+      if (venc.getTime() === hoje.getTime()) hasHoje = true;
+      if (venc.getTime() === amanha.getTime()) hasAmanha = true;
     }
-    for (const p of abertas) {
-      const venc = new Date(String(p.vencimento) + "T00:00:00");
-      venc.setHours(0, 0, 0, 0);
-      if (venc.getTime() === hoje.getTime()) return "hoje";
-    }
-    for (const p of abertas) {
-      const venc = new Date(String(p.vencimento) + "T00:00:00");
-      venc.setHours(0, 0, 0, 0);
-      if (venc.getTime() === amanha.getTime()) return "amanha";
-    }
+
+    if (hasHoje) return "hoje";
+    if (hasAmanha) return "amanha";
     return "ok";
   }
 

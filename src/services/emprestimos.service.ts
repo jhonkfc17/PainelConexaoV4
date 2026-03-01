@@ -106,6 +106,14 @@ export type EmprestimoDb = {
   updated_at: string;
   payload: EmprestimoPayload | null;
   parcelas?: ParcelaDb[];
+
+  // campos calculados (view v_emprestimos_status)
+  tenant_id?: string | null;
+  parcelas_em_aberto?: number | null;
+  parcelas_em_atraso?: number | null;
+  dias_atraso_max?: number | null;
+  em_atraso?: boolean | null;
+  proximo_vencimento_em_aberto?: string | null;
 };
 
 export type Emprestimo = {
@@ -145,6 +153,15 @@ export type Emprestimo = {
   jurosAtrasoTaxa?: number;
 
   notificarWhatsapp?: boolean;
+
+  // ─────────────────────────────
+  // Campos calculados (preferidos pela UI)
+  // ─────────────────────────────
+  emAtraso?: boolean;
+  diasAtrasoMax?: number;
+  parcelasEmAtraso?: number;
+  parcelasEmAberto?: number;
+  proximoVencimentoEmAberto?: string | null;
 };
 
 function toNumber(v: any): number {
@@ -196,6 +213,12 @@ function mapEmprestimo(row: EmprestimoDb): Emprestimo {
 
     // alguns bancos têm quitado_em como coluna, outros guardam em payload
     quitadoEm: (row as any).quitado_em ?? (payload as any).quitado_em ?? null,
+
+    emAtraso: Boolean((row as any).em_atraso ?? (payload as any).em_atraso ?? false),
+    diasAtrasoMax: toNumber((row as any).dias_atraso_max ?? (payload as any).dias_atraso_max),
+    parcelasEmAtraso: toNumber((row as any).parcelas_em_atraso ?? (payload as any).parcelas_em_atraso),
+    parcelasEmAberto: toNumber((row as any).parcelas_em_aberto ?? (payload as any).parcelas_em_aberto),
+    proximoVencimentoEmAberto: (row as any).proximo_vencimento_em_aberto ?? (payload as any).proximo_vencimento_em_aberto ?? null,
   };
 }
 
@@ -204,6 +227,62 @@ function mapEmprestimo(row: EmprestimoDb): Emprestimo {
 // =============================
 
 export async function listEmprestimos() {
+  // Opção definitiva: usar a view `v_emprestimos_status` como fonte de verdade para atraso/status.
+  // Isso elimina inconsistências no front (ordem de parcelas, timezone, render inicial sem parcelas).
+  const base = await supabase
+    .from("v_emprestimos_status")
+    .select("*")
+    .order("updated_at", { ascending: false });
+
+  if (!base.error) {
+    const rows = (base.data ?? []) as any[];
+    const ids = rows.map((r) => r.id).filter(Boolean);
+
+    // Busca parcelas separadamente e anexa (a view pode não ter relacionamento exposto).
+    const parcelasResp = ids.length
+      ? await supabase
+          .from("parcelas")
+          .select(
+            `
+              id,
+              emprestimo_id,
+              numero,
+              valor,
+              vencimento,
+              pago,
+              valor_pago,
+              valor_pago_acumulado,
+              juros_atraso,
+              multa_valor,
+              acrescimos,
+              saldo_restante,
+              pago_em,
+              created_at,
+              updated_at
+            `
+          )
+          .in("emprestimo_id", ids)
+          .order("numero", { ascending: true })
+      : { data: [], error: null as any };
+
+    const parcelas = (parcelasResp.data ?? []) as any[];
+    const byEmp: Record<string, any[]> = {};
+    for (const p of parcelas) {
+      const eid = String(p.emprestimo_id ?? "");
+      if (!eid) continue;
+      (byEmp[eid] ??= []).push(p);
+    }
+
+    const merged = rows.map((r) => ({ ...(r as any), parcelas: byEmp[String(r.id)] ?? [] }));
+    return merged.map(mapEmprestimo);
+  }
+
+  // Fallback (legado): caso a view ainda não exista/permita select, usa o modelo anterior.
+  return listEmprestimosFallback();
+}
+
+
+async function listEmprestimosFallback() {
   // Tentativa 1: traz parcelas embutidas (FK).
   const r1 = await supabase
     .from("emprestimos")

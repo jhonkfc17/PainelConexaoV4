@@ -84,6 +84,33 @@ function getDueStatus(parcelas: any[]): DueStatus {
   return "ok";
 }
 
+function getDueStatusEmprestimo(e: Emprestimo): DueStatus {
+  // Fonte de verdade: campos calculados do backend (view v_emprestimos_status)
+  const emAtraso = Boolean((e as any).emAtraso ?? (e as any).em_atraso ?? false);
+  if (emAtraso) return "atrasado";
+
+  const prox = String((e as any).proximoVencimentoEmAberto ?? (e as any).proximo_vencimento_em_aberto ?? "").trim();
+
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  const amanha = new Date(hoje);
+  amanha.setDate(hoje.getDate() + 1);
+
+  if (prox) {
+    const venc = new Date(prox + "T00:00:00");
+    venc.setHours(0, 0, 0, 0);
+    if (!Number.isNaN(venc.getTime())) {
+      if (venc.getTime() === hoje.getTime()) return "hoje";
+      if (venc.getTime() === amanha.getTime()) return "amanha";
+    }
+  }
+
+  // Fallback: calcula pelas parcelas locais (quando a view não está disponível)
+  const parcelas = Array.isArray((e as any).parcelasDb) ? ((e as any).parcelasDb as any[]) : [];
+  return getDueStatus(parcelas);
+}
+
+
 function prio(d: DueStatus) {
   return d === "atrasado" ? 0 : d === "hoje" ? 1 : d === "amanha" ? 2 : 3;
 }
@@ -232,6 +259,8 @@ function fmtShort(iso?: string) {
 }
 
 function proximoVencimentoEmprestimo(e: Emprestimo) {
+  const prox = (e as any).proximoVencimentoEmAberto ?? (e as any).proximo_vencimento_em_aberto;
+  if (prox) return String(prox);
   const parcelas = Array.isArray((e as any).parcelasDb) ? (e as any).parcelasDb : [];
   const abertas = parcelas.filter((p: any) => !p?.pago);
   const sorted = [...abertas].sort((a, b) => String(a?.vencimento ?? "").localeCompare(String(b?.vencimento ?? "")));
@@ -452,8 +481,7 @@ function EmprestimoCardPasta({
   const refetchEmprestimos = useEmprestimosStore((s) => s.fetchEmprestimos);
   const safeRefetch = () => { void refetchEmprestimos(); };
 
-  const parcelas = Array.isArray((emprestimo as any).parcelasDb) ? ((emprestimo as any).parcelasDb as any[]) : [];
-  const due = getDueStatus(parcelas);
+  const due = getDueStatusEmprestimo(emprestimo);
   const status = useMemo(() => String((emprestimo as any).status ?? "").toLowerCase(), [emprestimo]);
   const isCancelado = status === "cancelado";
   const isAdiantado = status === "adiantado";
