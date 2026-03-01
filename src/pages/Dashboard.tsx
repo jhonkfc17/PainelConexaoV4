@@ -32,6 +32,7 @@ export default function Dashboard() {
   const [staffCommissionPct, setStaffCommissionPct] = useState<number>(0);
   const [staffLucroRealizado, setStaffLucroRealizado] = useState<number>(0);
   const [staffCommissionValue, setStaffCommissionValue] = useState<number>(0);
+  const [lucroMensalData, setLucroMensalData] = useState<any[]>([]);
 
   // Pesquisa rápida (clientes) — ajuda a navegar sem sair do Dashboard
   const [q, setQ] = useState("");
@@ -106,6 +107,14 @@ export default function Dashboard() {
       setError(null);
       const d = await getDashboardData(range, { force });
       setData(d);
+      try {
+        const { getLucroMensal } = await import("../services/dashboard.service");
+        const lm = await getLucroMensal();
+        setLucroMensalData(Array.isArray(lm) ? lm : []);
+      } catch (e) {
+        console.warn("Falha ao carregar lucro mensal:", e);
+        setLucroMensalData([]);
+      }
     } catch (e: any) {
       console.error(e);
       setError(e?.message || "Falha ao carregar dados do dashboard.");
@@ -451,36 +460,7 @@ const header = data?.header ?? {
       </div>
 
       <div className="mt-4">
-        <ChartsSection
-          evolucao={
-            data?.charts.evolucao ?? {
-              title: "Evolução Financeira",
-              data: [],
-              keys: ["emprestado", "recebido"],
-            }
-          }
-          juros={
-            data?.charts.juros ?? {
-              title: "Juros Recebidos",
-              data: [],
-              keys: ["juros"],
-            }
-          }
-          inadimplencia={
-            data?.charts.inadimplencia ?? {
-              title: "Inadimplência",
-              data: [],
-              keys: ["inadimplencia"],
-            }
-          }
-          aVencer={
-            data?.charts.aVencer ?? {
-              title: "Parcelas a vencer",
-              data: [],
-              keys: ["aVencer"],
-            }
-          }
-        />
+        <ChartsSection data={lucroMensalData} />
       </div>
 
       <div className="mt-4">
