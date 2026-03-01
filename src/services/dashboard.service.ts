@@ -498,10 +498,6 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   // Chart series
   // =========================
   const lucroData = buckets.map((b) => ({ label: b.label, lucro: 0 }));
-    label: b.label,
-    emprestado: 0,
-    recebido: 0,
-  }));
 
   const jurosData: DashboardSeriesPoint[] = buckets.map((b) => ({ label: b.label, juros: 0 }));
 
