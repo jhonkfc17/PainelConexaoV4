@@ -268,11 +268,12 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
 
         await registrarPagamento({
           emprestimoId: emprestimo.id,
-          tipo: (MODO_JUROS ? "ADIANTAMENTO_MANUAL" : adiantamento ? "ADIANTAMENTO_MANUAL" : "SALDO_PARCIAL") as PagamentoTipo,
+          tipo: (MODO_JUROS ? "JUROS" : adiantamento ? "ADIANTAMENTO_MANUAL" : "SALDO_PARCIAL") as PagamentoTipo,
           dataPagamento,
           valor,
           parcelaNumero: p.numero,
           jurosAtraso: MODO_JUROS ? Number(compJuros?.jurosAtraso ?? 0) : calcJurosAtraso(emprestimo, p, dataPagamento),
+          eh_pagamento_juros: MODO_JUROS ? true : undefined,
           flags: {
             origem: "ui_registrar_pagamento_modal",
             modo: MODO_JUROS ? "JUROS" : "PARCIAL",
@@ -692,6 +693,5 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
     </div>
   );
 }
-
 
 
