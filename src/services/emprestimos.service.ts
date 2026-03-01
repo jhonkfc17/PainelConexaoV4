@@ -105,6 +105,11 @@ export type EmprestimoDb = {
   created_at: string;
   updated_at: string;
   payload: EmprestimoPayload | null;
+  // Nova estrutura (colunas normalizadas)
+  principal?: number | null;
+  total_receber?: number | null;
+  numero_parcelas?: number | null;
+  taxa_mensal?: number | null;
   parcelas?: ParcelaDb[];
 };
 
@@ -154,14 +159,31 @@ function toNumber(v: any): number {
 
 function mapEmprestimo(row: EmprestimoDb): Emprestimo {
   const payload = (row.payload ?? {}) as EmprestimoPayload;
-  const valor = toNumber(payload.valor ?? (row as any).valor);
-  const numeroParcelas = toNumber(payload.parcelas ?? (row as any).numero_parcelas ?? (row as any).numeroParcelas);
-  const valorParcela = toNumber((payload as any).valorParcela ?? (payload as any).valor_parcela ?? (row as any).valor_parcela);
+
+  // Nova estrutura: preferir colunas normalizadas (principal/total_receber/numero_parcelas/taxa_mensal).
+  const valor = toNumber((row as any).principal ?? (payload as any).valor ?? (row as any).valor);
+
+  const numeroParcelas = toNumber(
+    (row as any).numero_parcelas ?? (payload as any).parcelas ?? (payload as any).numeroParcelas ?? (payload as any).numero_parcelas
+  );
+
   const totalReceber = toNumber(
-    (payload as any).totalReceber ??
+    (row as any).total_receber ??
+      (payload as any).totalReceber ??
       (payload as any).total_receber ??
       (payload as any).total_receber_calc ??
-      (payload as any).total_receber_previsto
+      (payload as any).total_receber_previsto ??
+      (payload as any).valor_total ??
+      (payload as any).valorTotal ??
+      (payload as any).total
+  );
+
+  // valorParcela: se não existir no payload, tenta inferir pelo total/parcelas (quando ambos existirem).
+  const valorParcela = toNumber(
+    (payload as any).valorParcela ??
+      (payload as any).valor_parcela ??
+      (row as any).valor_parcela ??
+      (numeroParcelas > 0 ? totalReceber / Math.max(1, numeroParcelas) : 0)
   );
 
   return {
@@ -181,7 +203,7 @@ function mapEmprestimo(row: EmprestimoDb): Emprestimo {
     valorParcela,
     totalReceber,
 
-    taxaJuros: toNumber(payload.taxaJuros ?? (row as any).taxa_juros ?? (row as any).taxaJuros),
+    taxaJuros: toNumber((row as any).taxa_mensal ?? (payload as any).taxaJuros ?? (row as any).taxa_juros ?? (row as any).taxaJuros),
     jurosAplicado: (payload as any).jurosAplicado ?? (row as any).juros_aplicado ?? (row as any).jurosAplicado,
     jurosTotal: toNumber((payload as any).jurosTotal ?? (payload as any).juros_total),
 
@@ -220,6 +242,10 @@ export async function listEmprestimos() {
         created_at,
         updated_at,
         payload,
+        principal,
+        total_receber,
+        numero_parcelas,
+        taxa_mensal,
         parcelas:parcelas(
           id,
           emprestimo_id,
@@ -330,6 +356,10 @@ export async function listEmprestimosByCliente(clienteId: string) {
         created_at,
         updated_at,
         payload,
+        principal,
+        total_receber,
+        numero_parcelas,
+        taxa_mensal,
         parcelas:parcelas(
           id,
           emprestimo_id,
@@ -469,6 +499,10 @@ export async function getEmprestimoById(emprestimoId: string) {
         created_at,
         updated_at,
         payload,
+        principal,
+        total_receber,
+        numero_parcelas,
+        taxa_mensal,
         parcelas:parcelas(
           id,
           emprestimo_id,
