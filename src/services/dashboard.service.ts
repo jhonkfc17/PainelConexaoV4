@@ -823,3 +823,13 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
     health,
   };
 }
+// Supabase view: lucro mensal
+export async function getLucroMensal() {
+  const { data, error } = await supabase
+    .from("v_lucro_mensal")
+    .select("*")
+    .order("mes_data", { ascending: true });
+
+  if (error) throw error;
+  return data ?? [];
+}
