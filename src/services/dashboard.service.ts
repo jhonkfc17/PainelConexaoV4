@@ -1,5 +1,4 @@
 import { supabase } from "../lib/supabaseClient";
-import { supabase as supabaseBrowser } from "@/lib/supabase";
 import { isOwnerUser } from "../lib/tenant";
 
 export type DashboardRange = "30d" | "6m" | "12m";
@@ -31,25 +30,6 @@ export type DashboardData = {
     aVencer: { title: string; data: DashboardSeriesPoint[]; keys: ["aVencer"] };
   };
   health: DashboardHealth;
-};
-
-export type DashboardMetricsViewRow = {
-  total_recebido_mes: number | null;
-  lucro_mes: number | null;
-  juros_embutido_mes?: number | null;
-  juros_atraso_mes?: number | null;
-  multa_mes?: number | null;
-  parcelas_pagas_mes?: number | null;
-  em_atraso_valor?: number | null;
-  em_atraso_qtd?: number | null;
-};
-
-export type DashboardMetrics30dViewRow = {
-  total_recebido_30d: number | null;
-  lucro_30d: number | null;
-  juros_embutido_30d?: number | null;
-  juros_atraso_30d?: number | null;
-  multa_30d?: number | null;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -98,10 +78,6 @@ type EmprestimoRow = {
   id: string;
   created_at: string;
   payload: any;
-  principal?: number | null;
-  total_receber?: number | null;
-  numero_parcelas?: number | null;
-  taxa_mensal?: number | null;
 };
 
 function brl(n: number): string {
@@ -109,27 +85,6 @@ function brl(n: number): string {
 }
 
 function safeNum(v: any): number {
-  if (v === null || v === undefined) return 0;
-  if (typeof v === "number") return Number.isFinite(v) ? v : 0;
-
-  // Suporta valores em pt-BR vindos do payload (ex: "2.300,00", "R$ 1.050,00")
-  // e também strings já no formato "1050.00".
-  if (typeof v === "string") {
-    const s0 = v.trim();
-    if (!s0) return 0;
-
-    // Remove símbolo de moeda e espaços
-    const s1 = s0.replace(/\s+/g, " ").replace(/R\$\s?/gi, "");
-
-    // Se tem vírgula, assumimos pt-BR: remove separador de milhar '.' e troca ',' por '.'
-    const normalized = s1.includes(",")
-      ? s1.replace(/\./g, "").replace(/,/g, ".")
-      : s1;
-
-    const n = Number(normalized);
-    return Number.isFinite(n) ? n : 0;
-  }
-
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 }
@@ -172,14 +127,6 @@ function startOfWeek(d: Date): Date {
   return x;
 }
 
-function endOfWeek(d: Date): Date {
-  // semana (pt-BR) terminando no domingo 23:59:59.999
-  const s = startOfWeek(d);
-  const e = addDays(s, 6);
-  e.setHours(23, 59, 59, 999);
-  return e;
-}
-
 function addDays(d: Date, delta: number): Date {
   const x = new Date(d);
   x.setDate(x.getDate() + delta);
@@ -220,53 +167,17 @@ function isoFromAny(iso: string): string {
   return String(iso).slice(0, 10);
 }
 
-function jurosPrevistoPorParcela(e: EmprestimoRow): number {
-  // Preferimos colunas normalizadas (nova estrutura).
-  const principalCol = safeNum((e as any).principal);
-  const totalReceberCol = safeNum((e as any).total_receber);
-  const nCol = Math.max(1, Math.floor(safeNum((e as any).numero_parcelas)));
-
-  if (principalCol > 0 && totalReceberCol > 0 && nCol > 0) {
-    const jurosPrevisto = Math.max(0, totalReceberCol - principalCol);
-    return jurosPrevisto / nCol;
-  }
-
-  // Fallback: contratos antigos (quando ainda estava tudo no payload jsonb)
-  const payload = (e.payload ?? {}) as any;
-  const principal = safeNum(payload.valor ?? payload.principal ?? payload.capital ?? payload.valor_emprestado ?? payload.valorEmprestado);
-  const totalReceber = safeNum(
-    payload.totalReceber ??
-      payload.total_receber ??
-      payload.total_receber_calc ??
-      payload.total_receber_previsto ??
-      payload.valor_total ??
-      payload.valorTotal ??
-      payload.total
-  );
-  const n = Math.max(1, Math.floor(safeNum(payload.parcelas ?? payload.numeroParcelas ?? payload.numero_parcelas ?? payload.qtd_parcelas ?? payload.parcelas_total)));
-  const jurosPrevisto = Math.max(0, totalReceber - principal);
-  return jurosPrevisto / n;
-}
-
-
-function parcelaJurosRecebido(p: ParcelaRow, e?: EmprestimoRow): number {
-  // Lucro = juros recebidos (independe de recuperar capital).
-  // Heurística usada no app:
-  // 1) Juros base (embutido) por parcela = (totalReceber - principal) / nParcelas
-  // 2) Proporcional ao quanto foi pago (em pagamentos parciais)
-  // 3) Soma juros de atraso (explicitamente registrado) ou excedente acima do valor da parcela
-
-  const valorParcela = safeNum(p.valor);
-  const valorPago = valorPagoAcumulado(p);
-  const fracaoPaga = valorParcela > 0 ? Math.max(0, Math.min(1, valorPago / valorParcela)) : 0;
-
-  const jurosBase = e ? jurosPrevistoPorParcela(e) * fracaoPaga : 0;
-
+function parcelaJurosRecebido(p: ParcelaRow): number {
+  // Heurística:
+  // - juros_atraso é explícito
+  // - se valor_pago veio preenchido, consideramos excedente acima do valor
+  const valor = safeNum(p.valor);
   const jurosAtraso = safeNum(p.juros_atraso);
-  const excedente = Math.max(0, valorPago - valorParcela);
-  const jurosExtra = Math.max(jurosAtraso, excedente);
+  const valorPago = valorPagoAcumulado(p);
 
-  return Math.max(0, jurosBase + jurosExtra);
+  if (valorPago <= 0) return jurosAtraso;
+  const excedente = Math.max(0, valorPago - valor);
+  return Math.max(excedente, jurosAtraso);
 }
 
 type Bucket = {
@@ -399,31 +310,10 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   const email = user?.email || "";
   const isOwner = await isOwnerUser();
 
-  // IMPORTANT: Supabase `date` columns are date-only (no timezone). If we use `new Date()` (UTC)
-  // for month/week boundaries, users in America/Sao_Paulo can see "0" on the last hours of the
-  // month when UTC already crossed to the next day/month.
-  const TZ = "America/Sao_Paulo";
-
-  const dateOnlyInTZ = (d: Date, timeZone: string): string => {
-    // en-CA yields YYYY-MM-DD
-    return new Intl.DateTimeFormat("en-CA", {
-      timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(d);
-  };
-
-  const todayISO = dateOnlyInTZ(new Date(), TZ);
-  // Build a stable Date around local "today" for week/month bucket calculations.
-  // Use noon UTC to avoid DST edge cases.
-  const now = new Date(`${todayISO}T12:00:00Z`);
+  const now = new Date();
+  const todayISO = toDateOnlyISO(now);
   const tomorrowISO = toDateOnlyISO(addDays(now, 1));
-  // Semana atual (objetos Date + ISO). Precisamos do Date para filtros do tipo dt >= weekStart
-  // e do ISO para filtros por string (vencimento/pago_em etc.)
-  const weekStart = startOfWeek(now);
-  const weekEnd = endOfWeek(now);
-  const weekStartISO = toDateOnlyISO(weekStart);
+  const weekStartISO = toDateOnlyISO(startOfWeek(now));
   const { buckets, startISO } = makeBuckets(now, range);
 
   // =========================
@@ -439,7 +329,7 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   // =========================
   let empQuery = supabase
     .from("emprestimos")
-    .select("id, created_at, payload, principal, total_receber, numero_parcelas, taxa_mensal")
+    .select("id, created_at, payload")
     .gte("created_at", new Date(`${startISO}T00:00:00`).toISOString())
     .order("created_at", { ascending: true });
 
@@ -511,26 +401,6 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   const currentMonthKey = monthKey(now);
   const monthStartISO = toDateOnlyISO(new Date(now.getFullYear(), now.getMonth(), 1));
 
-  // =========================
-  // DB Views (preferível): métricas prontas (Lucro = juros recebidos)
-  // =========================
-  let metricsMes: DashboardMetricsViewRow | null = null;
-  let metrics30d: DashboardMetrics30dViewRow | null = null;
-
-  try {
-    const { data } = await supabase.from('v_dashboard_metrics').select('*').maybeSingle();
-    metricsMes = (data as any) ?? null;
-  } catch {
-    metricsMes = null;
-  }
-
-  try {
-    const { data } = await supabase.from('v_dashboard_metrics_30d').select('*').maybeSingle();
-    metrics30d = (data as any) ?? null;
-  } catch {
-    metrics30d = null;
-  }
-
   const totalRecebidoAntesMes = pagosComData
     .filter((r) => String(r.paidDate) < monthStartISO)
     .reduce((acc, r) => acc + valorRecebidoTotal(r.p), 0);
@@ -600,57 +470,34 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
     pagamentosMesLucroFlags = 0;
   }
 
-  const totalRecebidoMesView = safeNum((metricsMes as any)?.total_recebido_mes);
-  const totalRecebidoMesComPagamentos = (totalRecebidoMesView > 0 ? totalRecebidoMesView : totalRecebidoMes) + pagamentosMesValor;
+  const totalRecebidoMesComPagamentos = totalRecebidoMes + pagamentosMesValor;
 
-  // Lucro (mês) = juros recebidos (independe de recuperar capital)
-  const emprestimoById = new Map<string, EmprestimoRow>();
-  for (const e of emprestimos) emprestimoById.set(String(e.id), e);
+  // Lucro realizado no mês:
+  // - Aloca primeiro o principal total dos empréstimos; pagamentos antes do mês abatem esse principal.
+  // - Do que foi recebido no mês, a parcela que exceder o principal restante vira lucro.
+  // - Soma ainda juros_atraso e pagamentos explicitamente marcados como lucro.
+  const principalRecuperadoAntesMes = Math.min(totalRecebidoAntesMes, capitalEmprestado);
+  const principalRestanteNoMes = Math.max(0, capitalEmprestado - principalRecuperadoAntesMes);
+  const principalRecuperadoNoMes = Math.min(totalRecebidoMes, principalRestanteNoMes);
+  const lucroMesParcelas = Math.max(0, totalRecebidoMes - principalRecuperadoNoMes);
+  const lucroMes = Math.max(0, lucroMesParcelas + pagamentosMesJuros + pagamentosMesLucroFlags);
 
-  const jurosRecebidosMesParcelas = parcelas
-    .filter((p) => {
-      const paidDate = paidDateOrToday(p, todayISO);
-      if (!paidDate) return false;
-      return monthKey(new Date(paidDate)) === currentMonthKey;
-    })
-    .reduce((acc, p) => {
-      const e = emprestimoById.get(String(p.emprestimo_id ?? ""));
-      return acc + parcelaJurosRecebido(p, e);
-    }, 0);
+  // Alocação simples de principal para descobrir lucro (juros/multa):
+  // - Recupera principal até o limite do capital emprestado, na ordem temporal.
+  const principalTotal = capitalEmprestado;
+  const principalRecuperadoAntes = Math.min(totalRecebidoAntesSemana, principalTotal);
+  const principalRestanteAntes = Math.max(0, principalTotal - principalRecuperadoAntes);
+  const principalRecuperadoSemana = Math.min(principalRestanteAntes, totalRecebidoDuranteSemana);
 
-  // pagamentosMesLucroFlags cobre o fluxo "Pagar Juros" (juros manuais)
-  const lucroMesView = safeNum((metricsMes as any)?.lucro_mes);
-  const lucroMes = (lucroMesView > 0 ? lucroMesView : jurosRecebidosMesParcelas) + pagamentosMesLucroFlags;
+  const lucroSemana = totalRecebidoDuranteSemana - principalRecuperadoSemana;
 
-  // Lucro (semana/total) = juros recebidos (estimado)
-  const jurosRecebidosSemana = parcelas
-    .filter((p) => {
-      const paidDate = paidDateOrToday(p, todayISO);
-      if (!paidDate) return false;
-      const dt = new Date(paidDate);
-      return dt >= weekStart && dt <= weekEnd;
-    })
-    .reduce((acc, p) => {
-      const e = emprestimoById.get(String(p.emprestimo_id ?? ""));
-      return acc + parcelaJurosRecebido(p, e);
-    }, 0);
-
-  const lucroSemana = jurosRecebidosSemana;
-
-  const lucroRealizadoTotal = parcelas
-    .filter((p) => {
-      const paidDate = paidDateOrToday(p, todayISO);
-      return Boolean(paidDate) && isPaidByDate(p, todayISO);
-    })
-    .reduce((acc, p) => {
-      const e = emprestimoById.get(String(p.emprestimo_id ?? ""));
-      return acc + parcelaJurosRecebido(p, e);
-    }, 0);
+  const principalRecuperadoTotal = Math.min(totalRecebidoBruto, principalTotal);
+  const lucroRealizadoTotal = totalRecebidoBruto - principalRecuperadoTotal;
 
   // =========================
   // Chart series
   // =========================
-  const evolucaoData: DashboardSeriesPoint[] = buckets.map((b) => ({
+  const lucroData = buckets.map((b) => ({ label: b.label, lucro: 0 }));
     label: b.label,
     emprestado: 0,
     recebido: 0,
@@ -670,6 +517,26 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
 
   // Map bucket key -> idx
   const idxByKey = new Map<string, number>();
+  // Lucro por mês: considera cada recebimento como recuperação de principal até zerar o capital emprestado;
+  // o excedente (incluindo juros de atraso e multa) entra como lucro do mês do pagamento.
+  const paidParcelasSorted = parcelas
+    .filter((p) => p.pago && p.pago_em)
+    .sort((a, b) => new Date(a.pago_em!).getTime() - new Date(b.pago_em!).getTime());
+
+  let remainingPrincipalForSeries = capitalEmprestado;
+  for (const p of paidParcelasSorted) {
+    const paidDate = new Date(p.pago_em!);
+    const key = monthKey(paidDate);
+    const idx = idxByKey.get(key);
+    const received = valorRecebidoTotal(p);
+    const principalPart = Math.min(received, Math.max(0, remainingPrincipalForSeries));
+    remainingPrincipalForSeries = Math.max(0, remainingPrincipalForSeries - principalPart);
+    const lucroPart = received - principalPart;
+    if (idx !== undefined) {
+      lucroData[idx].lucro += lucroPart;
+    }
+  }
+
   for (let i = 0; i < buckets.length; i += 1) idxByKey.set(buckets[i].key, i);
 
   function bucketKeyForCreatedAt(createdAtISO: string): string {
@@ -685,7 +552,6 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
     const key = bucketKeyForCreatedAt(e.created_at);
     const idx = idxByKey.get(key);
     if (idx == null) continue;
-    evolucaoData[idx].emprestado = safeNum(evolucaoData[idx].emprestado) + safeNum(safeNum(e.payload?.valor));
   }
 
   for (const p of parcelas) {
@@ -694,9 +560,7 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
       const key = bucketKeyForDateOnly(paidDate);
       const idx = idxByKey.get(key);
       if (idx != null) {
-        evolucaoData[idx].recebido = safeNum(evolucaoData[idx].recebido) + valorRecebidoTotal(p);
-        const e = emprestimoById.get(String(p.emprestimo_id ?? ""));
-        jurosData[idx].juros = safeNum(jurosData[idx].juros) + safeNum(parcelaJurosRecebido(p, e));
+        jurosData[idx].juros = safeNum(jurosData[idx].juros) + safeNum(parcelaJurosRecebido(p));
       }
     }
   }
@@ -816,75 +680,11 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
     },
     weekCards,
     charts: {
-      evolucao: { title: `Evolução Financeira (${rangeLabel})`, data: evolucaoData, keys: ["emprestado", "recebido"] },
+      evolucao: { title: `Lucro por mês (${rangeLabel})`, data: lucroData, keys: ["lucro"] },
       juros: { title: `Juros Recebidos (${rangeLabel})`, data: jurosData, keys: ["juros"] },
       inadimplencia: { title: `Inadimplência (${rangeLabel})`, data: inadimplenciaData, keys: ["inadimplencia"] },
       aVencer: { title: `Parcelas a vencer (${rangeLabel})`, data: aVencerData, keys: ["aVencer"] },
     },
     health,
-  };
-}
-// Supabase view: lucro mensal
-export async function getLucroMensal() {
-  const { data, error } = await supabase
-    .from("v_dashboard_lucro_mensal")
-    .select("*")
-    .order("mes_data", { ascending: true });
-
-  if (error) throw error;
-  return data ?? [];
-}
-
-function getTodaySP(): Date {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Sao_Paulo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-
-  const parts = formatter.formatToParts(new Date());
-  const year = parts.find((p) => p.type === "year")?.value;
-  const month = parts.find((p) => p.type === "month")?.value;
-  const day = parts.find((p) => p.type === "day")?.value;
-
-  return new Date(`${year}-${month}-${day}T12:00:00Z`);
-}
-
-export async function getDashboardMetrics() {
-  const today = getTodaySP();
-  const thirtyDaysAgo = new Date(today);
-  thirtyDaysAgo.setDate(today.getDate() - 30);
-
-  const { data: view30d } = await supabaseBrowser
-    .from("v_dashboard_metrics_30d")
-    .select("*")
-    .single();
-
-  let lucro30d = 0;
-
-  if (view30d?.lucro_30d !== undefined) {
-    lucro30d = Number(view30d.lucro_30d) || 0;
-  } else {
-    const { data: parcelas } = await supabaseBrowser
-      .from("parcelas")
-      .select("pago_em, emprestimo_id")
-      .eq("pago", true)
-      .gte("pago_em", thirtyDaysAgo.toISOString().split("T")[0]);
-
-    if (parcelas?.length) {
-      const { data: calc } = await supabaseBrowser
-        .from("calc")
-        .select("emprestimo_id, juros_por_parcela");
-
-      parcelas.forEach((p: any) => {
-        const juros = calc?.find((c: any) => c.emprestimo_id === p.emprestimo_id);
-        lucro30d += Number(juros?.juros_por_parcela || 0);
-      });
-    }
-  }
-
-  return {
-    lucro_30d: lucro30d,
   };
 }

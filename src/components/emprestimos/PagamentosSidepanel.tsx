@@ -119,39 +119,23 @@ export default function PagamentosSidepanel({ open, onClose, emprestimo }: Props
   }, [pagamentos]);
 
   const lucroRealizado = useMemo(() => {
-    // Regra: lucro = juros recebidos (não depende de recuperar capital)
-    const n = Math.max(1, Number(emprestimo?.numeroParcelas ?? emprestimo?.payload?.parcelas ?? 1));
-    const jurosPrevisto = Math.max(0, Number(emprestimo?.totalReceber ?? 0) - Number(emprestimo?.valor ?? 0));
-    const jurosPorParcela = jurosPrevisto / n;
+    const principal = Number(emprestimo?.valor ?? 0);
 
     const pagosValidos = (pagamentos ?? []).filter((p) => !isEstornado(p));
 
-    let juros = 0;
-    for (const p of pagosValidos) {
-      const valor = Number(p.valor ?? 0);
-      const jurosAtraso = Number(p.juros_atraso ?? 0);
+    const totalRecebidoBruto = pagosValidos.reduce(
+      (acc, p) => acc + Number(p.valor ?? 0) + Number(p.juros_atraso ?? 0),
+      0
+    );
 
-      // Pagamento avulso de juros (fluxo "Pagar Juros")
-      if (isLucroDireto(p)) {
-        juros += valor + jurosAtraso;
-        continue;
-      }
+    // Só amortiza principal se não for marcado como lucro direto (Pagar Juros).
+    const totalQueRecuperaPrincipal = pagosValidos
+      .filter((p) => !isLucroDireto(p))
+      .reduce((acc, p) => acc + Number(p.valor ?? 0), 0);
 
-      // Pagamento de parcela: estima juros embutido proporcional ao pagamento
-      const parcelaNumero = Number((p as any).parcela_numero ?? 0);
-      const parcela = parcelaNumero > 0 ? parcelasByNumero.get(parcelaNumero) : null;
-      const valorParcela = Number((parcela as any)?.valor ?? 0);
-      const fracao = valorParcela > 0 ? Math.max(0, Math.min(1, valor / valorParcela)) : 0;
-      const base = jurosPorParcela * fracao;
-
-      // Juros de atraso/excedente
-      const excedente = Math.max(0, valor - valorParcela);
-      const extra = Math.max(jurosAtraso, excedente);
-      juros += Math.max(0, base + extra);
-    }
-
-    return Math.max(0, juros);
-  }, [emprestimo, pagamentos, parcelasByNumero]);
+    const principalRecuperado = Math.min(totalQueRecuperaPrincipal, principal);
+    return totalRecebidoBruto - principalRecuperado;
+  }, [emprestimo, pagamentos]);
 
   useEffect(() => {
     if (!open || !emprestimo?.id) return;

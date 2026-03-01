@@ -295,46 +295,45 @@ export default function RelatorioOperacional() {
   }, [emprestimos]);
 
   const pagamentosRecebidosMes = useMemo(() => pagamentosMes.reduce((a, p) => a + safeNumber(p.valor), 0), [pagamentosMes]);
+  const jurosRecebidosMes = useMemo(() => pagamentosMes.reduce((a, p) => a + safeNumber(p.juros_atraso ?? 0), 0), [pagamentosMes]);
 
-  // Lucro = juros recebidos (independe de recuperar capital)
-  const jurosRecebidosMes = useMemo(() => {
-    const inicio = inicioMesISO;
-    const fim = hojeISO;
-
-    function jurosPrevistoPorParcela(e: any) {
-      const principal = safeNumber((e as any).valor ?? (e as any).payload?.valor ?? 0);
-      const totalReceber = safeNumber((e as any).totalReceber ?? (e as any).payload?.totalReceber ?? 0);
-      const n = Math.max(1, Math.floor(safeNumber((e as any).numeroParcelas ?? (e as any).payload?.parcelas ?? 0)));
-      return Math.max(0, totalReceber - principal) / n;
-    }
-
-    let jurosParcelas = 0;
-    for (const e of emprestimosAtivos) {
-      const jurosBase = jurosPrevistoPorParcela(e);
-      const parcelas = ((e as any).parcelasDb ?? []) as any[];
-      for (const p of parcelas) {
+  const totalPagoAntesMes = useMemo(
+    () =>
+      sumPagoPeriodo(emprestimos, (p) => {
         const pagoEm = toISODateOnly((p as any).pago_em ?? "");
-        if (!pagoEm || pagoEm < inicio || pagoEm > fim) continue;
-        const valorParcela = safeNumber((p as any).valor ?? 0);
-        const valorPago = safeNumber((p as any).valor_pago_acumulado ?? (p as any).valor_pago ?? 0);
-        const fracao = valorParcela > 0 ? Math.max(0, Math.min(1, valorPago / valorParcela)) : 0;
-        const base = jurosBase * fracao;
-        const jurosAtraso = safeNumber((p as any).juros_atraso ?? 0);
-        const excedente = Math.max(0, valorPago - valorParcela);
-        const extra = Math.max(jurosAtraso, excedente);
-        jurosParcelas += Math.max(0, base + extra);
-      }
-    }
+        return pagoEm && pagoEm < inicioMesISO;
+      }),
+    [emprestimos, inicioMesISO]
+  );
 
-    // Juros manuais (fluxo "Pagar Juros") vêm do array pagamentosMes
-    // OBS: aqui pagamentosMes já é do mês; consideramos todo valor como juros (porque é um pagamento avulso de juros)
-    const jurosManuais = pagamentosMes.reduce((a, p) => a + safeNumber(p.valor), 0);
+  const totalPagoNoMes = useMemo(
+    () =>
+      sumPagoPeriodo(emprestimos, (p) => {
+        const pagoEm = toISODateOnly((p as any).pago_em ?? "");
+        return pagoEm && pagoEm >= inicioMesISO && pagoEm <= hojeISO;
+      }),
+    [emprestimos, inicioMesISO, hojeISO]
+  );
 
-    return Math.max(0, jurosParcelas + jurosManuais);
-  }, [emprestimosAtivos, pagamentosMes, inicioMesISO, hojeISO]);
+  const principalTotalContratos = useMemo(() => emprestimos.reduce((a, e) => a + safeNumber((e as any).valor ?? 0), 0), [emprestimos]);
 
-  // Lucro realizado (mês) segue a regra definida: lucro = juros recebidos
-  const lucroRealizadoMes = useMemo(() => Math.max(0, jurosRecebidosMes), [jurosRecebidosMes]);
+  const principalRecuperadoAntesMes = useMemo(
+    () => Math.min(totalPagoAntesMes, principalTotalContratos),
+    [totalPagoAntesMes, principalTotalContratos]
+  );
+  const principalRestanteParaMes = useMemo(
+    () => Math.max(0, principalTotalContratos - principalRecuperadoAntesMes),
+    [principalTotalContratos, principalRecuperadoAntesMes]
+  );
+  const principalRecuperadoNoMes = useMemo(
+    () => Math.min(totalPagoNoMes, principalRestanteParaMes),
+    [totalPagoNoMes, principalRestanteParaMes]
+  );
+
+  const lucroRealizadoMes = useMemo(
+    () => Math.max(0, totalPagoNoMes - principalRecuperadoNoMes),
+    [totalPagoNoMes, principalRecuperadoNoMes]
+  );
 
   const emprestimosConcedidosMes = useMemo(() => {
     return emprestimos
@@ -362,7 +361,20 @@ export default function RelatorioOperacional() {
     return Math.max(0, totalReceber - principal);
   }, [emprestimosAtivos]);
 
-  // (removido) regra antiga de alocar principal antes do lucro
+  // Estimativa de lucro realizado no período (mês):
+  // Considera que o principal é recuperado primeiro; o excedente recebido vira lucro.
+  const principalAtivos = useMemo(
+    () => emprestimosAtivos.reduce((a, e) => a + safeNumber((e as any).valor ?? 0), 0),
+    [emprestimosAtivos]
+  );
+  const principalRecuperadoNoMes = useMemo(
+    () => Math.min(principalAtivos, pagamentosRecebidosMes),
+    [principalAtivos, pagamentosRecebidosMes]
+  );
+  const lucroRealizadoMes = useMemo(
+    () => Math.max(0, pagamentosRecebidosMes - principalRecuperadoNoMes),
+    [pagamentosRecebidosMes, principalRecuperadoNoMes]
+  );
 
   const pagoTotalAtivos = useMemo(() => {
     return emprestimosAtivos.reduce((a, e) => a + sumPago((e as any).parcelasDb ?? []), 0);
@@ -419,22 +431,49 @@ export default function RelatorioOperacional() {
   );
 
   const evolucaoMensal = useMemo(() => {
-    // Sem tabela de histórico, usamos uma série estável para manter o layout,
-    // baseada no snapshot atual (evita inventar valores por mês).
-    const labels = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+    // Lucro por mês (últimos 12 meses): aloca cada recebimento como recuperação de principal até zerar o capital.
     const now = new Date();
-    const out: any[] = [];
-    for (let i = 6; i >= 0; i--) {
+    const monthsCount = 12;
+
+    const buckets: { key: string; label: string; lucro: number }[] = [];
+    for (let i = monthsCount - 1; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      out.push({
-        label: labels[d.getMonth()],
-        naRua: indicadores.capitalNaRua,
-        emprestado: emprestimosConcedidosMes,
-        lucro: indicadores.lucroRealizado,
-      });
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleString('pt-BR', { month: 'short' });
+      buckets.push({ key, label: label.charAt(0).toUpperCase() + label.slice(1), lucro: 0 });
     }
-    return out;
-  }, [indicadores.capitalNaRua, indicadores.lucroRealizado, emprestimosConcedidosMes]);
+    const idxByKey = new Map(buckets.map((b, idx) => [b.key, idx] as const));
+
+    const principalTotal = (emprestimosAtivos || []).reduce((acc: number, e: any) => {
+      const principal = Number(e?.principal ?? e?.valor ?? 0);
+      return acc + (isFinite(principal) ? principal : 0);
+    }, 0);
+
+    const paidParcelas = (parcelasDb || [])
+      .filter((p: any) => p?.pago && p?.pago_em)
+      .sort((a: any, b: any) => new Date(a.pago_em).getTime() - new Date(b.pago_em).getTime());
+
+    const valorRecebidoTotal = (p: any) => {
+      const base = Number(p?.valor_pago_acumulado ?? p?.valor_pago ?? p?.valor ?? 0) || 0;
+      const juros = Number(p?.juros_atraso ?? 0) || 0;
+      return base + juros;
+    };
+
+    let remainingPrincipal = principalTotal;
+    for (const parcela of paidParcelas) {
+      const received = valorRecebidoTotal(parcela);
+      const principalPart = Math.min(received, Math.max(0, remainingPrincipal));
+      remainingPrincipal = Math.max(0, remainingPrincipal - principalPart);
+      const lucroPart = received - principalPart;
+
+      const d = new Date(parcela.pago_em);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const idx = idxByKey.get(key);
+      if (idx !== undefined) buckets[idx].lucro += lucroPart;
+    }
+
+    return buckets.map((b) => ({ label: b.label, lucro: b.lucro }));
+  }, [emprestimosAtivos, parcelasDb]);
 
   const contratosAtivos: ContratoAtivoRow[] = useMemo(() => {
     return emprestimosAtivos
@@ -592,15 +631,13 @@ export default function RelatorioOperacional() {
           </div>
           <div className="mt-3 h-56">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={evolucaoMensal}>
-                <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
-                <XAxis dataKey="label" strokeOpacity={0.6} />
-                <YAxis strokeOpacity={0.6} />
-                <Tooltip />
-                <Line type="monotone" dataKey="naRua" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="emprestado" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="lucro" strokeWidth={2} dot={false} />
-              </LineChart>
+              <BarChart data={evolucaoMensal} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} />
+                <Tooltip formatter={(value: any) => formatCurrency(Number(value || 0))} />
+                <Bar dataKey="lucro" name="Lucro" />
+              </BarChart>
             </ResponsiveContainer>
           </div>
           <div className="mt-2 text-[11px] text-slate-500">
