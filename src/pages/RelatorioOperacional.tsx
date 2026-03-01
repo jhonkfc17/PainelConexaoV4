@@ -289,9 +289,17 @@ export default function RelatorioOperacional() {
   const emprestimosAtivos = useMemo(() => {
     return emprestimos.filter((e) => {
       const status = String((e as any).status ?? "").toLowerCase();
-      // Mantém contratos quitados parcialmente (pode haver juros recebidos no mês)
       return status !== "cancelado";
     });
+  }, [emprestimos]);
+
+  const parcelasDb = useMemo(() => {
+    const all: ParcelaDb[] = [];
+    for (const e of emprestimos) {
+      const ps = Array.isArray((e as any).parcelasDb) ? ((e as any).parcelasDb as ParcelaDb[]) : [];
+      all.push(...ps);
+    }
+    return all;
   }, [emprestimos]);
 
   const pagamentosRecebidosMes = useMemo(() => pagamentosMes.reduce((a, p) => a + safeNumber(p.valor), 0), [pagamentosMes]);
