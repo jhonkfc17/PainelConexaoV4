@@ -171,6 +171,14 @@ function startOfWeek(d: Date): Date {
   return x;
 }
 
+function endOfWeek(d: Date): Date {
+  // semana (pt-BR) terminando no domingo 23:59:59.999
+  const s = startOfWeek(d);
+  const e = addDays(s, 6);
+  e.setHours(23, 59, 59, 999);
+  return e;
+}
+
 function addDays(d: Date, delta: number): Date {
   const x = new Date(d);
   x.setDate(x.getDate() + delta);
