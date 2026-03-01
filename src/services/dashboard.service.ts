@@ -826,7 +826,7 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
 // Supabase view: lucro mensal
 export async function getLucroMensal() {
   const { data, error } = await supabase
-    .from("v_lucro_mensal")
+    .from("v_dashboard_lucro_mensal")
     .select("*")
     .order("mes_data", { ascending: true });
 

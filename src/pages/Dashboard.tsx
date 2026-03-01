@@ -15,6 +15,7 @@ import {
   peekDashboardCache,
   type DashboardData,
   type DashboardRange,
+  getLucroMensal,
 } from "../services/dashboard.service";
 
 export default function Dashboard() {
@@ -107,14 +108,6 @@ export default function Dashboard() {
       setError(null);
       const d = await getDashboardData(range, { force });
       setData(d);
-      try {
-        const { getLucroMensal } = await import("../services/dashboard.service");
-        const lm = await getLucroMensal();
-        setLucroMensalData(Array.isArray(lm) ? lm : []);
-      } catch (e) {
-        console.warn("Falha ao carregar lucro mensal:", e);
-        setLucroMensalData([]);
-      }
     } catch (e: any) {
       console.error(e);
       setError(e?.message || "Falha ao carregar dados do dashboard.");
@@ -130,6 +123,24 @@ export default function Dashboard() {
     const t = window.setTimeout(() => load({ force: true }), 0);
     return () => window.clearTimeout(t);
   }, [range]);
+
+  // Lucro mensal (view) carregado uma vez
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const lm = await getLucroMensal();
+        if (!alive) return;
+        setLucroMensalData(Array.isArray(lm) ? lm : []);
+      } catch (e) {
+        console.warn("Falha ao carregar lucro mensal:", e);
+        if (!alive) setLucroMensalData([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
