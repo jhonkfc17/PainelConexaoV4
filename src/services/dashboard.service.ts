@@ -398,8 +398,25 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   const email = user?.email || "";
   const isOwner = await isOwnerUser();
 
-  const now = new Date();
-  const todayISO = toDateOnlyISO(now);
+  // IMPORTANT: Supabase `date` columns are date-only (no timezone). If we use `new Date()` (UTC)
+  // for month/week boundaries, users in America/Sao_Paulo can see "0" on the last hours of the
+  // month when UTC already crossed to the next day/month.
+  const TZ = "America/Sao_Paulo";
+
+  const dateOnlyInTZ = (d: Date, timeZone: string): string => {
+    // en-CA yields YYYY-MM-DD
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(d);
+  };
+
+  const todayISO = dateOnlyInTZ(new Date(), TZ);
+  // Build a stable Date around local "today" for week/month bucket calculations.
+  // Use noon UTC to avoid DST edge cases.
+  const now = new Date(`${todayISO}T12:00:00Z`);
   const tomorrowISO = toDateOnlyISO(addDays(now, 1));
   // Semana atual (objetos Date + ISO). Precisamos do Date para filtros do tipo dt >= weekStart
   // e do ISO para filtros por string (vencimento/pago_em etc.)
