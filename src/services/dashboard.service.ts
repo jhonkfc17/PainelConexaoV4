@@ -78,6 +78,10 @@ type EmprestimoRow = {
   id: string;
   created_at: string;
   payload: any;
+  principal?: number | null;
+  total_receber?: number | null;
+  numero_parcelas?: number | null;
+  taxa_mensal?: number | null;
 };
 
 function brl(n: number): string {
@@ -168,13 +172,33 @@ function isoFromAny(iso: string): string {
 }
 
 function jurosPrevistoPorParcela(e: EmprestimoRow): number {
+  // Preferimos colunas normalizadas (nova estrutura).
+  const principalCol = safeNum((e as any).principal);
+  const totalReceberCol = safeNum((e as any).total_receber);
+  const nCol = Math.max(1, Math.floor(safeNum((e as any).numero_parcelas)));
+
+  if (principalCol > 0 && totalReceberCol > 0 && nCol > 0) {
+    const jurosPrevisto = Math.max(0, totalReceberCol - principalCol);
+    return jurosPrevisto / nCol;
+  }
+
+  // Fallback: contratos antigos (quando ainda estava tudo no payload jsonb)
   const payload = (e.payload ?? {}) as any;
-  const principal = safeNum(payload.valor);
-  const totalReceber = safeNum(payload.totalReceber ?? payload.total_receber ?? payload.total_receber_calc);
-  const n = Math.max(1, Math.floor(safeNum(payload.parcelas ?? payload.numeroParcelas ?? payload.numero_parcelas)));
+  const principal = safeNum(payload.valor ?? payload.principal ?? payload.capital ?? payload.valor_emprestado ?? payload.valorEmprestado);
+  const totalReceber = safeNum(
+    payload.totalReceber ??
+      payload.total_receber ??
+      payload.total_receber_calc ??
+      payload.total_receber_previsto ??
+      payload.valor_total ??
+      payload.valorTotal ??
+      payload.total
+  );
+  const n = Math.max(1, Math.floor(safeNum(payload.parcelas ?? payload.numeroParcelas ?? payload.numero_parcelas ?? payload.qtd_parcelas ?? payload.parcelas_total)));
   const jurosPrevisto = Math.max(0, totalReceber - principal);
   return jurosPrevisto / n;
 }
+
 
 function parcelaJurosRecebido(p: ParcelaRow, e?: EmprestimoRow): number {
   // Lucro = juros recebidos (independe de recuperar capital).
@@ -345,7 +369,7 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   // =========================
   let empQuery = supabase
     .from("emprestimos")
-    .select("id, created_at, payload")
+    .select("id, created_at, payload, principal, total_receber, numero_parcelas, taxa_mensal")
     .gte("created_at", new Date(`${startISO}T00:00:00`).toISOString())
     .order("created_at", { ascending: true });
 
