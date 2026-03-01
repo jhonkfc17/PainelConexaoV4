@@ -440,8 +440,12 @@ function EmprestimoCardPasta({
   const isAdiantado = status === "adiantado";
   const isQuitado = useMemo(() => {
     if (status === "quitado") return true;
-    // compat: se não há parcelas abertas, considera quitado
-    const abertas = (parcelas ?? []).filter((p) => !p?.pago);
+    // Só infere quitado quando temos parcelas no banco.
+    // Caso contrário (ex.: contrato recém-criado que ainda não retornou parcelas),
+    // deixa como não quitado para evitar falsos positivos.
+    const todas = parcelas ?? [];
+    if (todas.length === 0) return false;
+    const abertas = todas.filter((p) => !p?.pago);
     return abertas.length === 0;
   }, [parcelas, status]);
 
