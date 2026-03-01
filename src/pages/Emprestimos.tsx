@@ -127,14 +127,29 @@ export default function Emprestimos() {
     const q = busca.trim().toLowerCase();
     let lista = emprestimos;
 
+    const isQuitadoOuRecebido = (e: Emprestimo) => {
+      if ((e as any)?.status === "quitado") return true;
+      const parcelas = Array.isArray((e as any).parcelasDb) ? (e as any).parcelasDb : [];
+      if (parcelas.length > 0 && parcelas.every((p: any) => p?.pago === true)) return true;
+      return false;
+    };
+
     // tab -> modalidade
-    if (tab === "diario") {
-      lista = lista.filter((e) => e.modalidade === "diario");
-    } else if (tab === "tabela_price") {
-      lista = lista.filter((e) => e.modalidade === "tabela_price");
+    if (tab === "recebimentos") {
+      // Melhor interpretação para o produto: "Recebimentos" = contratos quitados / totalmente pagos
+      lista = lista.filter(isQuitadoOuRecebido);
     } else {
-      // "emprestimos" => todos (exceto recebimentos)
-      lista = lista.filter((e) => e.modalidade !== "diario" && e.modalidade !== "tabela_price");
+      // Empréstimos (ativos) = exclui quitados; outras abas também excluem quitados
+      lista = lista.filter((e) => !isQuitadoOuRecebido(e));
+
+      if (tab === "diario") {
+        lista = lista.filter((e) => e.modalidade === "diario");
+      } else if (tab === "tabela_price") {
+        lista = lista.filter((e) => e.modalidade === "tabela_price");
+      } else {
+        // "emprestimos" => todos não-diário e não-price
+        lista = lista.filter((e) => e.modalidade !== "diario" && e.modalidade !== "tabela_price");
+      }
     }
 
     if (!q) return lista;
@@ -142,8 +157,15 @@ export default function Emprestimos() {
   }, [emprestimos, tab, busca]);
 
   const contadores = useMemo(() => {
-    const mensal = emprestimos.filter((e) => e.modalidade === "mensal").length;
-    const diario = emprestimos.filter((e) => e.modalidade === "diario").length;
+    const isQuitadoOuRecebido = (e: Emprestimo) => {
+      if ((e as any)?.status === "quitado") return true;
+      const parcelas = Array.isArray((e as any).parcelasDb) ? (e as any).parcelasDb : [];
+      return parcelas.length > 0 && parcelas.every((p: any) => p?.pago === true);
+    };
+
+    const ativos = emprestimos.filter((e) => !isQuitadoOuRecebido(e));
+    const mensal = ativos.filter((e) => e.modalidade !== "diario" && e.modalidade !== "tabela_price").length;
+    const diario = ativos.filter((e) => e.modalidade === "diario").length;
     return { emprestimos: mensal, diario };
   }, [emprestimos]);
 

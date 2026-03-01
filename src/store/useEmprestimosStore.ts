@@ -78,6 +78,24 @@ function mapModalidadeCronograma(modalidade: string): "mensal" | "quinzenal" | "
   return "mensal";
 }
 
+// Normaliza modalidade para o conjunto aceito por `calcularTotais`.
+// O projeto historicamente usa valores variados (ex.: "mensal", "parcelado_mensal", "price").
+function normModalidadeCalculos(v: any):
+  | "parcelado_mensal"
+  | "quinzenal"
+  | "semanal"
+  | "diario"
+  | "tabela_price" {
+  const s = String(v ?? "").toLowerCase().trim();
+  if (!s) return "parcelado_mensal";
+  if (s.includes("price")) return "tabela_price";
+  if (s.includes("diar")) return "diario";
+  if (s.includes("seman")) return "semanal";
+  if (s.includes("quin")) return "quinzenal";
+  // qualquer variante de mensal/parcelado
+  return "parcelado_mensal";
+}
+
 function diffDaysIso(aISO: string, bISO: string) {
   const a = fromISODate(aISO);
   const b = fromISODate(bISO);
@@ -287,6 +305,8 @@ function mapEmprestimoDb(row: any): any {
   const payload = (row.payload ?? {}) as Record<string, any>;
   const parcelas = row.parcelas ?? row.parcelasDb ?? [];
 
+  const modalidadeNorm = normModalidadeCalculos(row.modalidade ?? payload.modalidade ?? row.tipo ?? "parcelado_mensal");
+
   // Se o banco não tiver colunas financeiras, elas vêm dentro de payload.
   const valor = Number(row.valor ?? payload.valor ?? 0);
   const parcelasCount = Number(
@@ -301,10 +321,10 @@ function mapEmprestimoDb(row: any): any {
   const calcTotais = () => {
     const taxaJuros = Number(row.taxaJuros ?? payload.taxaJuros ?? 0);
     const jurosAplicado = (row.jurosAplicado ?? payload.jurosAplicado ?? "fixo") as any;
-    const modalidade = (row.modalidade ?? payload.modalidade ?? "parcelado_mensal") as any;
+    const modalidade = modalidadeNorm as any;
     const parcelasN = Math.max(1, Number(parcelasCount || payload.parcelas || 1));
 
-        return calcularTotais({ valor, taxaJuros, parcelas: parcelasN, jurosAplicado, modalidade });
+    return calcularTotais({ valor, taxaJuros, parcelas: parcelasN, jurosAplicado, modalidade });
   };
 
   const totais = calcTotais();
@@ -360,7 +380,7 @@ function mapEmprestimoDb(row: any): any {
     valor,
     taxaJuros: Number(row.taxaJuros ?? row.taxa_juros ?? payload.taxaJuros ?? payload.taxa_juros ?? payload.juros ?? 0),
     jurosAplicado: row.jurosAplicado ?? row.juros_aplicado ?? payload.jurosAplicado ?? payload.juros_aplicado ?? row.juros_tipo,
-    modalidade: row.modalidade ?? payload.modalidade ?? row.tipo ?? "parcelado_mensal",
+    modalidade: modalidadeNorm,
     numeroParcelas:
       Number(row.numeroParcelas ?? row.numero_parcelas ?? payload.parcelas ?? payload.numeroParcelas ?? 0) ||
       (Array.isArray(parcelasDb) ? parcelasDb.length : 0),
@@ -601,7 +621,21 @@ stopRealtime:
             ...(uid ? { user_id: uid } : {}),
           }));
 
-          await supabase.from("parcelas").insert(rows);
+          // Insere e imediatamente re-carrega as parcelas para não deixar a UI em estado inconsistente
+          // (ex.: empréstimo aparece "em dia" porque parcelasDb ainda está vazio).
+          const ins = await supabase.from("parcelas").insert(rows);
+          if (!ins.error) {
+            const sel = await supabase
+              .from("parcelas")
+              .select(
+                "id, emprestimo_id, numero, valor, vencimento, pago, valor_pago, valor_pago_acumulado, juros_atraso, multa_valor, acrescimos, saldo_restante, pago_em, created_at, updated_at"
+              )
+              .eq("emprestimo_id", e.id)
+              .order("numero", { ascending: true });
+            if (!sel.error && Array.isArray(sel.data)) {
+              (e as any).parcelasDb = sel.data;
+            }
+          }
         }
       } catch {
         // silencioso: não bloqueia a listagem

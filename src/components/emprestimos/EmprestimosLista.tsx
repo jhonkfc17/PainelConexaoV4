@@ -54,14 +54,33 @@ function getDueStatus(parcelas: any[]): DueStatus {
   const amanha = new Date(hoje);
   amanha.setDate(hoje.getDate() + 1);
 
-  for (const p of abertas) {
-    const venc = new Date(String(p?.vencimento ?? "") + "T00:00:00");
+  // IMPORTANTÍSSIMO:
+  // As parcelas podem vir fora de ordem. E mesmo em ordem, precisamos respeitar prioridade:
+  // atrasado > hoje > amanhã.
+  // Se retornarmos no primeiro match, podemos marcar como "hoje" mesmo tendo outra parcela atrasada.
+
+  const sorted = [...abertas].sort((a, b) =>
+    String(a?.vencimento ?? "").localeCompare(String(b?.vencimento ?? ""))
+  );
+
+  let hasHoje = false;
+  let hasAmanha = false;
+
+  for (const p of sorted) {
+    const v = String(p?.vencimento ?? "");
+    if (!v) continue;
+
+    const venc = new Date(v + "T00:00:00");
     venc.setHours(0, 0, 0, 0);
+    if (Number.isNaN(venc.getTime())) continue;
 
     if (venc < hoje) return "atrasado";
-    if (venc.getTime() === hoje.getTime()) return "hoje";
-    if (venc.getTime() === amanha.getTime()) return "amanha";
+    if (venc.getTime() === hoje.getTime()) hasHoje = true;
+    if (venc.getTime() === amanha.getTime()) hasAmanha = true;
   }
+
+  if (hasHoje) return "hoje";
+  if (hasAmanha) return "amanha";
   return "ok";
 }
 
