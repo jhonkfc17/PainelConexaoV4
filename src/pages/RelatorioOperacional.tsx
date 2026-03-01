@@ -297,44 +297,6 @@ export default function RelatorioOperacional() {
   const pagamentosRecebidosMes = useMemo(() => pagamentosMes.reduce((a, p) => a + safeNumber(p.valor), 0), [pagamentosMes]);
   const jurosRecebidosMes = useMemo(() => pagamentosMes.reduce((a, p) => a + safeNumber(p.juros_atraso ?? 0), 0), [pagamentosMes]);
 
-  const totalPagoAntesMes = useMemo(
-    () =>
-      sumPagoPeriodo(emprestimos, (p) => {
-        const pagoEm = toISODateOnly((p as any).pago_em ?? "");
-        return pagoEm && pagoEm < inicioMesISO;
-      }),
-    [emprestimos, inicioMesISO]
-  );
-
-  const totalPagoNoMes = useMemo(
-    () =>
-      sumPagoPeriodo(emprestimos, (p) => {
-        const pagoEm = toISODateOnly((p as any).pago_em ?? "");
-        return pagoEm && pagoEm >= inicioMesISO && pagoEm <= hojeISO;
-      }),
-    [emprestimos, inicioMesISO, hojeISO]
-  );
-
-  const principalTotalContratos = useMemo(() => emprestimos.reduce((a, e) => a + safeNumber((e as any).valor ?? 0), 0), [emprestimos]);
-
-  const principalRecuperadoAntesMes = useMemo(
-    () => Math.min(totalPagoAntesMes, principalTotalContratos),
-    [totalPagoAntesMes, principalTotalContratos]
-  );
-  const principalRestanteParaMes = useMemo(
-    () => Math.max(0, principalTotalContratos - principalRecuperadoAntesMes),
-    [principalTotalContratos, principalRecuperadoAntesMes]
-  );
-  const principalRecuperadoNoMes = useMemo(
-    () => Math.min(totalPagoNoMes, principalRestanteParaMes),
-    [totalPagoNoMes, principalRestanteParaMes]
-  );
-
-  const lucroRealizadoMes = useMemo(
-    () => Math.max(0, totalPagoNoMes - principalRecuperadoNoMes),
-    [totalPagoNoMes, principalRecuperadoNoMes]
-  );
-
   const emprestimosConcedidosMes = useMemo(() => {
     return emprestimos
       .filter((e) => {
