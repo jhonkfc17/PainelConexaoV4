@@ -688,3 +688,65 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
     health,
   };
 }
+
+// Supabase views helpers
+export async function getLucroMensal() {
+  const { data, error } = await supabase
+    .from('v_dashboard_lucro_mensal')
+    .select('*')
+    .order('mes_data', { ascending: true });
+
+  if (error) throw error;
+  return data ?? [];
+}
+
+function getTodaySP(): Date {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const parts = formatter.formatToParts(new Date());
+  const year = parts.find((p) => p.type === 'year')?.value;
+  const month = parts.find((p) => p.type === 'month')?.value;
+  const day = parts.find((p) => p.type === "day")?.value;
+  return new Date(`${year}-${month}-${day}T12:00:00Z`);
+}
+
+export async function getDashboardMetrics() {
+  const today = getTodaySP();
+  const thirtyDaysAgo = new Date(today);
+  thirtyDaysAgo.setDate(today.getDate() - 30);
+
+  const { data: view30d } = await supabase
+    .from('v_dashboard_metrics_30d')
+    .select('*')
+    .single();
+
+  let lucro30d = 0;
+
+  if (view30d?.lucro_30d !== undefined) {
+    lucro30d = Number(view30d.lucro_30d) || 0;
+  } else {
+    const { data: parcelas } = await supabase
+      .from('parcelas')
+      .select('pago_em, emprestimo_id')
+      .eq('pago', true)
+      .gte('pago_em', thirtyDaysAgo.toISOString().split('T')[0]);
+
+    if (parcelas?.length) {
+      const { data: calc } = await supabase
+        .from('calc')
+        .select('emprestimo_id, juros_por_parcela');
+
+      parcelas.forEach((p: any) => {
+        const juros = calc?.find((c: any) => c.emprestimo_id === p.emprestimo_id);
+        lucro30d += Number(juros?.juros_por_parcela || 0);
+      });
+    }
+  }
+
+  return { lucro_30d: lucro30d };
+}
+

@@ -15,6 +15,8 @@ import {
   peekDashboardCache,
   type DashboardData,
   type DashboardRange,
+  getLucroMensal,
+  getDashboardMetrics,
 } from "../services/dashboard.service";
 
 export default function Dashboard() {
@@ -32,6 +34,8 @@ export default function Dashboard() {
   const [staffCommissionPct, setStaffCommissionPct] = useState<number>(0);
   const [staffLucroRealizado, setStaffLucroRealizado] = useState<number>(0);
   const [staffCommissionValue, setStaffCommissionValue] = useState<number>(0);
+  const [lucroMensal, setLucroMensal] = useState<any[]>([]);
+  const [lucro30d, setLucro30d] = useState<number>(0);
 
   // Pesquisa rápida (clientes) — ajuda a navegar sem sair do Dashboard
   const [q, setQ] = useState("");
@@ -121,6 +125,17 @@ export default function Dashboard() {
     const t = window.setTimeout(() => load({ force: true }), 0);
     return () => window.clearTimeout(t);
   }, [range]);
+
+  // Lucro mensal (view) e métricas 30d
+  useEffect(() => {
+    getLucroMensal()
+      .then((rows) => setLucroMensal(Array.isArray(rows) ? rows : []))
+      .catch(() => setLucroMensal([]));
+
+    getDashboardMetrics()
+      .then((m) => setLucro30d(Number(m?.lucro_30d ?? 0)))
+      .catch(() => setLucro30d(0));
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -245,11 +260,27 @@ const header = data?.header ?? {
     { label: "Previsão de Lucro", value: "—", hint: "valor a receber - capital" },
     { label: "Contratos", value: "—", hint: "total" },
     { label: "Juros a receber", value: "—", hint: "últimos 6 meses" },
-    { label: "Lucro no mês", value: "—", hint: "lucro (mês atual)" },
+    { label: "Lucro (30 dias)", value: "—", hint: "lucro últimos 30 dias" },
     { label: "Capital na Rua", value: "—", hint: "capital emprestado" },
     { label: "Juros recebidos", value: "—", hint: "total" },
     { label: "Clientes", value: "—", hint: "cadastrados" },
   ];
+
+  const weekCards = useMemo(() => {
+    const cards = data?.weekCards ?? fallbackWeekCards;
+    return cards.map((c) => {
+      const lbl = c.label.toLowerCase();
+      if (lbl.includes("lucro") && (lbl.includes("mês") || lbl.includes("mes"))) {
+        return {
+          ...c,
+          label: "Lucro (30 dias)",
+          value: `R$ ${Number(lucro30d).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`,
+          hint: "lucro últimos 30 dias",
+        };
+      }
+      return c;
+    });
+  }, [data?.weekCards, lucro30d]);
 
   return (
     <div className="min-h-[calc(100vh-64px)] p-0 sm:p-2">
@@ -372,7 +403,7 @@ const header = data?.header ?? {
       ) : null}
 
       <div className="mt-4">
-        <WeekSummary cards={data?.weekCards ?? fallbackWeekCards} />
+        <WeekSummary cards={weekCards} />
       </div>
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
@@ -403,36 +434,7 @@ const header = data?.header ?? {
       </div>
 
       <div className="mt-4">
-        <ChartsSection
-          evolucao={
-            data?.charts.evolucao ?? {
-              title: "Evolução Financeira",
-              data: [],
-              keys: ["emprestado", "recebido"],
-            }
-          }
-          juros={
-            data?.charts.juros ?? {
-              title: "Juros Recebidos",
-              data: [],
-              keys: ["juros"],
-            }
-          }
-          inadimplencia={
-            data?.charts.inadimplencia ?? {
-              title: "Inadimplência",
-              data: [],
-              keys: ["inadimplencia"],
-            }
-          }
-          aVencer={
-            data?.charts.aVencer ?? {
-              title: "Parcelas a vencer",
-              data: [],
-              keys: ["aVencer"],
-            }
-          }
-        />
+        <ChartsSection data={lucroMensal} />
       </div>
 
       <div className="mt-4">
