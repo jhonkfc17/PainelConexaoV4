@@ -482,6 +482,12 @@ function EmprestimoCardPasta({
   const safeRefetch = () => { void refetchEmprestimos(); };
 
   const due = getDueStatusEmprestimo(emprestimo);
+  // Fonte local de parcelas (compatibilidade com telas/detalhes).
+  // Em alguns fluxos (fallback/primeiro render), parcelasDb pode não existir.
+  const parcelas = useMemo(() => {
+    const v = (emprestimo as any)?.parcelasDb;
+    return Array.isArray(v) ? (v as any[]) : [];
+  }, [emprestimo]);
   const status = useMemo(() => String((emprestimo as any).status ?? "").toLowerCase(), [emprestimo]);
   const isCancelado = status === "cancelado";
   const isAdiantado = status === "adiantado";
@@ -490,7 +496,7 @@ function EmprestimoCardPasta({
     // Só infere quitado quando temos parcelas no banco.
     // Caso contrário (ex.: contrato recém-criado que ainda não retornou parcelas),
     // deixa como não quitado para evitar falsos positivos.
-    const todas = parcelas ?? [];
+    const todas = parcelas;
     if (todas.length === 0) return false;
     const abertas = todas.filter((p) => !p?.pago);
     return abertas.length === 0;
