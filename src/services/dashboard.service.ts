@@ -32,6 +32,25 @@ export type DashboardData = {
   health: DashboardHealth;
 };
 
+export type DashboardMetricsViewRow = {
+  total_recebido_mes: number | null;
+  lucro_mes: number | null;
+  juros_embutido_mes?: number | null;
+  juros_atraso_mes?: number | null;
+  multa_mes?: number | null;
+  parcelas_pagas_mes?: number | null;
+  em_atraso_valor?: number | null;
+  em_atraso_qtd?: number | null;
+};
+
+export type DashboardMetrics30dViewRow = {
+  total_recebido_30d: number | null;
+  lucro_30d: number | null;
+  juros_embutido_30d?: number | null;
+  juros_atraso_30d?: number | null;
+  multa_30d?: number | null;
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Ultra-perf: in-memory cache (SWR) + inflight de-duplication
 // ─────────────────────────────────────────────────────────────────────────────
@@ -441,6 +460,26 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   const currentMonthKey = monthKey(now);
   const monthStartISO = toDateOnlyISO(new Date(now.getFullYear(), now.getMonth(), 1));
 
+  // =========================
+  // DB Views (preferível): métricas prontas (Lucro = juros recebidos)
+  // =========================
+  let metricsMes: DashboardMetricsViewRow | null = null;
+  let metrics30d: DashboardMetrics30dViewRow | null = null;
+
+  try {
+    const { data } = await supabase.from('v_dashboard_metrics').select('*').maybeSingle();
+    metricsMes = (data as any) ?? null;
+  } catch {
+    metricsMes = null;
+  }
+
+  try {
+    const { data } = await supabase.from('v_dashboard_metrics_30d').select('*').maybeSingle();
+    metrics30d = (data as any) ?? null;
+  } catch {
+    metrics30d = null;
+  }
+
   const totalRecebidoAntesMes = pagosComData
     .filter((r) => String(r.paidDate) < monthStartISO)
     .reduce((acc, r) => acc + valorRecebidoTotal(r.p), 0);
@@ -510,7 +549,8 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
     pagamentosMesLucroFlags = 0;
   }
 
-  const totalRecebidoMesComPagamentos = totalRecebidoMes + pagamentosMesValor;
+  const totalRecebidoMesView = safeNum((metricsMes as any)?.total_recebido_mes);
+  const totalRecebidoMesComPagamentos = (totalRecebidoMesView > 0 ? totalRecebidoMesView : totalRecebidoMes) + pagamentosMesValor;
 
   // Lucro (mês) = juros recebidos (independe de recuperar capital)
   const emprestimoById = new Map<string, EmprestimoRow>();
@@ -528,7 +568,8 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
     }, 0);
 
   // pagamentosMesLucroFlags cobre o fluxo "Pagar Juros" (juros manuais)
-  const lucroMes = Math.max(0, jurosRecebidosMesParcelas + pagamentosMesLucroFlags);
+  const lucroMesView = safeNum((metricsMes as any)?.lucro_mes);
+  const lucroMes = (lucroMesView > 0 ? lucroMesView : jurosRecebidosMesParcelas) + pagamentosMesLucroFlags;
 
   // Lucro (semana/total) = juros recebidos (estimado)
   const jurosRecebidosSemana = parcelas
