@@ -180,12 +180,15 @@ function mapEmprestimo(row: EmprestimoDb): Emprestimo {
       (payload as any).total_receber_calc ??
       (payload as any).total_receber_previsto
   );
+  const nomePayload = String((payload as any).clienteNome ?? (payload as any).cliente_nome ?? "").trim();
+  const nomeRow = String(row.cliente_nome ?? "").trim();
+  const clienteNomeNormalizado = nomePayload || nomeRow || "";
 
   return {
     id: row.id,
     user_id: row.user_id,
     clienteId: row.cliente_id,
-    clienteNome: row.cliente_nome ?? "",
+    clienteNome: clienteNomeNormalizado,
     clienteContato: row.cliente_contato ?? "",
     status: row.status ?? "ativo",
     modalidade: row.modalidade ?? (payload.modalidade ?? "mensal"),

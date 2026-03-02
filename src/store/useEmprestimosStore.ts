@@ -347,19 +347,24 @@ function mapEmprestimoDb(row: any): any {
     Number(row.jurosTotal ?? row.juros_total ?? payload.jurosTotal ?? payload.juros_total ?? 0) ||
     Number(totais.jurosTotal ?? 0);
 
+  const nomePayload =
+    payload.clienteNome ??
+    payload.cliente_nome ??
+    row.nome_cliente ??
+    row.cliente_name ??
+    row.clienteNomeCompleto;
+  const nomeRow = row.clienteNome ?? row.cliente_nome;
+  const clienteNomeNormalizado =
+    String(nomePayload ?? "").trim() ||
+    String(nomeRow ?? "").trim() ||
+    "Cliente";
+
   return {
     ...row,
 
     // cliente
     clienteId: row.clienteId ?? row.cliente_id ?? row.cliente ?? row.clienteID,
-    clienteNome:
-      row.clienteNome ??
-      row.cliente_nome ??
-      payload.clienteNome ??
-      payload.cliente_nome ??
-      row.nome_cliente ??
-      row.cliente_name ??
-      row.clienteNomeCompleto,
+    clienteNome: clienteNomeNormalizado,
     clienteContato:
       row.clienteContato ??
       row.cliente_contato ??
