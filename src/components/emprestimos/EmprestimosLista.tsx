@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Emprestimo } from "@/store/useEmprestimosStore";
 import type { PagamentoDb } from "@/services/emprestimos.service";
@@ -1303,15 +1303,10 @@ export default function EmprestimosLista({
   pagamentosMapa,
 }: Props) {
   const pagamentosMapaSafe = pagamentosMapa ?? {};
-  const [pastaAberta, setPastaAberta] = useState<null | {
-    clienteNome: string;
-    clienteIdForRoute?: string;
-    emprestimos: Emprestimo[];
-    groupDue: DueStatus;
-  }>(null);
+  const [pastaAbertaKey, setPastaAbertaKey] = useState<string | null>(null);
 
   const grupos = useMemo(() => {
-    const map = new Map<string, { clienteNome: string; clienteIdForRoute?: string; emprestimos: Emprestimo[] }>();
+    const map = new Map<string, { key: string; clienteNome: string; clienteIdForRoute?: string; emprestimos: Emprestimo[] }>();
 
     for (const e of lista) {
       const clienteNome = String((e as any).clienteNome ?? "Cliente");
@@ -1320,7 +1315,7 @@ export default function EmprestimosLista({
       const key = clienteId || `${clienteNome}::${String((e as any).clienteContato ?? "")}`;
       const curr = map.get(key);
       if (curr) curr.emprestimos.push(e);
-      else map.set(key, { clienteNome, clienteIdForRoute: clienteId, emprestimos: [e] });
+      else map.set(key, { key, clienteNome, clienteIdForRoute: clienteId, emprestimos: [e] });
     }
 
     const arr = Array.from(map.values()).map((g) => {
@@ -1342,6 +1337,16 @@ export default function EmprestimosLista({
 
     return arr;
   }, [lista]);
+
+  const pastaAberta = useMemo(() => {
+    if (!pastaAbertaKey) return null;
+    return grupos.find((g) => g.key === pastaAbertaKey) ?? null;
+  }, [grupos, pastaAbertaKey]);
+
+  useEffect(() => {
+    if (!pastaAbertaKey) return;
+    if (!pastaAberta) setPastaAbertaKey(null);
+  }, [pastaAbertaKey, pastaAberta]);
 
   if (viewMode !== "grid") {
     // Mantém compatibilidade: caso tenha toggle de lista/tabela, não quebra.
@@ -1368,7 +1373,7 @@ export default function EmprestimosLista({
         <div className="mb-4 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 flex items-center justify-between gap-3">
           <button
             type="button"
-            onClick={() => setPastaAberta(null)}
+            onClick={() => setPastaAbertaKey(null)}
             className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold text-white/80 hover:bg-white/10"
           >
             <span aria-hidden>×</span> Voltar
@@ -1417,7 +1422,7 @@ export default function EmprestimosLista({
           const e = g.emprestimos[0];
           return (
             <EmprestimoCardPasta
-              key={(e as any)?.id ?? `${g.clienteNome}-${idx}`}
+              key={(e as any)?.id ?? g.key ?? `${g.clienteNome}-${idx}`}
               emprestimo={e}
               onRemover={onRemover}
               onPagar={onPagar}
@@ -1428,12 +1433,12 @@ export default function EmprestimosLista({
         }
         return (
           <PastaClienteCard
-            key={`${g.clienteNome}-${idx}`}
+            key={g.key ?? `${g.clienteNome}-${idx}`}
             clienteNome={g.clienteNome}
             emprestimos={g.emprestimos}
             groupDue={g.groupDue}
             pagamentosMapa={pagamentosMapaSafe}
-            onAbrirPasta={() => setPastaAberta(g)}
+            onAbrirPasta={() => setPastaAbertaKey(g.key)}
           />
         );
       })}
