@@ -249,7 +249,9 @@ async function renovarContratoPreservandoConfiguracao(emprestimoId: string, data
     ...(uid ? { user_id: uid } : {}),
   }));
 
-  const { error: insErr } = await supabase.from("parcelas").insert(parcelasRows);
+  const { error: insErr } = await supabase
+    .from("parcelas")
+    .upsert(parcelasRows, { onConflict: "emprestimo_id,numero", ignoreDuplicates: true });
   if (insErr) throw insErr;
 
   const novoPayload = {
@@ -623,7 +625,9 @@ stopRealtime:
 
           // Insere e imediatamente re-carrega as parcelas para não deixar a UI em estado inconsistente
           // (ex.: empréstimo aparece "em dia" porque parcelasDb ainda está vazio).
-          const ins = await supabase.from("parcelas").insert(rows);
+          const ins = await supabase
+            .from("parcelas")
+            .upsert(rows, { onConflict: "emprestimo_id,numero", ignoreDuplicates: true });
           if (!ins.error) {
             const sel = await supabase
               .from("parcelas")
@@ -719,7 +723,9 @@ stopRealtime:
             ...(uid ? { user_id: uid } : {}),
           }));
 
-      const { error: parcelasErr } = await supabase.from("parcelas").insert(parcelasRows);
+      const { error: parcelasErr } = await supabase
+        .from("parcelas")
+        .upsert(parcelasRows, { onConflict: "emprestimo_id,numero", ignoreDuplicates: true });
       if (parcelasErr) throw parcelasErr;
 
       // Recarrega com relacionamento de parcelas para garantir consistência na UI
