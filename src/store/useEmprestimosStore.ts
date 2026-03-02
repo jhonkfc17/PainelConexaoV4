@@ -350,6 +350,9 @@ function mapEmprestimoDb(row: any): any {
   const nomePayload =
     payload.clienteNome ??
     payload.cliente_nome ??
+    row?.cliente?.payload?.nomeCompleto ??
+    row?.cliente?.payload?.nome ??
+    row?.cliente?.nome ??
     row.nome_cliente ??
     row.cliente_name ??
     row.clienteNomeCompleto;
@@ -429,6 +432,11 @@ async function getEmprestimoById(emprestimoId: string) {
       created_at,
       updated_at,
       payload,
+      cliente:clientes(
+            id,
+            nome,
+            payload
+          ),
       parcelas:parcelas(
             id,
             emprestimo_id,
@@ -560,9 +568,11 @@ startRealtime: async () => {
 
   __rt_channel = supabase
     .channel(`rt-emprestimos-${uid}`)
-    .on("postgres_changes", { event: "*", schema: "public", table: "emprestimos", filter: `user_id=eq.${uid}` }, onChange)
-    .on("postgres_changes", { event: "*", schema: "public", table: "parcelas", filter: `user_id=eq.${uid}` }, onChange)
-    .on("postgres_changes", { event: "*", schema: "public", table: "pagamentos", filter: `user_id=eq.${uid}` }, onChange);
+    // Em multi-tenant, user_id pode ser o tenant_id (owner), não auth.uid() do staff.
+    // Deixamos sem filtro e confiamos no RLS para entregar apenas linhas autorizadas.
+    .on("postgres_changes", { event: "*", schema: "public", table: "emprestimos" }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "parcelas" }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "pagamentos" }, onChange);
 
   await __rt_channel.subscribe();
 },

@@ -225,6 +225,40 @@ function mapEmprestimo(row: EmprestimoDb): Emprestimo {
   };
 }
 
+async function hydrateClienteNome(rows: any[]) {
+  const ids = Array.from(
+    new Set(
+      (rows ?? [])
+        .map((r) => String((r as any)?.cliente_id ?? "").trim())
+        .filter(Boolean)
+    )
+  );
+  if (ids.length === 0) return rows;
+
+  const { data, error } = await supabase
+    .from("clientes")
+    .select("id,nome,payload")
+    .in("id", ids);
+
+  if (error || !Array.isArray(data)) return rows;
+
+  const byId = new Map<string, string>();
+  for (const c of data as any[]) {
+    const nomePayload = String(c?.payload?.nomeCompleto ?? c?.payload?.nome ?? "").trim();
+    const nomeRow = String(c?.nome ?? "").trim();
+    const nome = nomePayload || nomeRow;
+    if (!nome) continue;
+    byId.set(String(c.id), nome);
+  }
+
+  return (rows ?? []).map((r) => {
+    const cid = String((r as any)?.cliente_id ?? "").trim();
+    const nome = byId.get(cid);
+    if (!nome) return r;
+    return { ...(r as any), cliente_nome: nome };
+  });
+}
+
 // =============================
 // Empréstimos
 // =============================
@@ -277,7 +311,8 @@ export async function listEmprestimos() {
     }
 
     const merged = rows.map((r) => ({ ...(r as any), parcelas: byEmp[String(r.id)] ?? [] }));
-    return merged.map(mapEmprestimo);
+    const hydrated = await hydrateClienteNome(merged);
+    return hydrated.map(mapEmprestimo);
   }
 
   // Fallback (legado): caso a view ainda não exista/permita select, usa o modelo anterior.
@@ -383,9 +418,9 @@ async function listEmprestimosFallback() {
     (byEmp[k] ||= []).push(p);
   }
 
-  return emprestimos
-    .map((e) => ({ ...e, parcelas: byEmp[String(e.id)] || [] }))
-    .map(mapEmprestimo);
+  const merged = emprestimos.map((e) => ({ ...e, parcelas: byEmp[String(e.id)] || [] }));
+  const hydrated = await hydrateClienteNome(merged);
+  return hydrated.map(mapEmprestimo);
 }
 
 /**
