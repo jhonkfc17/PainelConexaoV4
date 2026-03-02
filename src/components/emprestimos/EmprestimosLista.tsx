@@ -1320,8 +1320,7 @@ export default function EmprestimosLista({
 
     const arr = Array.from(map.values()).map((g) => {
       const groupDue: DueStatus = g.emprestimos.reduce((best, emp) => {
-        const parcelas = Array.isArray((emp as any).parcelasDb) ? (emp as any).parcelasDb : [];
-        const d = getDueStatus(parcelas);
+        const d = getDueStatusEmprestimo(emp as any);
         return prio(d) < prio(best) ? d : best;
       }, "ok" as DueStatus);
 

@@ -490,76 +490,9 @@ startRealtime: async () => {
     });
   };
 
-  const refreshEmprestimoById = (emprestimoId: string) => {
-    __rt_scheduleRefresh(async () => {
-      try {
-        const row = await getEmprestimoById(emprestimoId);
-        if (!row) {
-          // se sumiu (delete) ou falha, faz refresh total para manter consistência
-          await get().fetchEmprestimos();
-          return;
-        }
-
-        const mapped = mapEmprestimoDb(row as any);
-
-        set((s) => {
-          const arr = Array.isArray(s.emprestimos) ? [...s.emprestimos] : [];
-          const idx = arr.findIndex((e: any) => String(e?.id) === String(emprestimoId));
-          if (idx >= 0) arr[idx] = mapped;
-          else arr.unshift(mapped);
-          return { emprestimos: arr };
-        });
-      } catch {
-        // fallback seguro
-        await get().fetchEmprestimos();
-      }
-    });
-  };
-
-  const refreshPagamentosByEmprestimoId = (emprestimoId: string) => {
-    __rt_scheduleRefresh(async () => {
-      try {
-        await get().fetchPagamentos(emprestimoId);
-      } catch {}
-    });
-  };
-
-  const onEmprestimosChange = (payload: any) => {
-    const n = payload?.new ?? {};
-    const o = payload?.old ?? {};
-    const id = (n?.id ?? o?.id ?? null) as string | null;
-    if (id) {
-      refreshEmprestimoById(id);
-      return;
-    }
-    refreshAll();
-  };
-
-  const onParcelasChange = (payload: any) => {
-    const n = payload?.new ?? {};
-    const o = payload?.old ?? {};
-    const emprestimoId = (n?.emprestimo_id ?? o?.emprestimo_id ?? null) as string | null;
-    if (emprestimoId) {
-      refreshEmprestimoById(emprestimoId);
-      // Revalida lista inteira para nao deixar pastas/cards em estado antigo.
-      refreshAll();
-      return;
-    }
-    refreshAll();
-  };
-
-  const onPagamentosChange = (payload: any) => {
-    const n = payload?.new ?? {};
-    const o = payload?.old ?? {};
-    const emprestimoId = (n?.emprestimo_id ?? o?.emprestimo_id ?? null) as string | null;
-    if (emprestimoId) {
-      refreshPagamentosByEmprestimoId(emprestimoId);
-      refreshEmprestimoById(emprestimoId);
-      refreshAll();
-      return;
-    }
-    refreshAll();
-  };
+  const onEmprestimosChange = () => refreshAll();
+  const onParcelasChange = () => refreshAll();
+  const onPagamentosChange = () => refreshAll();
 
   __rt_channel = supabase
     .channel(`rt-emprestimos-${uid}`)
@@ -909,5 +842,3 @@ stopRealtime:
     }
   },
 }));
-
-
