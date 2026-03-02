@@ -43,7 +43,8 @@ export const supabase = createClient(
        * Depois de liberar o domínio no Supabase (Project Settings > API > CORS allowed origins),
        * você pode ligar novamente.
        */
-      autoRefreshToken: false,
+      autoRefreshToken:
+        String(import.meta.env.VITE_SUPABASE_DISABLE_AUTO_REFRESH ?? "0") !== "1",
       detectSessionInUrl: true,
     },
   }

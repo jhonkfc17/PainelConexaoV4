@@ -41,7 +41,6 @@ function lsSet(key: string, value: string) {
 
 export default function Configuracoes() {
   const user = useAuthStore((s) => s.user);
-  const tenantId = useAuthStore((s) => s.tenantId);
 
   // profile
   const [nomeCompleto, setNomeCompleto] = useState(() => lsGet("cfg_nome_completo", ""));
@@ -340,7 +339,7 @@ export default function Configuracoes() {
 
       {/* ✅ WHATSAPP CONNECTOR */}
       <div className="mt-4">
-        <WhatsAppConnectorCard tenantId={tenantId ?? undefined} />
+        <WhatsAppConnectorCard />
       </div>
 
       {/* COBRANÇA AUTOMÁTICA */}

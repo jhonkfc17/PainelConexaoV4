@@ -24,7 +24,7 @@ export type DashboardData = {
   };
   weekCards: DashboardWeekCard[];
   charts: {
-    evolucao: { title: string; data: DashboardSeriesPoint[]; keys: ["emprestado", "recebido"] };
+    evolucao: { title: string; data: DashboardSeriesPoint[]; keys: string[] };
     juros: { title: string; data: DashboardSeriesPoint[]; keys: ["juros"] };
     inadimplencia: { title: string; data: DashboardSeriesPoint[]; keys: ["inadimplencia"] };
     aVencer: { title: string; data: DashboardSeriesPoint[]; keys: ["aVencer"] };
@@ -513,6 +513,7 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
 
   // Map bucket key -> idx
   const idxByKey = new Map<string, number>();
+  for (let i = 0; i < buckets.length; i += 1) idxByKey.set(buckets[i].key, i);
   // Lucro por mês: considera cada recebimento como recuperação de principal até zerar o capital emprestado;
   // o excedente (incluindo juros de atraso e multa) entra como lucro do mês do pagamento.
   const paidParcelasSorted = parcelas
@@ -532,8 +533,6 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
       lucroData[idx].lucro += lucroPart;
     }
   }
-
-  for (let i = 0; i < buckets.length; i += 1) idxByKey.set(buckets[i].key, i);
 
   function bucketKeyForCreatedAt(createdAtISO: string): string {
     const d = isoFromAny(createdAtISO);

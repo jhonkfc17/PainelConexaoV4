@@ -273,8 +273,8 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
           valor,
           parcelaNumero: p.numero,
           jurosAtraso: MODO_JUROS ? Number(compJuros?.jurosAtraso ?? 0) : calcJurosAtraso(emprestimo, p, dataPagamento),
-          eh_pagamento_juros: MODO_JUROS ? true : undefined,
           flags: {
+            eh_pagamento_juros: MODO_JUROS || undefined,
             origem: "ui_registrar_pagamento_modal",
             modo: MODO_JUROS ? "JUROS" : "PARCIAL",
             contabilizar_como_lucro: MODO_JUROS || undefined,

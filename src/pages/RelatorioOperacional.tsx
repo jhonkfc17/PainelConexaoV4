@@ -605,7 +605,7 @@ export default function RelatorioOperacional() {
                 <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
                 <XAxis dataKey="label" tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 12 }} />
-                <Tooltip formatter={(value: any) => formatCurrency(Number(value || 0))} />
+                <Tooltip formatter={(value: any) => brl(Number(value || 0))} />
                 <Bar dataKey="lucro" name="Lucro" />
               </BarChart>
             </ResponsiveContainer>
