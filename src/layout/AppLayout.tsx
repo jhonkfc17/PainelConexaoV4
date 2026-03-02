@@ -63,17 +63,6 @@ function NavItemLink({ to, icon, label }: NavItem) {
 
 function SidebarContent({ onLogout }: { onLogout: () => void }) {
   const user = useAuthStore((s) => s.user);
-  const startRealtime = useEmprestimosStore((s) => s.startRealtime);
-  const stopRealtime = useEmprestimosStore((s) => s.stopRealtime);
-
-  // Mantém o realtime do painel ativo enquanto o layout estiver montado.
-  useEffect(() => {
-    startRealtime?.();
-    return () => {
-      stopRealtime?.();
-    };
-  }, [startRealtime, stopRealtime]);
-
   return (
     <>
       <div className="h-14 px-3 sm:px-4 flex items-center gap-2 border-b border-emerald-500/10">
@@ -268,3 +257,4 @@ export default function AppLayout() {
     </div>
   );
 }
+

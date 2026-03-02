@@ -524,45 +524,40 @@ startRealtime: async () => {
     });
   };
 
-  const onChange = (payload: any) => {
-    const table = String(payload?.table || "");
+  const onEmprestimosChange = (payload: any) => {
     const n = payload?.new ?? {};
     const o = payload?.old ?? {};
+    const id = (n?.id ?? o?.id ?? null) as string | null;
+    if (id) {
+      refreshEmprestimoById(id);
+      return;
+    }
+    refreshAll();
+  };
 
-    const emprestimoId =
-      (n?.emprestimo_id ?? o?.emprestimo_id ?? null) as string | null;
-
-    if (table === "pagamentos") {
-      // pagamento normalmente impacta: lista de pagamentos e saldo/parcelas → atualiza card do empréstimo
-      if (emprestimoId) {
-        refreshPagamentosByEmprestimoId(emprestimoId);
-        refreshEmprestimoById(emprestimoId);
-        return;
-      }
+  const onParcelasChange = (payload: any) => {
+    const n = payload?.new ?? {};
+    const o = payload?.old ?? {};
+    const emprestimoId = (n?.emprestimo_id ?? o?.emprestimo_id ?? null) as string | null;
+    if (emprestimoId) {
+      refreshEmprestimoById(emprestimoId);
+      // Revalida lista inteira para nao deixar pastas/cards em estado antigo.
       refreshAll();
       return;
     }
+    refreshAll();
+  };
 
-    if (table === "parcelas") {
-      // parcela impacta o card do empréstimo
-      if (emprestimoId) {
-        refreshEmprestimoById(emprestimoId);
-        return;
-      }
+  const onPagamentosChange = (payload: any) => {
+    const n = payload?.new ?? {};
+    const o = payload?.old ?? {};
+    const emprestimoId = (n?.emprestimo_id ?? o?.emprestimo_id ?? null) as string | null;
+    if (emprestimoId) {
+      refreshPagamentosByEmprestimoId(emprestimoId);
+      refreshEmprestimoById(emprestimoId);
       refreshAll();
       return;
     }
-
-    if (table === "emprestimos") {
-      const id = (n?.id ?? o?.id ?? null) as string | null;
-      if (id) {
-        refreshEmprestimoById(id);
-        return;
-      }
-      refreshAll();
-      return;
-    }
-
     refreshAll();
   };
 
@@ -570,9 +565,9 @@ startRealtime: async () => {
     .channel(`rt-emprestimos-${uid}`)
     // Em multi-tenant, user_id pode ser o tenant_id (owner), não auth.uid() do staff.
     // Deixamos sem filtro e confiamos no RLS para entregar apenas linhas autorizadas.
-    .on("postgres_changes", { event: "*", schema: "public", table: "emprestimos" }, onChange)
-    .on("postgres_changes", { event: "*", schema: "public", table: "parcelas" }, onChange)
-    .on("postgres_changes", { event: "*", schema: "public", table: "pagamentos" }, onChange);
+    .on("postgres_changes", { event: "*", schema: "public", table: "emprestimos" }, onEmprestimosChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "parcelas" }, onParcelasChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "pagamentos" }, onPagamentosChange);
 
   await __rt_channel.subscribe();
 },
@@ -914,3 +909,5 @@ stopRealtime:
     }
   },
 }));
+
+
