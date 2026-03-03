@@ -19,6 +19,9 @@ function cardPulse(label: string) {
 
 function routeForLabel(label: string): string | null {
   const l = (label || "").toLowerCase().trim();
+  if (l.includes("lucro (30 dias)") || (l.includes("lucro") && l.includes("30 dias"))) {
+    return "/relatorio-operacional?focus=lucro30d";
+  }
 
   if (l.includes("em atraso")) return "/parcelas/atrasadas";
   if (l.includes("vence hoje")) return "/calendario";

@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 
 import {
   Bar,
@@ -45,6 +46,17 @@ type ContratoAtrasoRow = {
   emprestado: number;
   vencimento: string;
   ticket: string;
+};
+
+type Lucro30Row = {
+  id: string;
+  dataRef: string;
+  emprestimoId: string;
+  cliente: string;
+  tipo: string;
+  valor: number;
+  jurosAtraso: number;
+  total: number;
 };
 
 function brl(v: number): string {
@@ -233,10 +245,13 @@ function statusContrato(psAbertas: ParcelaDb[], hoje: string): Status {
 }
 
 export default function RelatorioOperacional() {
+  const location = useLocation();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [emprestimos, setEmprestimos] = useState<Emprestimo[]>([]);
   const [pagamentosMes, setPagamentosMes] = useState<{ valor: number; juros_atraso: number | null }[]>([]);
+  const [lucro30Rows, setLucro30Rows] = useState<Lucro30Row[]>([]);
+  const lucro30Ref = useRef<HTMLDivElement | null>(null);
 
   const hojeISO = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const inicioMesISO = useMemo(() => {
@@ -245,12 +260,18 @@ export default function RelatorioOperacional() {
     d.setHours(0, 0, 0, 0);
     return d.toISOString().slice(0, 10);
   }, []);
+  const inicio30DiasISO = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    d.setHours(0, 0, 0, 0);
+    return d.toISOString().slice(0, 10);
+  }, []);
 
   async function carregar() {
     setLoading(true);
     setError(null);
     try {
-      const [emp, pays] = await Promise.all([
+      const [emp, pays, pays30] = await Promise.all([
         listEmprestimos(),
         supabase
           .from("pagamentos")
@@ -258,10 +279,16 @@ export default function RelatorioOperacional() {
           .is("estornado_em", null)
           .gte("created_at", inicioMesISO)
           .lte("created_at", hojeISO),
+        supabase
+          .from("pagamentos")
+          .select("id, emprestimo_id, tipo, valor, juros_atraso, data_pagamento, created_at, flags, estornado_em")
+          .is("estornado_em", null)
+          .gte("created_at", inicio30DiasISO),
       ]);
 
       setEmprestimos((emp ?? []) as any);
       if (pays.error) throw pays.error;
+      if (pays30.error) throw pays30.error;
       const pagamentosFiltrados = ((pays.data ?? []) as any[]).filter((p) => {
         const ref = toISODateOnly(p.data_pagamento ?? p.created_at);
         if (!ref) return false;
@@ -273,6 +300,46 @@ export default function RelatorioOperacional() {
           juros_atraso: p.juros_atraso == null ? null : safeNumber(p.juros_atraso),
         }))
       );
+
+      const nomeByEmprestimo = new Map<string, string>();
+      for (const e of (emp ?? []) as any[]) {
+        nomeByEmprestimo.set(String(e?.id ?? ""), String(e?.clienteNome ?? e?.cliente_nome ?? "Cliente"));
+      }
+
+      const rows30 = ((pays30.data ?? []) as any[])
+        .filter((p) => {
+          const ref = toISODateOnly(p.data_pagamento ?? p.created_at);
+          if (!ref || ref < inicio30DiasISO || ref > hojeISO) return false;
+          const flags = (() => {
+            try {
+              if (!p?.flags) return null;
+              if (typeof p.flags === "string") return JSON.parse(p.flags);
+              return p.flags;
+            } catch {
+              return null;
+            }
+          })();
+          const modo = String((flags as any)?.modo ?? "").toUpperCase();
+          const contabilizar = Boolean((flags as any)?.contabilizar_como_lucro);
+          const isJuros = String(p?.tipo ?? "").toUpperCase() === "JUROS";
+          return isJuros || contabilizar || modo === "JUROS";
+        })
+        .map((p) => {
+          const valor = safeNumber(p?.valor);
+          const juros = safeNumber(p?.juros_atraso);
+          return {
+            id: String(p?.id ?? ""),
+            dataRef: toISODateOnly(p.data_pagamento ?? p.created_at),
+            emprestimoId: String(p?.emprestimo_id ?? ""),
+            cliente: nomeByEmprestimo.get(String(p?.emprestimo_id ?? "")) ?? "Cliente",
+            tipo: String(p?.tipo ?? ""),
+            valor,
+            jurosAtraso: juros,
+            total: valor + juros,
+          } as Lucro30Row;
+        })
+        .sort((a, b) => b.dataRef.localeCompare(a.dataRef));
+      setLucro30Rows(rows30);
     } catch (e: any) {
       console.error(e);
       setError(e?.message ?? "Falha ao carregar dados do relatório.");
@@ -284,7 +351,16 @@ export default function RelatorioOperacional() {
   useEffect(() => {
     void carregar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [inicio30DiasISO, inicioMesISO, hojeISO]);
+
+  useEffect(() => {
+    if (loading) return;
+    const focus = new URLSearchParams(location.search).get("focus");
+    if (focus !== "lucro30d") return;
+    setTimeout(() => {
+      lucro30Ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  }, [location.search, loading]);
 
   const emprestimosAtivos = useMemo(() => {
     return emprestimos.filter((e) => {
@@ -497,6 +573,11 @@ export default function RelatorioOperacional() {
       .slice(0, 5) as ContratoAtrasoRow[];
   }, [emprestimosAtivos, hojeISO]);
 
+  const lucro30Registrado = useMemo(
+    () => lucro30Rows.reduce((acc, r) => acc + safeNumber(r.total), 0),
+    [lucro30Rows]
+  );
+
   return (
     <div className="min-h-[calc(100vh-64px)] p-0 sm:p-2 overflow-x-hidden">
       {/* Header */}
@@ -632,6 +713,37 @@ export default function RelatorioOperacional() {
 
       {/* Tabelas */}
       <div className="mt-3 grid grid-cols-1 gap-3">
+        <div ref={lucro30Ref} className="rounded-2xl border border-emerald-500/20 bg-slate-950/30 shadow-glow backdrop-blur-md overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3">
+            <div className="text-sm font-semibold text-white">Detalhamento Lucro (30 dias)</div>
+            <div className="text-xs text-emerald-200">Total registrado: {brl(lucro30Registrado)}</div>
+          </div>
+
+          <div className="border-t border-white/10">
+            <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[11px] font-semibold text-slate-400">
+              <div className="col-span-2">Data</div>
+              <div className="col-span-4">Cliente</div>
+              <div className="col-span-2">Tipo</div>
+              <div className="col-span-2 text-right">Valor</div>
+              <div className="col-span-2 text-right">Total</div>
+            </div>
+
+            {lucro30Rows.length === 0 ? (
+              <div className="px-4 py-4 text-sm text-slate-400">Nenhum lançamento de lucro nos últimos 30 dias.</div>
+            ) : (
+              lucro30Rows.map((r) => (
+                <div key={r.id} className="grid grid-cols-12 gap-2 px-4 py-3 text-sm border-t border-white/5">
+                  <div className="col-span-2 text-slate-300">{formatBR(r.dataRef)}</div>
+                  <div className="col-span-4 text-slate-200 truncate">{r.cliente}</div>
+                  <div className="col-span-2 text-emerald-200">{r.tipo}</div>
+                  <div className="col-span-2 text-right text-slate-200">{brl(r.valor)}</div>
+                  <div className="col-span-2 text-right text-emerald-200 font-semibold">{brl(r.total)}</div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
         <div className="rounded-2xl border border-emerald-500/20 bg-slate-950/30 shadow-glow backdrop-blur-md overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3">
             <div className="text-sm font-semibold text-white">Contratos Ativos (Na Rua)</div>
