@@ -34,6 +34,41 @@ async function readJsonSafe(resp: Response) {
   }
 }
 
+function sanitizeWhatsAppMessage(raw: string) {
+  let txt = (raw || "").normalize("NFC");
+
+  const commonFixes: Array<[string, string]> = [
+    ["ðŸ“„", "\u{1F4C4}"], // 📄
+    ["ðŸ’°", "\u{1F4B0}"], // 💰
+    ["ðŸ“†", "\u{1F4C6}"], // 📆
+    ["ðŸ—“", "\u{1F5D3}"], // 🗓
+    ["âœ…", "\u{2705}"], // ✅
+    ["âš ï¸", "\u{26A0}\u{FE0F}"], // ⚠️
+    ["ðŸŽ¯", "\u{1F3AF}"], // 🎯
+    ["â±", "\u{23F1}"], // ⏱
+    ["â³", "\u{23F3}"], // ⏳
+  ];
+  for (const [bad, good] of commonFixes) {
+    if (txt.includes(bad)) txt = txt.split(bad).join(good);
+  }
+
+  txt = txt
+    .split("\n")
+    .map((line) => {
+      if (!line.includes("\uFFFD")) return line;
+      const lower = line.toLowerCase();
+      let emoji = "\u{1F4CC}";
+      if (lower.includes("*olá") || lower.includes("*ola")) emoji = "\u{1F4C4}";
+      if (lower.includes("*valor")) emoji = "\u{1F4B0}";
+      if (lower.includes("*parcela")) emoji = "\u{1F4C6}";
+      if (lower.includes("*vencimento")) emoji = "\u{1F5D3}";
+      return line.replace(/^(\s*)\uFFFD+/, `$1${emoji}`);
+    })
+    .join("\n");
+
+  return txt.replace(/\uFFFD+/g, "");
+}
+
 async function waCloudPing(opts: { phoneNumberId: string; accessToken: string; apiVersion: string }) {
   const { phoneNumberId, accessToken, apiVersion } = opts;
 
@@ -64,7 +99,7 @@ async function waCloudSendText(opts: {
   const resp = await fetch(`https://graph.facebook.com/${apiVersion}/${phoneNumberId}/messages`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
+      "Content-Type": "application/json; charset=utf-8",
       Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify({
@@ -106,7 +141,7 @@ async function waCloudSendTemplate(opts: {
   const resp = await fetch(`https://graph.facebook.com/${apiVersion}/${phoneNumberId}/messages`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
+      "Content-Type": "application/json; charset=utf-8",
       Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify({
@@ -280,7 +315,7 @@ Deno.serve(async (req) => {
     // SEND: envia mensagem de texto; fallback template opcional se Meta bloquear fora da janela
     if (action === "send") {
       const toRaw = String(body?.to ?? "").trim();
-      const message = String(body?.message ?? "").trim();
+      const message = sanitizeWhatsAppMessage(String(body?.message ?? "").trim());
 
       if (!toRaw) return json({ ok: false, error: "Missing 'to'" }, 400);
       if (!message) return json({ ok: false, error: "Missing 'message'" }, 400);

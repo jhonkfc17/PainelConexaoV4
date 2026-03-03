@@ -6,6 +6,7 @@ import PagamentosSidepanel from "../components/emprestimos/PagamentosSidepanel";
 import { useEmprestimosStore } from "../store/useEmprestimosStore";
 import type { Emprestimo } from "@/store/useEmprestimosStore";
 import { fillTemplate, getMessageTemplate } from "../lib/messageTemplates";
+import { sendWhatsAppFromPanel } from "../services/whatsappDispatch";
 
 function brl(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -104,12 +105,9 @@ export default function EmprestimoDetalhe() {
     setSendingWa(true);
     try {
       const waPhone = phone.startsWith("55") ? phone : `55${phone}`;
-      const url = `https://wa.me/${waPhone}?text=${encodeURIComponent(text)}`;
-
-      // abre em nova aba/janela; se bloqueado, tenta mesma aba
-      const opened = window.open(url, "_blank", "noopener,noreferrer");
-      if (!opened) {
-        window.location.href = url;
+      const res = await sendWhatsAppFromPanel({ to: waPhone, message: text });
+      if (!res?.ok) {
+        throw new Error(String((res as any)?.error ?? "Falha ao enviar WhatsApp"));
       }
     } catch (e: any) {
       alert(String(e?.message || e) || "Falha ao abrir WhatsApp");

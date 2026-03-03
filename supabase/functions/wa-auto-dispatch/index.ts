@@ -49,6 +49,42 @@ function applyTemplate(tpl: string, data: Record<string, string>) {
   return tpl.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key) => data[key] ?? "");
 }
 
+function sanitizeWhatsAppMessage(raw: string) {
+  let txt = (raw || "").normalize("NFC");
+
+  const commonFixes: Array<[string, string]> = [
+    ["ðŸ“„", "\u{1F4C4}"], // 📄
+    ["ðŸ’°", "\u{1F4B0}"], // 💰
+    ["ðŸ“†", "\u{1F4C6}"], // 📆
+    ["ðŸ—“", "\u{1F5D3}"], // 🗓
+    ["âœ…", "\u{2705}"], // ✅
+    ["âš ï¸", "\u{26A0}\u{FE0F}"], // ⚠️
+    ["ðŸŽ¯", "\u{1F3AF}"], // 🎯
+    ["â±", "\u{23F1}"], // ⏱
+    ["â³", "\u{23F3}"], // ⏳
+  ];
+  for (const [bad, good] of commonFixes) {
+    if (txt.includes(bad)) txt = txt.split(bad).join(good);
+  }
+
+  // Corrige linhas onde o emoji virou U+FFFD ("�"), comum em templates corrompidos.
+  txt = txt
+    .split("\n")
+    .map((line) => {
+      if (!line.includes("\uFFFD")) return line;
+      const lower = line.toLowerCase();
+      let emoji = "\u{1F4CC}"; // 📌 fallback
+      if (lower.includes("*olá") || lower.includes("*ola")) emoji = "\u{1F4C4}";
+      if (lower.includes("*valor")) emoji = "\u{1F4B0}";
+      if (lower.includes("*parcela")) emoji = "\u{1F4C6}";
+      if (lower.includes("*vencimento")) emoji = "\u{1F5D3}";
+      return line.replace(/^(\s*)\uFFFD+/, `$1${emoji}`);
+    })
+    .join("\n");
+
+  return txt.replace(/\uFFFD+/g, "");
+}
+
 async function readJsonSafe(resp: Response) {
   const txt = await resp.text();
   if (!txt) return {};
@@ -64,7 +100,7 @@ async function waCloudSendText(opts: { phoneNumberId: string; accessToken: strin
   const resp = await fetch(`https://graph.facebook.com/v23.0/${phoneNumberId}/messages`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
+      "Content-Type": "application/json; charset=utf-8",
       Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify({
@@ -108,7 +144,7 @@ async function waCloudSendTemplate(opts: {
   const resp = await fetch(`https://graph.facebook.com/v23.0/${phoneNumberId}/messages`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
+      "Content-Type": "application/json; charset=utf-8",
       Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify(payload),
@@ -237,7 +273,7 @@ serve(async () => {
         t.kind === "overdue" ? st.template_overdue :
         st.template_early;
 
-      const msg = applyTemplate(tpl, {
+      const msg = sanitizeWhatsAppMessage(applyTemplate(sanitizeWhatsAppMessage(tpl), {
         nome: t.cliente_nome ?? "",
         numero: String(t.numero ?? ""),
         vencimento: t.vencimento ?? "",
@@ -245,7 +281,7 @@ serve(async () => {
         dias_atraso: String(t.dias_atraso ?? 0),
         emprestimo_id: t.emprestimo_id ?? "",
         parcela_id: String(t.parcela_id),
-      });
+      }));
 
       if (msg.trim().length < 2) continue;
 

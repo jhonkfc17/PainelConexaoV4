@@ -446,7 +446,6 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
     pagamentosMesJuros = pagamentosMes.reduce((acc, p) => acc + safeNum((p as any).juros_atraso), 0);
     // Marcações explícitas de lucro (ex: "Pagar Juros")
     pagamentosMesLucroFlags = pagamentosMes.reduce((acc, p) => {
-      const tipo = String((p as any).tipo ?? "").toUpperCase();
       const flags = (() => {
         try {
           const f = (p as any).flags;
@@ -458,9 +457,7 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
         }
       })();
       const contabilizar = Boolean((flags as any)?.contabilizar_como_lucro);
-      const isJurosTipo = tipo.includes("JUROS");
-      const deveContarComoLucro = contabilizar || isJurosTipo;
-      if (!deveContarComoLucro) return acc;
+      if (!contabilizar) return acc;
       return acc + safeNum(p.valor) + safeNum((p as any).juros_atraso);
     }, 0);
   } catch {
@@ -713,6 +710,11 @@ export async function getDashboardMetrics() {
   const today = getTodaySP();
   const thirtyDaysAgo = new Date(today);
   thirtyDaysAgo.setDate(today.getDate() - 30);
+  const startISO = thirtyDaysAgo.toISOString().split('T')[0];
+  const todayISO = today.toISOString().split('T')[0];
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+  const tomorrowISO = tomorrow.toISOString().split('T')[0];
 
   const { data: view30d } = await supabase
     .from('v_dashboard_metrics_30d')
@@ -728,7 +730,7 @@ export async function getDashboardMetrics() {
       .from('parcelas')
       .select('pago_em, emprestimo_id')
       .eq('pago', true)
-      .gte('pago_em', thirtyDaysAgo.toISOString().split('T')[0]);
+      .gte('pago_em', startISO);
 
     if (parcelas?.length) {
       const { data: calc } = await supabase
@@ -741,6 +743,50 @@ export async function getDashboardMetrics() {
       });
     }
   }
+
+  // Soma pagamentos registrados pelo botão "Pagar Juros" (e similares marcados como lucro).
+  // A view v_dashboard_metrics_30d considera parcelas pagas; este bloco inclui pagamentos avulsos.
+  let lucroPagarJuros30d = 0;
+  try {
+    const { data: pagamentosByDate } = await supabase
+      .from('pagamentos')
+      .select('id, valor, juros_atraso, tipo, flags, data_pagamento, created_at, estornado_em')
+      .is('estornado_em', null)
+      .gte('data_pagamento', startISO)
+      .lte('data_pagamento', todayISO);
+
+    const { data: pagamentosByCreated } = await supabase
+      .from('pagamentos')
+      .select('id, valor, juros_atraso, tipo, flags, data_pagamento, created_at, estornado_em')
+      .is('estornado_em', null)
+      .is('data_pagamento', null)
+      .gte('created_at', `${startISO}T00:00:00`)
+      .lt('created_at', `${tomorrowISO}T00:00:00`);
+
+    const dedup = new Map<string, any>();
+    for (const p of [...(pagamentosByDate ?? []), ...(pagamentosByCreated ?? [])]) {
+      dedup.set(String((p as any)?.id ?? crypto.randomUUID()), p);
+    }
+
+    lucroPagarJuros30d = [...dedup.values()].reduce((acc, p: any) => {
+      const flags = (() => {
+        try {
+          if (!p?.flags) return null;
+          if (typeof p.flags === 'string') return JSON.parse(p.flags);
+          return p.flags;
+        } catch {
+          return null;
+        }
+      })();
+      const contabilizar = Boolean((flags as any)?.contabilizar_como_lucro);
+      if (!contabilizar) return acc;
+      return acc + safeNum(p?.valor) + safeNum(p?.juros_atraso);
+    }, 0);
+  } catch {
+    lucroPagarJuros30d = 0;
+  }
+
+  lucro30d += lucroPagarJuros30d;
 
   return { lucro_30d: lucro30d };
 }

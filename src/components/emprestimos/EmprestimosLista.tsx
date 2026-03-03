@@ -10,6 +10,7 @@ import PagamentosSidepanel from "./PagamentosSidepanel";
 import { useEmprestimosStore } from "../../store/useEmprestimosStore";
 import { fillTemplate, getMessageTemplate } from "@/lib/messageTemplates";
 import { supabase } from "@/lib/supabaseClient";
+import { sendWhatsAppFromPanel } from "@/services/whatsappDispatch";
 
 type Props = {
   viewMode?: "grid" | "list";
@@ -666,11 +667,8 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
     }
     const waPhone = phone.startsWith("55") ? phone : `55${phone}`;
     const texto = mensagem ?? montarMensagemPadraoWhatsApp();
-    const url = `https://wa.me/${waPhone}${texto ? `?text=${encodeURIComponent(texto)}` : ""}`;
-    const opened = window.open(url, "_blank", "noopener,noreferrer");
-    if (!opened) {
-      alert("Não foi possível abrir o WhatsApp em uma nova aba (bloqueio de pop-up). Libere pop-ups para este site e tente novamente.");
-    }
+    const res = await sendWhatsAppFromPanel({ to: waPhone, message: texto });
+    if (!res?.ok) alert("Não foi possível enviar pelo WhatsApp.");
   };
 
   const emprestimoModal = useMemo(() => {
