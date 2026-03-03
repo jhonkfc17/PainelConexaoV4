@@ -24,6 +24,7 @@ export enum PagamentoTipoLegacy {
 export type PagamentoTipo =
   | "PARCELA_INTEGRAL"
   | "ADIANTAMENTO_MANUAL"
+  | "JUROS"
   | "SALDO_PARCIAL"
   | "QUITACAO_TOTAL"
   | "DESCONTO";

@@ -23,6 +23,7 @@ import { supabase } from "@/lib/supabaseClient";
 export type PagamentoTipo =
   | "PARCELA_INTEGRAL"
   | "ADIANTAMENTO_MANUAL"
+  | "JUROS"
   | "PARCIAL_COMPLEMENTO"
   | "QUITACAO_TOTAL";
 
@@ -251,6 +252,7 @@ export function lucroRealizado(params: {
     const flags: any = (p as any).flags ?? {};
     const modo = String(flags.modo ?? "");
     return Boolean(
+      p.tipo === "JUROS" ||
       flags.contabilizar_como_lucro ||
         modo === "JUROS" ||
         flags.juros_composto ||

@@ -41,9 +41,11 @@ function isEstornado(p: PagamentoDb) {
 function isLucroDireto(p: PagamentoDb) {
   const flags: any = (p as any)?.flags ?? {};
   const modo = String(flags.modo ?? "");
-  // Pagamento de Juros (fluxo "Pagar Juros") vem como ADIANTAMENTO_MANUAL com flags.modo="JUROS" ou contabilizar_como_lucro=true
+  // Pagamento de Juros (fluxo "Pagar Juros") usa tipo JUROS.
+  // Retrocompatibilidade: também reconhece o formato antigo em ADIANTAMENTO_MANUAL + flags.
   return Boolean(
-    flags.contabilizar_como_lucro ||
+    p.tipo === "JUROS" ||
+      flags.contabilizar_como_lucro ||
       modo === "JUROS" ||
       flags.juros_composto ||
       (p.tipo === "ADIANTAMENTO_MANUAL" && Number(p.juros_atraso ?? 0) > 0)
@@ -54,6 +56,7 @@ function tipoLabel(tipo?: string | null) {
   const t = String(tipo ?? "").toUpperCase();
   if (t === "PARCELA_INTEGRAL") return "Parcela integral";
   if (t === "ADIANTAMENTO_MANUAL") return "Adiantamento";
+  if (t === "JUROS") return "Pagamento de juros";
   if (t === "SALDO_PARCIAL") return "Saldo parcial";
   if (t === "QUITACAO_TOTAL") return "Quitação total";
   if (t === "DESCONTO") return "Desconto";
