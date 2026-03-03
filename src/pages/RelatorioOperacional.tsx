@@ -385,9 +385,8 @@ export default function RelatorioOperacional() {
     () => [
       { label: "Pagamentos recebidos", value: pagamentosRecebidosMes },
       { label: "Outros ganhos", value: jurosRecebidosMes },
-      { label: "Em atraso", value: emAtraso },
     ],
-    [pagamentosRecebidosMes, jurosRecebidosMes, emAtraso]
+    [pagamentosRecebidosMes, jurosRecebidosMes]
   );
 
   const distribuicao = useMemo(
