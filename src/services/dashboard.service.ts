@@ -795,7 +795,7 @@ export async function getDashboardMetrics() {
         emprestimoIds.length
           ? supabase
               .from('emprestimos')
-              .select('id, principal, valor, total_receber, numero_parcelas')
+              .select('id, principal, total_receber, numero_parcelas, payload')
               .in('id', emprestimoIds)
           : Promise.resolve({ data: [] as any[] }),
         parcelaIds.length
@@ -814,7 +814,7 @@ export async function getDashboardMetrics() {
         if (alreadyCountedByView) return acc;
 
         const e = empById.get(String(p?.emprestimo_id ?? ''));
-        const principal = safeNum(e?.principal ?? e?.valor);
+        const principal = safeNum(e?.principal ?? e?.payload?.valor ?? e?.payload?.principal);
         const totalReceber = safeNum(e?.total_receber);
         const numeroParcelas = Math.max(0, safeNum(e?.numero_parcelas));
         const jurosPorParcela =
