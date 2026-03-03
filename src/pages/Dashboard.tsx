@@ -108,8 +108,12 @@ export default function Dashboard() {
       const hasSomething = Boolean(data) || Boolean(peekDashboardCache(range));
       if (!hasSomething || force) setLoading(true);
       setError(null);
-      const d = await getDashboardData(range, { force });
+      const [d, metrics] = await Promise.all([
+        getDashboardData(range, { force }),
+        getDashboardMetrics().catch(() => ({ lucro_30d: 0 })),
+      ]);
       setData(d);
+      setLucro30d(Number(metrics?.lucro_30d ?? 0));
     } catch (e: any) {
       console.error(e);
       setError(e?.message || "Falha ao carregar dados do dashboard.");
@@ -126,15 +130,11 @@ export default function Dashboard() {
     return () => window.clearTimeout(t);
   }, [range]);
 
-  // Lucro mensal (view) e métricas 30d
+  // Lucro mensal (view)
   useEffect(() => {
     getLucroMensal()
       .then((rows) => setLucroMensal(Array.isArray(rows) ? rows : []))
       .catch(() => setLucroMensal([]));
-
-    getDashboardMetrics()
-      .then((m) => setLucro30d(Number(m?.lucro_30d ?? 0)))
-      .catch(() => setLucro30d(0));
   }, []);
 
   useEffect(() => {
