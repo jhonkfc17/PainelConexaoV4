@@ -59,6 +59,20 @@ type Lucro30Row = {
   total: number;
 };
 
+function getTodaySP(): Date {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = formatter.formatToParts(new Date());
+  const year = parts.find((p) => p.type === "year")?.value;
+  const month = parts.find((p) => p.type === "month")?.value;
+  const day = parts.find((p) => p.type === "day")?.value;
+  return new Date(`${year}-${month}-${day}T12:00:00Z`);
+}
+
 function brl(v: number): string {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -251,6 +265,7 @@ export default function RelatorioOperacional() {
   const [emprestimos, setEmprestimos] = useState<Emprestimo[]>([]);
   const [pagamentosMes, setPagamentosMes] = useState<{ valor: number; juros_atraso: number | null }[]>([]);
   const [lucro30Rows, setLucro30Rows] = useState<Lucro30Row[]>([]);
+  const [lucro30View, setLucro30View] = useState<number>(0);
   const lucro30Ref = useRef<HTMLDivElement | null>(null);
 
   const hojeISO = useMemo(() => new Date().toISOString().slice(0, 10), []);
@@ -271,7 +286,16 @@ export default function RelatorioOperacional() {
     setLoading(true);
     setError(null);
     try {
-      const [emp, pays, pays30] = await Promise.all([
+      const todaySP = getTodaySP();
+      const start30 = new Date(todaySP);
+      start30.setDate(todaySP.getDate() - 30);
+      const start30ISO = start30.toISOString().split("T")[0];
+      const todaySPISO = todaySP.toISOString().split("T")[0];
+      const tomorrowSP = new Date(todaySP);
+      tomorrowSP.setDate(todaySP.getDate() + 1);
+      const tomorrowSPISO = tomorrowSP.toISOString().split("T")[0];
+
+      const [emp, pays, view30d, pagamentosByDate, pagamentosByCreated] = await Promise.all([
         listEmprestimos(),
         supabase
           .from("pagamentos")
@@ -279,16 +303,28 @@ export default function RelatorioOperacional() {
           .is("estornado_em", null)
           .gte("created_at", inicioMesISO)
           .lte("created_at", hojeISO),
+        supabase.from("v_dashboard_metrics_30d").select("lucro_30d").single(),
         supabase
           .from("pagamentos")
           .select("id, emprestimo_id, tipo, valor, juros_atraso, data_pagamento, created_at, flags, estornado_em")
           .is("estornado_em", null)
-          .gte("created_at", inicio30DiasISO),
+          .gte("data_pagamento", start30ISO)
+          .lte("data_pagamento", todaySPISO),
+        supabase
+          .from("pagamentos")
+          .select("id, emprestimo_id, tipo, valor, juros_atraso, data_pagamento, created_at, flags, estornado_em")
+          .is("estornado_em", null)
+          .is("data_pagamento", null)
+          .gte("created_at", `${start30ISO}T00:00:00`)
+          .lt("created_at", `${tomorrowSPISO}T00:00:00`),
       ]);
 
       setEmprestimos((emp ?? []) as any);
       if (pays.error) throw pays.error;
-      if (pays30.error) throw pays30.error;
+      if (view30d.error) throw view30d.error;
+      if (pagamentosByDate.error) throw pagamentosByDate.error;
+      if (pagamentosByCreated.error) throw pagamentosByCreated.error;
+      setLucro30View(safeNumber((view30d.data as any)?.lucro_30d ?? 0));
       const pagamentosFiltrados = ((pays.data ?? []) as any[]).filter((p) => {
         const ref = toISODateOnly(p.data_pagamento ?? p.created_at);
         if (!ref) return false;
@@ -306,10 +342,13 @@ export default function RelatorioOperacional() {
         nomeByEmprestimo.set(String(e?.id ?? ""), String(e?.clienteNome ?? e?.cliente_nome ?? "Cliente"));
       }
 
-      const rows30 = ((pays30.data ?? []) as any[])
+      const dedup = new Map<string, any>();
+      for (const p of [...(pagamentosByDate.data ?? []), ...(pagamentosByCreated.data ?? [])] as any[]) {
+        dedup.set(String((p as any)?.id ?? crypto.randomUUID()), p);
+      }
+
+      const rows30Pagamentos = [...dedup.values()]
         .filter((p) => {
-          const ref = toISODateOnly(p.data_pagamento ?? p.created_at);
-          if (!ref || ref < inicio30DiasISO || ref > hojeISO) return false;
           const flags = (() => {
             try {
               if (!p?.flags) return null;
@@ -319,10 +358,8 @@ export default function RelatorioOperacional() {
               return null;
             }
           })();
-          const modo = String((flags as any)?.modo ?? "").toUpperCase();
           const contabilizar = Boolean((flags as any)?.contabilizar_como_lucro);
-          const isJuros = String(p?.tipo ?? "").toUpperCase() === "JUROS";
-          return isJuros || contabilizar || modo === "JUROS";
+          return contabilizar;
         })
         .map((p) => {
           const valor = safeNumber(p?.valor);
@@ -339,6 +376,20 @@ export default function RelatorioOperacional() {
           } as Lucro30Row;
         })
         .sort((a, b) => b.dataRef.localeCompare(a.dataRef));
+
+      const rows30 = [
+        {
+          id: "__view_30d__",
+          dataRef: todaySPISO,
+          emprestimoId: "",
+          cliente: "Base consolidada (parcelas pagas)",
+          tipo: "VIEW_30D",
+          valor: safeNumber((view30d.data as any)?.lucro_30d ?? 0),
+          jurosAtraso: 0,
+          total: safeNumber((view30d.data as any)?.lucro_30d ?? 0),
+        } as Lucro30Row,
+        ...rows30Pagamentos,
+      ];
       setLucro30Rows(rows30);
     } catch (e: any) {
       console.error(e);
@@ -351,7 +402,7 @@ export default function RelatorioOperacional() {
   useEffect(() => {
     void carregar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inicio30DiasISO, inicioMesISO, hojeISO]);
+  }, [inicioMesISO, hojeISO]);
 
   useEffect(() => {
     if (loading) return;
