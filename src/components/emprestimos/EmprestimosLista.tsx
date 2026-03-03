@@ -9,6 +9,7 @@ import AplicarMultaModal from "./AplicarMultaModal";
 import PagamentosSidepanel from "./PagamentosSidepanel";
 import { useEmprestimosStore } from "../../store/useEmprestimosStore";
 import { fillTemplate, getMessageTemplate } from "@/lib/messageTemplates";
+import { supabase } from "@/lib/supabaseClient";
 
 type Props = {
   viewMode?: "grid" | "list";
@@ -632,12 +633,32 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
     return fillTemplate(getMessageTemplate(key as any), vars);
   };
 
-  const abrirWhatsapp = (mensagem?: string) => {
-    const phoneRaw =
+  const abrirWhatsapp = async (mensagem?: string) => {
+    let phoneRaw =
       (emprestimo as any)?.clienteContato ??
       (emprestimo as any)?.cliente_contato ??
       (emprestimo as any)?.telefone ??
       "";
+
+    const clienteId = String((emprestimo as any)?.clienteId ?? (emprestimo as any)?.cliente_id ?? "").trim();
+    if (clienteId) {
+      const { data } = await supabase
+        .from("clientes")
+        .select("telefone,payload")
+        .eq("id", clienteId)
+        .maybeSingle();
+
+      const phoneFromCliente =
+        (data as any)?.telefone ??
+        (data as any)?.payload?.telefone ??
+        (data as any)?.payload?.contato ??
+        "";
+
+      if (String(phoneFromCliente).trim()) {
+        phoneRaw = phoneFromCliente;
+      }
+    }
+
     const phone = String(phoneRaw).replace(/\D/g, "");
     if (!phone) {
       alert("Cliente sem telefone cadastrado.");
