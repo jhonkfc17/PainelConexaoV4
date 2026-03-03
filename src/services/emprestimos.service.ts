@@ -722,7 +722,139 @@ export async function registrarPagamentoDbV2(args: {
     p_flags: flags,
   });
 
-  if (!r1.error) return r1.data;
+  const parsePagamentoIdFromRpc = (rpcData: any): string | null => {
+    if (!rpcData) return null;
+    if (typeof rpcData === "string") return rpcData;
+    if (typeof rpcData === "object" && rpcData.pagamento_id) return String(rpcData.pagamento_id);
+    return null;
+  };
+
+  const resolveBaseFromEmprestimo = (emp: any) => {
+    const payload = emp?.payload ?? {};
+    const principal = toNumber(
+      emp?.principal ??
+        emp?.valor ??
+        payload?.principal ??
+        payload?.valor ??
+        payload?.valorEmprestado ??
+        payload?.capital
+    );
+    const totalReceber = toNumber(
+      emp?.total_receber ??
+        payload?.totalReceber ??
+        payload?.total_receber ??
+        payload?.valorTotal ??
+        payload?.valor_a_receber
+    );
+    const numeroParcelas = Math.max(
+      0,
+      toNumber(emp?.numero_parcelas ?? payload?.parcelas ?? payload?.numeroParcelas ?? payload?.numero_parcelas)
+    );
+    const principalPorParcela = numeroParcelas > 0 ? principal / numeroParcelas : principal;
+    return { principal, totalReceber, numeroParcelas, principalPorParcela };
+  };
+
+  const parseSnapshotParcelas = (raw: any): any[] => {
+    if (Array.isArray(raw)) return raw;
+    if (!raw) return [];
+    try {
+      const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const autoRegistrarJurosLucro = async (pagamentoId: string | null) => {
+    const tipoUpper = String(tipo ?? "").toUpperCase();
+    if (!["PARCELA_INTEGRAL", "SALDO_PARCIAL", "QUITACAO_TOTAL"].includes(tipoUpper)) return;
+
+    const valorRegistrado = toNumber(valor) + toNumber(jurosAtraso);
+    if (!(valorRegistrado > 0)) return;
+
+    const [{ data: emprestimo, error: empErr }, { data: pagamento, error: payErr }] = await Promise.all([
+      supabase.from("emprestimos").select("*").eq("id", emprestimoId).maybeSingle(),
+      pagamentoId ? supabase.from("pagamentos").select("*").eq("id", pagamentoId).maybeSingle() : Promise.resolve({ data: null, error: null }),
+    ]);
+    if (empErr || !emprestimo) return;
+    if (payErr) return;
+
+    const base = resolveBaseFromEmprestimo(emprestimo as any);
+    let capitalComponente = 0;
+    let jurosParcelaNumero: number | null = parcelaNumero != null ? Number(parcelaNumero) : null;
+
+    if (tipoUpper === "QUITACAO_TOTAL") {
+      const snapshot = parseSnapshotParcelas((pagamento as any)?.snapshot_parcelas);
+      const unpaid = snapshot.filter((p) => !Boolean(p?.pago));
+      const unpaidCount = unpaid.length;
+      const qtdPrincipal = unpaidCount > 0 ? unpaidCount : Math.max(1, base.numeroParcelas || 1);
+      capitalComponente = Math.max(0, base.principalPorParcela) * qtdPrincipal;
+      if (!jurosParcelaNumero) {
+        const candidato = unpaid[0]?.numero ?? snapshot[0]?.numero ?? null;
+        jurosParcelaNumero = candidato != null ? Number(candidato) : null;
+      }
+    } else {
+      capitalComponente = Math.max(0, base.principalPorParcela);
+    }
+
+    const lucroCalculado = Math.max(0, valorRegistrado - capitalComponente);
+    if (!(lucroCalculado > 0)) return;
+
+    if (!jurosParcelaNumero || !Number.isFinite(jurosParcelaNumero) || jurosParcelaNumero <= 0) {
+      const { data: parc } = await supabase
+        .from("parcelas")
+        .select("numero")
+        .eq("emprestimo_id", emprestimoId)
+        .order("numero", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      jurosParcelaNumero = parc?.numero != null ? Number(parc.numero) : null;
+    }
+    if (!jurosParcelaNumero || !Number.isFinite(jurosParcelaNumero) || jurosParcelaNumero <= 0) return;
+
+    // Evita duplicar lançamento automático para o mesmo pagamento.
+    const { data: existingRows } = await supabase
+      .from("pagamentos")
+      .select("id, flags")
+      .eq("emprestimo_id", emprestimoId)
+      .eq("tipo", "JUROS")
+      .is("estornado_em", null)
+      .order("created_at", { ascending: false })
+      .limit(50);
+    const hasAuto = (existingRows ?? []).some((r: any) => {
+      const f = (r?.flags ?? {}) as any;
+      return String(f?.origem_pagamento_id ?? "") === String(pagamentoId ?? "");
+    });
+    if (hasAuto) return;
+
+    await supabase.rpc("rpc_registrar_pagamento", {
+      p_emprestimo_id: emprestimoId,
+      p_tipo: "JUROS",
+      p_data_pagamento: dataPagamento,
+      p_valor: lucroCalculado,
+      p_parcela_numero: jurosParcelaNumero,
+      p_juros_atraso: 0,
+      p_flags: {
+        ...(flags ?? {}),
+        modo: "JUROS",
+        contabilizar_como_lucro: true,
+        juros_auto: true,
+        origem_pagamento_id: pagamentoId,
+        origem_tipo_pagamento: tipoUpper,
+        formula_lucro: "registrado_menos_capital",
+      },
+    });
+  };
+
+  if (!r1.error) {
+    const pagamentoId = parsePagamentoIdFromRpc(r1.data);
+    try {
+      await autoRegistrarJurosLucro(pagamentoId);
+    } catch (e) {
+      console.warn("Falha ao registrar juros automático:", e);
+    }
+    return r1.data;
+  }
 
   // 2) Fallback legado
   if (tipo !== "PARCELA_INTEGRAL") throw r1.error;
