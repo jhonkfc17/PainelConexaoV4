@@ -779,8 +779,13 @@ export async function getDashboardMetrics() {
           return null;
         }
       })();
+      const tipo = String(p?.tipo ?? '').toUpperCase();
+      const modo = String((flags as any)?.modo ?? '').toUpperCase();
       const contabilizar = Boolean((flags as any)?.contabilizar_como_lucro);
-      if (!contabilizar) return acc;
+      const isJurosTipo = tipo === 'JUROS';
+      const isLegacyJuros = tipo === 'ADIANTAMENTO_MANUAL' && safeNum(p?.juros_atraso) > 0;
+      const isModoJuros = modo === 'JUROS';
+      if (!contabilizar && !isJurosTipo && !isLegacyJuros && !isModoJuros) return acc;
       return acc + safeNum(p?.valor) + safeNum(p?.juros_atraso);
     }, 0);
 
