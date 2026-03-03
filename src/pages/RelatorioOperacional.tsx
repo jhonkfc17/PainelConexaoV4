@@ -628,6 +628,18 @@ export default function RelatorioOperacional() {
     () => lucro30Rows.reduce((acc, r) => acc + safeNumber(r.total), 0),
     [lucro30Rows]
   );
+  const lucro30BaseRows = useMemo(
+    () => lucro30Rows.filter((r) => r.tipo === "VIEW_30D"),
+    [lucro30Rows]
+  );
+  const lucro30PagamentoRows = useMemo(
+    () => lucro30Rows.filter((r) => r.tipo !== "VIEW_30D"),
+    [lucro30Rows]
+  );
+  const lucro30PagamentosTotal = useMemo(
+    () => lucro30PagamentoRows.reduce((acc, r) => acc + safeNumber(r.total), 0),
+    [lucro30PagamentoRows]
+  );
 
   return (
     <div className="min-h-[calc(100vh-64px)] p-0 sm:p-2 overflow-x-hidden">
@@ -771,6 +783,18 @@ export default function RelatorioOperacional() {
           </div>
 
           <div className="border-t border-white/10">
+            <div className="px-4 py-3 border-b border-white/5">
+              <div className="text-xs font-semibold text-slate-400">Base consolidada (view)</div>
+              <div className="mt-1 text-sm text-slate-200">
+                {brl(lucro30BaseRows.reduce((acc, r) => acc + safeNumber(r.total), 0))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between px-4 py-3">
+              <div className="text-xs font-semibold text-slate-300">Pagamentos registrados (avulsos)</div>
+              <div className="text-xs text-emerald-200">Subtotal: {brl(lucro30PagamentosTotal)}</div>
+            </div>
+
             <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[11px] font-semibold text-slate-400">
               <div className="col-span-2">Data</div>
               <div className="col-span-4">Cliente</div>
@@ -779,10 +803,10 @@ export default function RelatorioOperacional() {
               <div className="col-span-2 text-right">Total</div>
             </div>
 
-            {lucro30Rows.length === 0 ? (
-              <div className="px-4 py-4 text-sm text-slate-400">Nenhum lançamento de lucro nos últimos 30 dias.</div>
+            {lucro30PagamentoRows.length === 0 ? (
+              <div className="px-4 py-4 text-sm text-slate-400">Nenhum pagamento registrado nos ultimos 30 dias.</div>
             ) : (
-              lucro30Rows.map((r) => (
+              lucro30PagamentoRows.map((r) => (
                 <div key={r.id} className="grid grid-cols-12 gap-2 px-4 py-3 text-sm border-t border-white/5">
                   <div className="col-span-2 text-slate-300">{formatBR(r.dataRef)}</div>
                   <div className="col-span-4 text-slate-200 truncate">{r.cliente}</div>
