@@ -747,17 +747,18 @@ export async function getDashboardMetrics() {
   // Soma pagamentos registrados pelo botão "Pagar Juros" (e similares marcados como lucro).
   // A view v_dashboard_metrics_30d considera parcelas pagas; este bloco inclui pagamentos avulsos.
   let lucroPagarJuros30d = 0;
+  let lucroIntegralFallback30d = 0;
   try {
     const { data: pagamentosByDate } = await supabase
       .from('pagamentos')
-      .select('id, valor, juros_atraso, tipo, flags, data_pagamento, created_at, estornado_em')
+      .select('id, emprestimo_id, parcela_id, valor, juros_atraso, tipo, flags, data_pagamento, created_at, estornado_em')
       .is('estornado_em', null)
       .gte('data_pagamento', startISO)
       .lte('data_pagamento', todayISO);
 
     const { data: pagamentosByCreated } = await supabase
       .from('pagamentos')
-      .select('id, valor, juros_atraso, tipo, flags, data_pagamento, created_at, estornado_em')
+      .select('id, emprestimo_id, parcela_id, valor, juros_atraso, tipo, flags, data_pagamento, created_at, estornado_em')
       .is('estornado_em', null)
       .is('data_pagamento', null)
       .gte('created_at', `${startISO}T00:00:00`)
@@ -782,11 +783,52 @@ export async function getDashboardMetrics() {
       if (!contabilizar) return acc;
       return acc + safeNum(p?.valor) + safeNum(p?.juros_atraso);
     }, 0);
+
+    // Fallback de lucro para PARCELA_INTEGRAL quando ainda não refletiu em parcelas.pago_em
+    // (a view v_dashboard_metrics_30d só enxerga parcelas pagas).
+    const integralRows = [...dedup.values()].filter((p: any) => String(p?.tipo ?? '').toUpperCase() === 'PARCELA_INTEGRAL');
+    if (integralRows.length > 0) {
+      const emprestimoIds = [...new Set(integralRows.map((p: any) => String(p?.emprestimo_id ?? '')).filter(Boolean))];
+      const parcelaIds = [...new Set(integralRows.map((p: any) => String(p?.parcela_id ?? '')).filter(Boolean))];
+
+      const [{ data: emprestimos }, { data: parcelas }] = await Promise.all([
+        emprestimoIds.length
+          ? supabase
+              .from('emprestimos')
+              .select('id, principal, valor, total_receber, numero_parcelas')
+              .in('id', emprestimoIds)
+          : Promise.resolve({ data: [] as any[] }),
+        parcelaIds.length
+          ? supabase.from('parcelas').select('id, pago, pago_em').in('id', parcelaIds)
+          : Promise.resolve({ data: [] as any[] }),
+      ]);
+
+      const empById = new Map<string, any>((emprestimos ?? []).map((e: any) => [String(e.id), e]));
+      const parcById = new Map<string, any>((parcelas ?? []).map((p: any) => [String(p.id), p]));
+
+      lucroIntegralFallback30d = integralRows.reduce((acc, p: any) => {
+        const parcela = parcById.get(String(p?.parcela_id ?? ''));
+        const paidDate = parcela?.pago_em ? isoFromAny(String(parcela.pago_em)) : '';
+        const alreadyCountedByView =
+          Boolean(parcela?.pago) && Boolean(paidDate) && paidDate >= startISO && paidDate <= todayISO;
+        if (alreadyCountedByView) return acc;
+
+        const e = empById.get(String(p?.emprestimo_id ?? ''));
+        const principal = safeNum(e?.principal ?? e?.valor);
+        const totalReceber = safeNum(e?.total_receber);
+        const numeroParcelas = Math.max(0, safeNum(e?.numero_parcelas));
+        const jurosPorParcela =
+          numeroParcelas > 0 ? Math.max(0, totalReceber - principal) / numeroParcelas : 0;
+
+        return acc + jurosPorParcela + safeNum(p?.juros_atraso);
+      }, 0);
+    }
   } catch {
     lucroPagarJuros30d = 0;
+    lucroIntegralFallback30d = 0;
   }
 
-  lucro30d += lucroPagarJuros30d;
+  lucro30d += lucroPagarJuros30d + lucroIntegralFallback30d;
 
   return { lucro_30d: lucro30d };
 }
