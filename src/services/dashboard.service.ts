@@ -748,6 +748,14 @@ export async function getDashboardMetrics() {
   // A view v_dashboard_metrics_30d considera parcelas pagas; este bloco inclui pagamentos avulsos.
   let lucroPagarJuros30d = 0;
   let lucroIntegralFallback30d = 0;
+  let lucroQuitacaoFallback30d = 0;
+  const firstFinite = (...vals: any[]): number => {
+    for (const v of vals) {
+      const n = Number(v);
+      if (Number.isFinite(n)) return n;
+    }
+    return 0;
+  };
   try {
     const { data: pagamentosByDate } = await supabase
       .from('pagamentos')
@@ -828,12 +836,60 @@ export async function getDashboardMetrics() {
         return acc + jurosPorParcela + safeNum(p?.juros_atraso);
       }, 0);
     }
+
+    // Fallback para QUITACAO_TOTAL: alguns contratos legados têm lucro apenas no payload
+    // (colunas financeiras normalizadas zeradas), então a view 30d não captura.
+    const quitacaoRows = [...dedup.values()].filter(
+      (p: any) => String(p?.tipo ?? '').toUpperCase() === 'QUITACAO_TOTAL'
+    );
+    if (quitacaoRows.length > 0) {
+      const emprestimoIds = [...new Set(quitacaoRows.map((p: any) => String(p?.emprestimo_id ?? '')).filter(Boolean))];
+      const { data: emprestimosQuit } = emprestimoIds.length
+        ? await supabase
+            .from('emprestimos')
+            .select('id, principal, total_receber, numero_parcelas, payload')
+            .in('id', emprestimoIds)
+        : ({ data: [] as any[] } as any);
+
+      const empById = new Map<string, any>((emprestimosQuit ?? []).map((e: any) => [String(e.id), e]));
+
+      lucroQuitacaoFallback30d = quitacaoRows.reduce((acc, p: any) => {
+        const e = empById.get(String(p?.emprestimo_id ?? ''));
+        if (!e) return acc;
+
+        const principalNorm = safeNum(e?.principal);
+        const totalNorm = safeNum(e?.total_receber);
+        const lucroNorm = Math.max(0, totalNorm - principalNorm);
+
+        const payload = e?.payload ?? {};
+        const principalPayload = firstFinite(
+          payload?.principal,
+          payload?.valor,
+          payload?.valorEmprestado,
+          payload?.capital
+        );
+        const totalPayload = firstFinite(
+          payload?.totalReceber,
+          payload?.total_receber,
+          payload?.valorTotal,
+          payload?.valor_a_receber
+        );
+        const lucroPayload = Math.max(0, totalPayload - principalPayload);
+
+        // Só aplica fallback quando a modelagem normalizada não tem lucro,
+        // mas o payload indica lucro (evita duplicar o que a view já contou).
+        if (!(lucroNorm <= 0 && lucroPayload > 0)) return acc;
+
+        return acc + lucroPayload + safeNum(p?.juros_atraso);
+      }, 0);
+    }
   } catch {
     lucroPagarJuros30d = 0;
     lucroIntegralFallback30d = 0;
+    lucroQuitacaoFallback30d = 0;
   }
 
-  lucro30d += lucroPagarJuros30d + lucroIntegralFallback30d;
+  lucro30d += lucroPagarJuros30d + lucroIntegralFallback30d + lucroQuitacaoFallback30d;
 
   return { lucro_30d: lucro30d };
 }
