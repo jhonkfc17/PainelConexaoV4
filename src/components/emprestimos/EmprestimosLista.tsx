@@ -10,7 +10,7 @@ import PagamentosSidepanel from "./PagamentosSidepanel";
 import { useEmprestimosStore } from "../../store/useEmprestimosStore";
 import { fillTemplate, getMessageTemplate } from "@/lib/messageTemplates";
 import { supabase } from "@/lib/supabaseClient";
-import { sendWhatsAppFromPanel } from "@/services/whatsappDispatch";
+import { sanitizeOutgoingWhatsAppText, sendWhatsAppFromPanel } from "@/services/whatsappDispatch";
 
 type Props = {
   viewMode?: "grid" | "list";
@@ -635,6 +635,13 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
   };
 
   const abrirWhatsapp = async (mensagem?: string) => {
+    const manualMode = lsGet("wa_manual_mode", "0") === "1";
+    let manualTab: Window | null = null;
+    if (manualMode && typeof window !== "undefined") {
+      // Abre de forma síncrona no clique para evitar bloqueio de pop-up.
+      manualTab = window.open("about:blank", "_blank", "noopener,noreferrer");
+    }
+
     let phoneRaw =
       (emprestimo as any)?.clienteContato ??
       (emprestimo as any)?.cliente_contato ??
@@ -667,8 +674,21 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
     }
     const waPhone = phone.startsWith("55") ? phone : `55${phone}`;
     const texto = mensagem ?? montarMensagemPadraoWhatsApp();
+
+    if (manualMode) {
+      const cleanText = sanitizeOutgoingWhatsAppText(texto);
+      const url = `https://wa.me/${encodeURIComponent(waPhone)}?text=${encodeURIComponent(cleanText)}`;
+
+      if (manualTab && !manualTab.closed) {
+        manualTab.location.href = url;
+      } else if (typeof window !== "undefined") {
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
+      return;
+    }
+
     const res = await sendWhatsAppFromPanel({ to: waPhone, message: texto });
-    if (!res?.ok) alert("NÃ£o foi possÃ­vel enviar pelo WhatsApp.");
+    if (!res?.ok) alert("Não foi possível enviar pelo WhatsApp.");
   };
 
   const emprestimoModal = useMemo(() => {
@@ -1463,3 +1483,4 @@ export default function EmprestimosLista({
     </div>
   );
 }
+
