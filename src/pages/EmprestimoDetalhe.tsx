@@ -150,12 +150,24 @@ export default function EmprestimoDetalhe() {
 
   const pixPadrao = lsGet("cfg_pix", "");
   const assinaturaPadrao = lsGet("cfg_assinatura", "");
+  const totalParcelas = Math.max(Number(emprestimo.numeroParcelas ?? parcelas.length ?? 0), 0);
+  const parcelasPagas = parcelas.filter((p: any) => Boolean(p?.pago)).length;
+  const progresso = `${parcelasPagas}/${totalParcelas} (${totalParcelas > 0 ? Math.round((parcelasPagas / totalParcelas) * 100) : 0}%)`;
+  const parcelaDbAtual =
+    parcelaParaCobrar != null
+      ? parcelas.find((p: any) => Number(p?.numero ?? 0) === Number(parcelaParaCobrar.idx + 1))
+      : null;
+  const jurosAtual = Math.max(0, Number((parcelaDbAtual as any)?.juros_atraso ?? 0));
+  const multaAtual = Math.max(0, Number((parcelaDbAtual as any)?.multa_valor ?? 0));
 
   const varsBase: Record<string, string> = {
     CLIENTE: emprestimo.clienteNome,
     VALOR: parcelaParaCobrar ? brl(parcelaParaCobrar.valor) : brl(emprestimo.valorParcela),
     VALOR_EMPRESTADO: brl(emprestimo.valor),
     VALOR_PARCELA: brl(emprestimo.valorParcela),
+    MULTA: brl(multaAtual),
+    JUROS: brl(jurosAtual),
+    PROGRESSO: progresso,
     PIX: pixPadrao,
     ASSINATURA: assinaturaPadrao,
   };

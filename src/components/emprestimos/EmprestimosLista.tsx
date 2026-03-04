@@ -629,6 +629,9 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
       PIX: lsGet("cfg_pix", ""),
       ASSINATURA: lsGet("cfg_assinatura", ""),
       DIAS_ATRASO: String(atraso?.detalhe?.dias ?? 0),
+      MULTA: brl(Math.max(0, Number(multa?.total ?? 0))),
+      JUROS: brl(Math.max(0, Number(atraso?.total ?? 0))),
+      PROGRESSO: `${pagasCount}/${Math.max(totalParcelasCount, 0)} (${progressoPct}%)`,
     };
 
     return fillTemplate(getMessageTemplate(key as any), vars);

@@ -168,9 +168,9 @@ export default function Configuracoes() {
       PROX_VENCIMENTO: "2026-03-10",
       DIAS_ATRASO: "4",
       DIAS_PARA_VENCER: "2",
-      MULTA: "",
-      JUROS: "",
-      PROGRESSO: "",
+      MULTA: "R$ 12,00",
+      JUROS: "R$ 18,00",
+      PROGRESSO: "3/8 (38%)",
       PIX: pixPadrao || "🔑 Chave PIX: (preencha em Configurações)",
       ASSINATURA: assinaturaPadrao || "—\n*Sua Empresa*",
     } as Record<string, string>;
