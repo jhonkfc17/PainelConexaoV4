@@ -1,4 +1,4 @@
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+﻿import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "@supabase/supabase-js";
 
 type Json = Record<string, any>;
@@ -37,16 +37,29 @@ async function readJsonSafe(resp: Response) {
 function sanitizeWhatsAppMessage(raw: string) {
   let txt = (raw || "").normalize("NFC");
 
+  const stripDiacritics = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const inferEmojiByContent = (line: string) => {
+    const lower = stripDiacritics(line.toLowerCase());
+    if (lower.includes("nome")) return "\u{1F464}";
+    if (lower.includes("valor") || lower.includes("pagamento")) return "\u{1F4B0}";
+    if (lower.includes("parcela")) return "\u{1F4C6}";
+    if (lower.includes("vencimento")) return "\u{1F5D3}";
+    if (lower.includes("pix")) return "\u{1F511}";
+    if (lower.includes("atencao") || lower.includes("atraso")) return "\u{26A0}\u{FE0F}";
+    if (lower.includes("ola")) return "\u{1F4C4}";
+    return "\u{1F4CC}";
+  };
+
   const commonFixes: Array<[string, string]> = [
-    ["ðŸ“„", "\u{1F4C4}"], // 📄
-    ["ðŸ’°", "\u{1F4B0}"], // 💰
-    ["ðŸ“†", "\u{1F4C6}"], // 📆
-    ["ðŸ—“", "\u{1F5D3}"], // 🗓
-    ["âœ…", "\u{2705}"], // ✅
-    ["âš ï¸", "\u{26A0}\u{FE0F}"], // ⚠️
-    ["ðŸŽ¯", "\u{1F3AF}"], // 🎯
-    ["â±", "\u{23F1}"], // ⏱
-    ["â³", "\u{23F3}"], // ⏳
+    ["Ã°Å¸â€œâ€ž", "\u{1F4C4}"], // ðŸ“„
+    ["Ã°Å¸â€™Â°", "\u{1F4B0}"], // ðŸ’°
+    ["Ã°Å¸â€œâ€ ", "\u{1F4C6}"], // ðŸ“†
+    ["Ã°Å¸â€”â€œ", "\u{1F5D3}"], // ðŸ—“
+    ["Ã¢Å“â€¦", "\u{2705}"], // âœ…
+    ["Ã¢Å¡Â Ã¯Â¸Â", "\u{26A0}\u{FE0F}"], // âš ï¸
+    ["Ã°Å¸Å½Â¯", "\u{1F3AF}"], // ðŸŽ¯
+    ["Ã¢ÂÂ±", "\u{23F1}"], // â±
+    ["Ã¢ÂÂ³", "\u{23F3}"], // â³
   ];
   for (const [bad, good] of commonFixes) {
     if (txt.includes(bad)) txt = txt.split(bad).join(good);
@@ -55,14 +68,16 @@ function sanitizeWhatsAppMessage(raw: string) {
   txt = txt
     .split("\n")
     .map((line) => {
-      if (!line.includes("\uFFFD")) return line;
-      const lower = line.toLowerCase();
-      let emoji = "\u{1F4CC}";
-      if (lower.includes("*olá") || lower.includes("*ola")) emoji = "\u{1F4C4}";
-      if (lower.includes("*valor")) emoji = "\u{1F4B0}";
-      if (lower.includes("*parcela")) emoji = "\u{1F4C6}";
-      if (lower.includes("*vencimento")) emoji = "\u{1F5D3}";
-      return line.replace(/^(\s*)\uFFFD+/, `$1${emoji}`);
+      const hasBrokenPrefix = /^\s*(?:\uFFFD|ï¿½|�|\?)+\s*/.test(line);
+      if (hasBrokenPrefix) {
+        const emoji = inferEmojiByContent(line);
+        return line.replace(/^\s*(?:\uFFFD|ï¿½|�|\?)+\s*/, `${emoji} `);
+      }
+      if (line.includes("\uFFFD")) {
+        const emoji = inferEmojiByContent(line);
+        return line.replace(/\uFFFD+/g, emoji);
+      }
+      return line;
     })
     .join("\n");
 
@@ -72,7 +87,7 @@ function sanitizeWhatsAppMessage(raw: string) {
 async function waCloudPing(opts: { phoneNumberId: string; accessToken: string; apiVersion: string }) {
   const { phoneNumberId, accessToken, apiVersion } = opts;
 
-  // "Ping" leve: busca dados do phone number. Se token/id inválidos -> 4xx
+  // "Ping" leve: busca dados do phone number. Se token/id invÃ¡lidos -> 4xx
   const url = `https://graph.facebook.com/${apiVersion}/${phoneNumberId}?fields=display_phone_number,verified_name,quality_rating`;
   const resp = await fetch(url, {
     method: "GET",
@@ -167,7 +182,7 @@ function onlyDigits(s: string) {
   return (s || "").replace(/\D+/g, "");
 }
 
-// normaliza pra padrão WhatsApp BR: 55 + DDD + numero
+// normaliza pra padrÃ£o WhatsApp BR: 55 + DDD + numero
 function normalizeBR(phoneRaw: string) {
   const d = onlyDigits(phoneRaw);
   if (!d) return "";
@@ -176,7 +191,7 @@ function normalizeBR(phoneRaw: string) {
   return d;
 }
 
-// heurística: quando Meta bloqueia texto livre (fora da janela), normalmente exige template
+// heurÃ­stica: quando Meta bloqueia texto livre (fora da janela), normalmente exige template
 function shouldUseTemplateFallback(resp: { ok: boolean; status?: number; details?: any; error?: string }) {
   if (resp.ok) return false;
   const status = Number(resp.status ?? 0);
@@ -185,10 +200,10 @@ function shouldUseTemplateFallback(resp: { ok: boolean; status?: number; details
   const code = Number(err?.code ?? 0);
   const subcode = Number(err?.error_subcode ?? 0);
 
-  // Mantém robusto sem depender de um único código: combina HTTP + sinais comuns
+  // MantÃ©m robusto sem depender de um Ãºnico cÃ³digo: combina HTTP + sinais comuns
   if (status === 400 || status === 403) {
     if (msg.includes("template") || msg.includes("outside") || msg.includes("24") || msg.includes("window")) return true;
-    if (code === 131047 || subcode === 2494013) return true; // alguns subcódigos comuns (variam por conta)
+    if (code === 131047 || subcode === 2494013) return true; // alguns subcÃ³digos comuns (variam por conta)
   }
   return false;
 }
@@ -217,7 +232,7 @@ Deno.serve(async (req) => {
       return json({ ok: false, error: "Missing WA_PHONE_NUMBER_ID / WA_ACCESS_TOKEN" }, 500);
     }
 
-    // mantém segurança: exige usuário logado (mesmo padrão do seu frontend)
+    // mantÃ©m seguranÃ§a: exige usuÃ¡rio logado (mesmo padrÃ£o do seu frontend)
     const authHeader = req.headers.get("authorization") ?? req.headers.get("Authorization") ?? "";
     if (!authHeader.startsWith("Bearer ")) return json({ ok: false, error: "Missing Authorization Bearer token" }, 401);
 
@@ -241,7 +256,7 @@ Deno.serve(async (req) => {
     const action = String(body?.action ?? "").trim();
     if (!action) return json({ ok: false, error: "Missing action" }, 400);
 
-    // INIT: não existe handshake na Cloud API, então "init" apenas confirma configuração
+    // INIT: nÃ£o existe handshake na Cloud API, entÃ£o "init" apenas confirma configuraÃ§Ã£o
     if (action === "init") {
       const ping = await waCloudPing({ phoneNumberId: WA_PHONE_NUMBER_ID, accessToken: WA_ACCESS_TOKEN, apiVersion: WA_API_VERSION });
       if (!ping.ok) {
@@ -251,7 +266,7 @@ Deno.serve(async (req) => {
             tenant_id,
             status: "idle",
             connected: false,
-            lastError: ping.error ?? "Cloud API inválida",
+            lastError: ping.error ?? "Cloud API invÃ¡lida",
             details: ping.details ?? null,
           },
           502
@@ -275,13 +290,13 @@ Deno.serve(async (req) => {
       const ping = await waCloudPing({ phoneNumberId: WA_PHONE_NUMBER_ID, accessToken: WA_ACCESS_TOKEN, apiVersion: WA_API_VERSION });
       if (!ping.ok) {
         return json({
-          ok: true, // mantém UI funcionando mesmo com erro (evita “quebrar” tela)
+          ok: true, // mantÃ©m UI funcionando mesmo com erro (evita â€œquebrarâ€ tela)
           tenant_id,
           status: "idle",
           connected: false,
           connectedNumber: null,
           qrUpdatedAt: null,
-          lastError: ping.error ?? "Cloud API inválida",
+          lastError: ping.error ?? "Cloud API invÃ¡lida",
           lastSeenAt: new Date().toISOString(),
         });
       }
@@ -298,7 +313,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // QR: Cloud API não usa QR
+    // QR: Cloud API nÃ£o usa QR
     if (action === "qr") {
       // retorna sempre sem QR e com status consistente
       return json({
@@ -373,3 +388,4 @@ Deno.serve(async (req) => {
     return json({ ok: false, error: "Unhandled error", details: String(e) }, 500);
   }
 });
+

@@ -1,20 +1,33 @@
-import { waSend } from "./whatsappConnector";
+﻿import { waSend } from "./whatsappConnector";
 
 const MANUAL_KEY = "wa_manual_mode";
 
 export function sanitizeOutgoingWhatsAppText(raw: string) {
   let txt = String(raw ?? "").normalize("NFC");
 
+  const stripDiacritics = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const inferEmojiByContent = (line: string) => {
+    const lower = stripDiacritics(line.toLowerCase());
+    if (lower.includes("nome")) return "\u{1F464}";
+    if (lower.includes("valor") || lower.includes("pagamento")) return "\u{1F4B0}";
+    if (lower.includes("parcela")) return "\u{1F4C6}";
+    if (lower.includes("vencimento")) return "\u{1F5D3}";
+    if (lower.includes("pix")) return "\u{1F511}";
+    if (lower.includes("atencao") || lower.includes("atraso")) return "\u{26A0}\u{FE0F}";
+    if (lower.includes("ola")) return "\u{1F4C4}";
+    return "\u{1F4CC}";
+  };
+
   const commonFixes: Array<[string, string]> = [
-    ["ðŸ“„", "\u{1F4C4}"], // 📄
-    ["ðŸ’°", "\u{1F4B0}"], // 💰
-    ["ðŸ“†", "\u{1F4C6}"], // 📆
-    ["ðŸ—“", "\u{1F5D3}"], // 🗓
-    ["âœ…", "\u{2705}"], // ✅
-    ["âš ï¸", "\u{26A0}\u{FE0F}"], // ⚠️
-    ["ðŸŽ¯", "\u{1F3AF}"], // 🎯
-    ["â±", "\u{23F1}"], // ⏱
-    ["â³", "\u{23F3}"], // ⏳
+    ["Ã°Å¸â€œâ€ž", "\u{1F4C4}"], // ðŸ“„
+    ["Ã°Å¸â€™Â°", "\u{1F4B0}"], // ðŸ’°
+    ["Ã°Å¸â€œâ€ ", "\u{1F4C6}"], // ðŸ“†
+    ["Ã°Å¸â€”â€œ", "\u{1F5D3}"], // ðŸ—“
+    ["Ã¢Å“â€¦", "\u{2705}"], // âœ…
+    ["Ã¢Å¡Â Ã¯Â¸Â", "\u{26A0}\u{FE0F}"], // âš ï¸
+    ["Ã°Å¸Å½Â¯", "\u{1F3AF}"], // ðŸŽ¯
+    ["Ã¢ÂÂ±", "\u{23F1}"], // â±
+    ["Ã¢ÂÂ³", "\u{23F3}"], // â³
   ];
 
   for (const [bad, good] of commonFixes) {
@@ -24,16 +37,18 @@ export function sanitizeOutgoingWhatsAppText(raw: string) {
   txt = txt
     .split("\n")
     .map((line) => {
-      if (!line.includes("\uFFFD")) return line;
-      const lower = line.toLowerCase();
-      let emoji = "\u{1F4CC}"; // 📌 fallback
-      if (lower.includes("olá") || lower.includes("ola")) emoji = "\u{1F4C4}";
-      if (lower.includes("nome")) emoji = "\u{1F464}"; // 👤
-      if (lower.includes("valor")) emoji = "\u{1F4B0}";
-      if (lower.includes("parcela")) emoji = "\u{1F4C6}";
-      if (lower.includes("vencimento")) emoji = "\u{1F5D3}";
-      if (lower.includes("pix")) emoji = "\u{1F511}"; // 🔑
-      return line.replace(/^(\s*)\uFFFD+/, `$1${emoji}`);
+      const hasBrokenPrefix = /^\s*(?:\uFFFD|ï¿½|�|\?)+\s*/.test(line);
+      if (hasBrokenPrefix) {
+        const emoji = inferEmojiByContent(line);
+        return line.replace(/^\s*(?:\uFFFD|ï¿½|�|\?)+\s*/, `${emoji} `);
+      }
+
+      if (line.includes("\uFFFD")) {
+        const emoji = inferEmojiByContent(line);
+        return line.replace(/\uFFFD+/g, emoji);
+      }
+
+      return line;
     })
     .join("\n");
 
@@ -41,7 +56,7 @@ export function sanitizeOutgoingWhatsAppText(raw: string) {
 }
 
 /**
- * Envio pelo WhatsApp do usuário logado (Cloud API). Se o modo manual estiver
+ * Envio pelo WhatsApp do usuÃ¡rio logado (Cloud API). Se o modo manual estiver
  * ativo, abre o WhatsApp Web com o texto preenchido.
  */
 export async function sendWhatsAppFromPanel(params: { to: string; message: string }) {
@@ -77,3 +92,4 @@ export function isWhatsAppManualMode(): boolean {
     return false;
   }
 }
+
