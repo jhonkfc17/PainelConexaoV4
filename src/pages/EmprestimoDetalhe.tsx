@@ -157,7 +157,7 @@ export default function EmprestimoDetalhe() {
     parcelaParaCobrar != null
       ? parcelas.find((p: any) => Number(p?.numero ?? 0) === Number(parcelaParaCobrar.idx + 1))
       : null;
-  const jurosAtual = Math.max(0, Number((parcelaDbAtual as any)?.juros_atraso ?? 0));
+  const jurosAcordo = Math.max(0, Number(emprestimo.totalReceber ?? 0) - Number(emprestimo.valor ?? 0));
   const multaAtual = Math.max(0, Number((parcelaDbAtual as any)?.multa_valor ?? 0));
 
   const varsBase: Record<string, string> = {
@@ -166,7 +166,7 @@ export default function EmprestimoDetalhe() {
     VALOR_EMPRESTADO: brl(emprestimo.valor),
     VALOR_PARCELA: brl(emprestimo.valorParcela),
     MULTA: brl(multaAtual),
-    JUROS: brl(jurosAtual),
+    JUROS: brl(jurosAcordo),
     PROGRESSO: progresso,
     PIX: pixPadrao,
     ASSINATURA: assinaturaPadrao,
