@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Emprestimo } from "@/store/useEmprestimosStore";
 import type { PagamentoDb } from "@/services/emprestimos.service";
@@ -56,9 +56,9 @@ function getDueStatus(parcelas: any[]): DueStatus {
   const amanha = new Date(hoje);
   amanha.setDate(hoje.getDate() + 1);
 
-  // IMPORTANTÃSSIMO:
+  // IMPORTANTÍSSIMO:
   // As parcelas podem vir fora de ordem. E mesmo em ordem, precisamos respeitar prioridade:
-  // atrasado > hoje > amanhÃ£.
+  // atrasado > hoje > amanhã.
   // Se retornarmos no primeiro match, podemos marcar como "hoje" mesmo tendo outra parcela atrasada.
 
   const sorted = [...abertas].sort((a, b) =>
@@ -107,7 +107,7 @@ function getDueStatusEmprestimo(e: Emprestimo): DueStatus {
     }
   }
 
-  // Fallback: calcula pelas parcelas locais (quando a view nÃ£o estÃ¡ disponÃ­vel)
+  // Fallback: calcula pelas parcelas locais (quando a view não está disponível)
   const parcelas = Array.isArray((e as any).parcelasDb) ? ((e as any).parcelasDb as any[]) : [];
   return getDueStatus(parcelas);
 }
@@ -147,10 +147,10 @@ function chipTone(tone: "danger" | "warn" | "info" | "ok" | "muted") {
 }
 
 function dueBadge(d: DueStatus) {
-  if (d === "atrasado") return { text: "Atrasado", tone: "danger" as const, icon: "âš ï¸" };
-  if (d === "hoje") return { text: "Vence hoje", tone: "warn" as const, icon: "â°" };
-  if (d === "amanha") return { text: "AmanhÃ£", tone: "info" as const, icon: "âœ¨" };
-  return { text: "Em dia", tone: "ok" as const, icon: "âœ…" };
+  if (d === "atrasado") return { text: "Atrasado", tone: "danger" as const, icon: "⚠️" };
+  if (d === "hoje") return { text: "Vence hoje", tone: "warn" as const, icon: "⏰" };
+  if (d === "amanha") return { text: "Amanhã", tone: "info" as const, icon: "✨" };
+  return { text: "Em dia", tone: "ok" as const, icon: "✅" };
 }
 
 function sumParcelasValor(parcelas: any[]): number {
@@ -208,9 +208,9 @@ function saldoPendenteParcela(p: any) {
 
   /**
    * Regra:
-   * - Prioriza cÃ¡lculo pelo detalhamento da parcela (valor/multa/juros/acrÃ©scimos),
+   * - Prioriza cálculo pelo detalhamento da parcela (valor/multa/juros/acréscimos),
    *   para refletir imediatamente multa manual aplicada e evitar saldo inflado.
-   * - Usa saldo_restante apenas como fallback quando nÃ£o hÃ¡ base calculada.
+   * - Usa saldo_restante apenas como fallback quando não há base calculada.
    */
 
   if (acumulado > 0) {
@@ -252,7 +252,7 @@ function sumRestanteSemMulta(parcelas: any[]): number {
 }
 
 function fmtShort(iso?: string) {
-  if (!iso) return "â€”";
+  if (!iso) return "—";
   const d = new Date(String(iso) + "T00:00:00");
   const dd = String(d.getDate()).padStart(2, "0");
   const mm = String(d.getMonth() + 1).padStart(2, "0");
@@ -394,7 +394,7 @@ function proximaParcelaAberta(e: Emprestimo) {
       .sort((a, b) => String(a?.vencimento ?? "").localeCompare(String(b?.vencimento ?? "")))[0];
   }
 
-  // 2) Fallback: monta "parcela virtual" a partir do payload (quando RLS/relacionamento nÃ£o devolveu parcelas)
+  // 2) Fallback: monta "parcela virtual" a partir do payload (quando RLS/relacionamento não devolveu parcelas)
   const payload = ((e as any).payload ?? {}) as any;
   const total = Number((e as any).numeroParcelas ?? payload.parcelas ?? payload.numeroParcelas ?? 0);
 
@@ -413,7 +413,7 @@ function proximaParcelaAberta(e: Emprestimo) {
 
   if (vencs.length === 0 || !valor) return null;
 
-  // pega o prÃ³ximo vencimento >= hoje; se nÃ£o existir, pega o Ãºltimo
+  // pega o próximo vencimento >= hoje; se não existir, pega o último
   const hoje = todayISO();
   const sorted = vencs.slice().sort((a, b) => String(a).localeCompare(String(b)));
   let idx = sorted.findIndex((v) => String(v) >= hoje);
@@ -438,7 +438,7 @@ function badgeToneByDue(d: DueStatus) {
 function labelByDue(d: DueStatus) {
   if (d === "atrasado") return "Atrasado";
   if (d === "hoje") return "Vence hoje";
-  if (d === "amanha") return "AmanhÃ£";
+  if (d === "amanha") return "Amanhã";
   return "Pendente";
 }
 
@@ -485,7 +485,7 @@ function EmprestimoCardPasta({
 
   const due = getDueStatusEmprestimo(emprestimo);
   // Fonte local de parcelas (compatibilidade com telas/detalhes).
-  // Em alguns fluxos (fallback/primeiro render), parcelasDb pode nÃ£o existir.
+  // Em alguns fluxos (fallback/primeiro render), parcelasDb pode não existir.
   const parcelas = useMemo(() => {
     const v = (emprestimo as any)?.parcelasDb;
     return Array.isArray(v) ? (v as any[]) : [];
@@ -495,9 +495,9 @@ function EmprestimoCardPasta({
   const isAdiantado = status === "adiantado";
   const isQuitado = useMemo(() => {
     if (status === "quitado") return true;
-    // SÃ³ infere quitado quando temos parcelas no banco.
-    // Caso contrÃ¡rio (ex.: contrato recÃ©m-criado que ainda nÃ£o retornou parcelas),
-    // deixa como nÃ£o quitado para evitar falsos positivos.
+    // Só infere quitado quando temos parcelas no banco.
+    // Caso contrário (ex.: contrato recém-criado que ainda não retornou parcelas),
+    // deixa como não quitado para evitar falsos positivos.
     const todas = parcelas;
     if (todas.length === 0) return false;
     const abertas = todas.filter((p) => !p?.pago);
@@ -513,8 +513,8 @@ function EmprestimoCardPasta({
   }, [due, isCancelado, isQuitado, isAdiantado, status]);
 
   const totalEmprestado = Number((emprestimo as any).valor ?? 0);
-  // IMPORTANTÃSSIMO:
-  // ApÃ³s amortizaÃ§Ã£o, o total correto vem da soma das parcelas do banco.
+  // IMPORTANTÍSSIMO:
+  // Após amortização, o total correto vem da soma das parcelas do banco.
   // (o payload pode continuar com o total antigo)
   const totalReceber = parcelas.length > 0 ? sumParcelasValor(parcelas) : Number((emprestimo as any).totalReceber ?? 0);
   const totalPago =
@@ -537,8 +537,8 @@ function EmprestimoCardPasta({
   const multa = calcularMultaEstimado(emprestimo);
 
 
-// ExibiÃ§Ã£o: o valor principal do card deve refletir multa/juros configurados,
-// sem duplicar o que jÃ¡ foi gravado nas parcelas (multa_valor / juros_atraso).
+// Exibição: o valor principal do card deve refletir multa/juros configurados,
+// sem duplicar o que já foi gravado nas parcelas (multa_valor / juros_atraso).
 const multaAplicada = (parcelas ?? []).reduce((acc: number, p: any) => {
   if (p?.pago) return acc;
   return acc + Number(p?.multa_valor ?? 0);
@@ -594,7 +594,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
     const bairro = String(e?.clienteBairro ?? e?.bairro ?? '');
     const cidade = String(e?.clienteCidade ?? e?.cidade ?? '');
     const parts = [rua && num ? `${rua}, ${num}` : rua || num, bairro, cidade].filter(Boolean);
-    return parts.join(' â€¢ ');
+    return parts.join(' • ');
   })();
 
   const dataContrato = String((emprestimo as any).dataContrato ?? (emprestimo as any).created_at ?? (emprestimo as any).createdAt ?? '');
@@ -638,7 +638,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
     const manualMode = lsGet("wa_manual_mode", "0") === "1";
     let manualTab: Window | null = null;
     if (typeof window !== "undefined") {
-      // Abre de forma síncrona no clique para evitar bloqueio de pop-up.
+      // Abre de forma sincrona no clique para evitar bloqueio de pop-up.
       manualTab = window.open("about:blank", "_blank", "noopener,noreferrer");
     }
 
@@ -691,14 +691,14 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
     try {
       const res = await sendWhatsAppFromPanel({ to: waPhone, message: texto });
       if (manualTab && !manualTab.closed) manualTab.close();
-      if (!res?.ok) alert("Não foi possível enviar pelo WhatsApp.");
+      if (!res?.ok) alert("N\u00e3o foi poss\u00edvel enviar pelo WhatsApp.");
     } catch {
       if (manualTab && !manualTab.closed) {
         manualTab.location.href = manualUrl;
       } else if (typeof window !== "undefined") {
         window.open(manualUrl, "_blank", "noopener,noreferrer");
       } else {
-        alert("Não foi possível enviar pelo conector. Tente novamente.");
+        alert("N\u00e3o foi poss\u00edvel enviar pelo conector. Tente novamente.");
       }
     }
   };
@@ -734,15 +734,15 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
             <div className="flex flex-wrap items-center gap-2">
               {isCancelado ? (
                 <span className="inline-flex items-center rounded-full border border-slate-500/30 bg-slate-500/15 px-2.5 py-1 text-[11px] text-slate-100">
-                  Cancelado â›”
+                  Cancelado ⛔
                 </span>
               ) : isQuitado ? (
                 <span className="inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2.5 py-1 text-[11px] text-emerald-100">
-                  Quitado âœ…
+                  Quitado ✅
                 </span>
               ) : isAdiantado ? (
                 <span className="inline-flex items-center rounded-full border border-sky-500/30 bg-sky-500/15 px-2.5 py-1 text-[11px] text-sky-100">
-                  Adiantado âš¡
+                  Adiantado ⚡
                 </span>
               ) : (
                 <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] ${badgeToneByDue(due)}`}>
@@ -755,7 +755,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
 
               {(emprestimo as any)?.payload?.multa_config ? (
                 <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/15 px-2.5 py-1 text-[11px] text-amber-100">
-                  Multa âš¡
+                  Multa ⚡
                 </span>
               ) : null}
             </div>
@@ -771,7 +771,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
                   : "border-white/10 bg-white/5 text-white/80"
               }`}
             >
-              <span aria-hidden>{detalhesAberto ? "â–´" : "â–¾"}</span>
+              <span aria-hidden>{detalhesAberto ? "▴" : "▾"}</span>
               Detalhes
             </button>
 
@@ -809,12 +809,12 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
           </div>
 
           <div className="bg-black/25 p-3">
-            <div className="text-[11px] uppercase tracking-wide text-white/55">ðŸª™ Lucro Previsto</div>
+            <div className="text-[11px] uppercase tracking-wide text-white/55">🪙 Lucro Previsto</div>
             <div className="mt-1 text-sm font-semibold text-emerald-200">{brl(lucroPrevisto)}</div>
           </div>
 
           <div className="bg-black/25 p-3 text-right">
-            <div className="text-[11px] uppercase tracking-wide text-white/55">âœ… Lucro Realizado</div>
+            <div className="text-[11px] uppercase tracking-wide text-white/55">✅ Lucro Realizado</div>
             <div className="mt-1 text-sm font-semibold text-emerald-200">{brl(lucroRealizado)}</div>
           </div>
         </div>
@@ -833,14 +833,14 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
             <div className="grid grid-cols-2 gap-2">
               <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-[11px] uppercase tracking-wide text-white/55">ðŸ“… Venc:</div>
+                  <div className="text-[11px] uppercase tracking-wide text-white/55">📅 Venc:</div>
                   <button
                     type="button"
                     onClick={irDetalhes}
                     className="h-7 w-7 rounded-lg border border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
                     title="Editar vencimento"
                   >
-                    âœŽ
+                    ✎
                   </button>
                 </div>
                 <div className="mt-1 text-sm font-semibold text-white">{fmtShort(proximoVenc)}</div>
@@ -848,40 +848,40 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
 
               <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-[11px] uppercase tracking-wide text-white/55">ðŸ’² Pago:</div>
+                  <div className="text-[11px] uppercase tracking-wide text-white/55">💲 Pago:</div>
                   <button
                     type="button"
                     onClick={irDetalhes}
                     className="h-7 w-7 rounded-lg border border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
                     title="Editar pagamentos"
                   >
-                    âœŽ
+                    ✎
                   </button>
                 </div>
                 <div className="mt-1 text-sm font-semibold text-emerald-200">{brl(totalPago)}</div>
               </div>
 
               <div className="col-span-2 rounded-xl border border-white/10 bg-violet-500/10 px-3 py-2 flex items-center justify-between">
-                <div className="text-sm font-semibold text-violet-100">SÃ³ Juros (por parcela):</div>
+                <div className="text-sm font-semibold text-violet-100">Só Juros (por parcela):</div>
                 <div className="text-sm font-extrabold text-violet-100">{brl(Math.max(jurosPorParcela, 0))}</div>
               </div>
             </div>
 
-            {/* NOVO: botÃµes pedidos no card */}
+            {/* NOVO: botões pedidos no card */}
             <div className="mt-3 grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => setJurosCfgAberto(true)}
                 className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-black/30"
               >
-                âš™ï¸ Juros por atraso
+                ⚙️ Juros por atraso
               </button>
               <button
                 type="button"
                 onClick={() => setMultaAberto(true)}
                 className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-amber-100 hover:bg-black/30"
               >
-                ðŸ’° Aplicar multa
+                💰 Aplicar multa
               </button>
             </div>
           </div>
@@ -930,14 +930,14 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
                   onClick={() => setJurosCfgAberto(true)}
                   className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-red-100 hover:bg-black/30"
                 >
-                  âš™ï¸ Configurar Juros
+                  ⚙️ Configurar Juros
                 </button>
                 <button
                   type="button"
                   onClick={() => setMultaAberto(true)}
                   className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-amber-100 hover:bg-black/30"
                 >
-                  ðŸ’° Aplicar Multa
+                  💰 Aplicar Multa
                 </button>
               </div>
 
@@ -947,12 +947,12 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
                   onClick={irDetalhes}
                   className="w-full rounded-xl border border-white/10 bg-black/25 px-4 py-2 text-sm font-semibold text-red-100 hover:bg-black/35"
                 >
-                  â†— Cobrar Atraso (WhatsApp)
+                  ↗ Cobrar Atraso (WhatsApp)
                 </button>
                 {cobrancasAtraso > 0 ? (
-                  <div className="mt-2 text-center text-[11px] font-semibold text-red-200/90">JÃ¡ cobrou {cobrancasAtraso}x</div>
+                  <div className="mt-2 text-center text-[11px] font-semibold text-red-200/90">Já cobrou {cobrancasAtraso}x</div>
                 ) : (
-                  <div className="mt-2 text-[11px] text-white/55">Pague a parcela em atraso para regularizar o emprÃ©stimo</div>
+                  <div className="mt-2 text-[11px] text-white/55">Pague a parcela em atraso para regularizar o empréstimo</div>
                 )}
               </div>
 
@@ -963,7 +963,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
                   className="h-9 w-9 rounded-xl border border-red-500/25 bg-red-500/10 text-red-200 hover:bg-red-500/15"
                   title="Excluir"
                 >
-                  ðŸ—‘
+                  🗑
                 </button>
               </div>
             </div>
@@ -971,14 +971,14 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
             <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-4">
               <div className="flex items-center justify-between gap-3">
                 <div className="text-[13px] font-semibold text-white/90">
-                  PrÃ³xima parcela {Number(proximaAberta?.numero ?? 0)}/{Number((emprestimo as any).numeroParcelas ?? (emprestimo as any).payload?.parcelas ?? 0)}
+                  Próxima parcela {Number(proximaAberta?.numero ?? 0)}/{Number((emprestimo as any).numeroParcelas ?? (emprestimo as any).payload?.parcelas ?? 0)}
                 </div>
                 <div className="text-[12px] font-semibold text-white/70">
                   {(() => {
                     const hoje = todayISO();
                     const v = String(proximaAberta?.vencimento ?? "");
                     const dias = Math.max(0, Math.abs(daysDiffISO(hoje, v)));
-                    if (!v) return "â€”";
+                    if (!v) return "—";
                     return String(v) < hoje ? `${dias} dias` : `em ${dias} dias`;
                   })()}
                 </div>
@@ -993,31 +993,31 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
                   <div className="text-white/60">Valor</div>
                   <div className="font-semibold text-white">{brl(Number(proximaAberta?.valor ?? 0))}</div>
                 </div>
-                <div className="col-span-2 text-[11px] text-white/55">Pague a prÃ³xima parcela para manter o emprÃ©stimo em dia.</div>
+                <div className="col-span-2 text-[11px] text-white/55">Pague a próxima parcela para manter o empréstimo em dia.</div>
               </div>
             </div>
           ) : null}
 
-          {/* SeÃ§Ã£o adicional (expansÃ£o Detalhes): Progresso / Cronograma / Contato / Contrato */}
+          {/* Seção adicional (expansão Detalhes): Progresso / Cronograma / Contato / Contrato */}
           <div className="mt-3 space-y-3">
             {/* Progresso */}
             <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
               <div className="flex items-center gap-2 text-white/90 font-semibold">
-                <span aria-hidden>ðŸ“Š</span> Progresso
+                <span aria-hidden>📊</span> Progresso
               </div>
               <div className="mt-3 h-2 w-full rounded-full bg-black/30 overflow-hidden border border-white/10">
                 <div className="h-full bg-emerald-500/70" style={{ width: `${progressoPct}%` }} />
               </div>
               <div className="mt-2 flex items-center justify-between text-[12px] text-white/70">
                 <span>{progressoPct}%</span>
-                <span>{pagasCount} de {Math.max(totalParcelasCount, 0)} parcela(s) paga(s) â€¢ {restantesCount} restante(s)</span>
+                <span>{pagasCount} de {Math.max(totalParcelasCount, 0)} parcela(s) paga(s) • {restantesCount} restante(s)</span>
               </div>
             </div>
 
             {/* Cronograma de Parcelas */}
             <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
               <div className="flex items-center gap-2 text-white/90 font-semibold">
-                <span aria-hidden>ðŸ—“ï¸</span> Cronograma de Parcelas
+                <span aria-hidden>🗓️</span> Cronograma de Parcelas
               </div>
               <div className="mt-3 grid gap-2">
                 {(cronogramaParcelas.length > 0 ? cronogramaParcelas : (proximaAberta ? [proximaAberta] : [])).map((p: any, idx: number) => {
@@ -1035,7 +1035,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
                     <div key={`${String((p as any)?.id ?? idx)}-${numero}`} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
                       <div className="min-w-0">
                         <div className="text-[12px] font-semibold text-white/90">Parcela {numero}/{total}</div>
-                        <div className="mt-0.5 text-[11px] text-white/60">{brl(valorP)} â€¢ {fmtShort(venc)}</div>
+                        <div className="mt-0.5 text-[11px] text-white/60">{brl(valorP)} • {fmtShort(venc)}</div>
                       </div>
                       <span className={`shrink-0 rounded-full border px-3 py-1 text-[11px] font-semibold ${statusParcela.tone}`}>{statusParcela.text}</span>
                     </div>
@@ -1050,16 +1050,16 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
             {/* Contato do Cliente */}
             <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
               <div className="flex items-center gap-2 text-white/90 font-semibold">
-                <span aria-hidden>ðŸ‘¤</span> Contato do Cliente
+                <span aria-hidden>👤</span> Contato do Cliente
               </div>
               <div className="mt-3 grid gap-2 text-[12px] text-white/80">
                 <div className="flex items-center gap-2">
-                  <span aria-hidden className="text-white/60">ðŸ“ž</span>
-                  <span className="font-semibold">{clienteTelefone || "â€”"}</span>
+                  <span aria-hidden className="text-white/60">📞</span>
+                  <span className="font-semibold">{clienteTelefone || "—"}</span>
                 </div>
                 <div className="flex items-start gap-2">
-                  <span aria-hidden className="text-white/60 mt-0.5">ðŸ“</span>
-                  <span className="font-semibold">{clienteEndereco || "â€”"}</span>
+                  <span aria-hidden className="text-white/60 mt-0.5">📍</span>
+                  <span className="font-semibold">{clienteEndereco || "—"}</span>
                 </div>
               </div>
             </div>
@@ -1067,16 +1067,16 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
             {/* Detalhes do Contrato */}
             <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
               <div className="flex items-center gap-2 text-white/90 font-semibold">
-                <span aria-hidden>ðŸ“„</span> Detalhes do Contrato
+                <span aria-hidden>📄</span> Detalhes do Contrato
               </div>
               <div className="mt-3 grid grid-cols-2 gap-3 text-[12px] text-white/80">
                 <div>
                   <div className="text-white/60">Data do Contrato</div>
-                  <div className="font-semibold text-white">{dataContrato ? fmtShort(dataContrato) : "â€”"}</div>
+                  <div className="font-semibold text-white">{dataContrato ? fmtShort(dataContrato) : "—"}</div>
                 </div>
                 <div className="text-right">
-                  <div className="text-white/60">InÃ­cio</div>
-                  <div className="font-semibold text-white">{dataInicio ? fmtShort(dataInicio) : (cronogramaParcelas[0]?.vencimento ? fmtShort(String(cronogramaParcelas[0]?.vencimento)) : "â€”")}</div>
+                  <div className="text-white/60">Início</div>
+                  <div className="font-semibold text-white">{dataInicio ? fmtShort(dataInicio) : (cronogramaParcelas[0]?.vencimento ? fmtShort(String(cronogramaParcelas[0]?.vencimento)) : "—")}</div>
                 </div>
                 <div>
                   <div className="text-white/60">Tipo de Juros</div>
@@ -1100,7 +1100,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
         </div>
       ) : null}
 
-      {/* CTA WhatsApp (mantÃ©m sempre visÃ­vel) */}
+      {/* CTA WhatsApp (mantém sempre visível) */}
       <div className="px-4 pt-3">
               <button
                 type="button"
@@ -1130,7 +1130,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
               }
             >
               <span className="inline-flex items-center justify-center gap-2">
-                <span aria-hidden>ðŸ§¾</span> Pagar
+                <span aria-hidden>🧾</span> Pagar
               </span>
             </button>
             <button
@@ -1145,7 +1145,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
               }
             >
               <span className="inline-flex items-center justify-center gap-2">
-                <span aria-hidden>ðŸ’²</span> Pagar Juros
+                <span aria-hidden>💲</span> Pagar Juros
               </span>
             </button>
           </div>
@@ -1158,7 +1158,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
                 className="h-9 w-9 rounded-xl border border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
                 title="Abrir detalhes"
               >
-                â†—
+                ↗
               </button>
               <button
                 type="button"
@@ -1166,23 +1166,23 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
                 className="h-9 w-9 rounded-xl border border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
                 title="Comprovante"
               >
-                ðŸ§¾
+                🧾
               </button>
               <button
                 type="button"
                 onClick={() => setEditarAberto(true)}
                 className="h-9 w-9 rounded-xl border border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
-                title="Editar emprÃ©stimo e vencimentos"
+                title="Editar empréstimo e vencimentos"
               >
-                âœï¸
+                ✏️
               </button>
               <button
                 type="button"
                 onClick={() => setHistoricoAberto(true)}
                 className="h-9 w-9 rounded-xl border border-emerald-500/25 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/15"
-                title="Ver histÃ³rico de pagamentos (pode excluir pagamentos errados)"
+                title="Ver histórico de pagamentos (pode excluir pagamentos errados)"
               >
-                â†º
+                ↺
               </button>
             </div>
 
@@ -1192,7 +1192,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
               className="h-9 w-9 rounded-xl border border-red-500/25 bg-red-500/10 text-red-200 hover:bg-red-500/15"
               title="Excluir"
             >
-              ðŸ—‘
+              🗑
             </button>
           </div>
         </div>
@@ -1262,7 +1262,7 @@ function PastaClienteCard({
           </div>
 
           <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[12px] ${chipTone("muted")}`}>
-            ðŸ“ {emprestimos.length} emprÃ©stimos
+            📁 {emprestimos.length} empréstimos
           </span>
 
           <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[12px] ${chipTone(badge.tone)}`}>
@@ -1289,19 +1289,19 @@ function PastaClienteCard({
           </div>
 
           <div className="bg-black/25 p-3">
-            <div className="text-[11px] uppercase tracking-wide text-white/55">ðŸª™ Lucro previsto</div>
+            <div className="text-[11px] uppercase tracking-wide text-white/55">🪙 Lucro previsto</div>
             <div className="mt-1 text-lg font-semibold text-white">{brl(lucroPrevisto)}</div>
           </div>
 
           <div className="bg-black/25 p-3 text-right">
-            <div className="text-[11px] uppercase tracking-wide text-white/55">âœ… Recebido</div>
+            <div className="text-[11px] uppercase tracking-wide text-white/55">✅ Recebido</div>
             <div className="mt-1 text-lg font-semibold text-emerald-300">{brl(totalPago)}</div>
           </div>
         </div>
       </div>
 
       <div className="px-4 pt-4 pb-4">
-        <div className="text-[12px] font-semibold tracking-wide text-white/60">EMPRÃ‰STIMOS NA PASTA</div>
+        <div className="text-[12px] font-semibold tracking-wide text-white/60">EMPRÉSTIMOS NA PASTA</div>
 
         <div className="mt-3 grid gap-2">
           {emprestimos.slice(0, 4).map((e) => {
@@ -1316,7 +1316,7 @@ function PastaClienteCard({
                     <span className="text-white/60">$</span>
                     <span className="font-semibold">{brl(Number((e as any).valor ?? 0))}</span>
                   </div>
-                  <div className="mt-0.5 text-[11px] text-white/55">â€¢ Venc: {fmtShort(venc)}</div>
+                  <div className="mt-0.5 text-[11px] text-white/55">• Venc: {fmtShort(venc)}</div>
                 </div>
 
                 <span className="shrink-0 rounded-full border border-white/10 bg-black/30 px-3 py-1 text-xs font-semibold text-white">
@@ -1333,10 +1333,10 @@ function PastaClienteCard({
           className="mt-4 w-full rounded-xl bg-emerald-500 px-4 py-3 text-sm font-extrabold text-slate-950 hover:bg-emerald-400"
         >
           <span className="flex items-center justify-center gap-2">
-            <span aria-hidden>ðŸ“</span>
+            <span aria-hidden>📁</span>
             <span>Abrir Pasta</span>
             <span className="ml-1" aria-hidden>
-              â€º
+              ›
             </span>
           </span>
         </button>
@@ -1399,7 +1399,7 @@ export default function EmprestimosLista({
   }, [pastaAbertaKey, pastaAberta]);
 
   if (viewMode !== "grid") {
-    // MantÃ©m compatibilidade: caso tenha toggle de lista/tabela, nÃ£o quebra.
+    // Mantém compatibilidade: caso tenha toggle de lista/tabela, não quebra.
   }
 
   if (pastaAberta) {
@@ -1426,7 +1426,7 @@ export default function EmprestimosLista({
             onClick={() => setPastaAbertaKey(null)}
             className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold text-white/80 hover:bg-white/10"
           >
-            <span aria-hidden>Ã—</span> Voltar
+            <span aria-hidden>×</span> Voltar
           </button>
 
           <div className="min-w-0 flex items-center gap-3">
@@ -1436,11 +1436,11 @@ export default function EmprestimosLista({
             <div className="min-w-0">
               <div className="truncate text-white font-semibold">{pastaAberta.clienteNome}</div>
               <div className="text-[12px] text-white/60">
-	                {pastaAberta.emprestimos.length} emprÃ©stimos â€¢ Receber:{" "}
+	                {pastaAberta.emprestimos.length} empréstimos • Receber:{" "}
 	                <span className="text-white/90 font-semibold">{brl(totalReceber)}</span>
-	                <span className="mx-1">â€¢</span>
+	                <span className="mx-1">•</span>
 	                Pago: <span className="text-white/90 font-semibold">{brl(totalPago)}</span>
-	                <span className="mx-1">â€¢</span>
+	                <span className="mx-1">•</span>
 	                Restante: <span className="text-emerald-200 font-semibold">{brl(restante)}</span>
               </div>
             </div>
@@ -1495,5 +1495,4 @@ export default function EmprestimosLista({
     </div>
   );
 }
-
 
