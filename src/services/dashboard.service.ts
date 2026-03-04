@@ -1,5 +1,4 @@
 import { supabase } from "../lib/supabaseClient";
-import { isOwnerUser } from "../lib/tenant";
 
 export type DashboardRange = "30d" | "6m" | "12m";
 
@@ -87,6 +86,10 @@ function brl(n: number): string {
 function safeNum(v: any): number {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
+}
+
+function applyPrincipalScope<T>(query: T, userId: string): T {
+  return (query as any).or(`created_by.eq.${userId},and(created_by.is.null,user_id.eq.${userId})`) as T;
 }
 
 function valorPagoAcumulado(p: ParcelaRow): number {
@@ -308,7 +311,8 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
 
   const user = authUserData.user;
   const email = user?.email || "";
-  const isOwner = await isOwnerUser();
+  const userId = user?.id ?? null;
+  if (!userId) return buildEmptyDashboard(range);
 
   const now = new Date();
   const todayISO = toDateOnlyISO(now);
@@ -319,9 +323,11 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   // =========================
   // Base data (counts)
   // =========================
-  const { count: clientesCount, error: clientesCountErr } = await supabase
+  let clientesCountQuery = supabase
     .from("clientes")
     .select("id", { count: "exact", head: true });
+  clientesCountQuery = applyPrincipalScope(clientesCountQuery, userId);
+  const { count: clientesCount, error: clientesCountErr } = await clientesCountQuery;
   if (clientesCountErr) throw clientesCountErr;
 
   // =========================
@@ -332,11 +338,7 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
     .select("id, created_at, payload")
     .gte("created_at", new Date(`${startISO}T00:00:00`).toISOString())
     .order("created_at", { ascending: true });
-
-  // Staff: só os empréstimos que ele criou
-  if (!isOwner && user?.id) {
-    empQuery = empQuery.eq("created_by", user.id);
-  }
+  empQuery = applyPrincipalScope(empQuery, userId);
 
   const { data: emprestimosData, error: empErr } = await empQuery;
   if (empErr) throw empErr;
@@ -353,12 +355,9 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
     .gte("vencimento", parcelasFromISO)
     .order("vencimento", { ascending: true });
 
-  // Staff: restringe parcelas aos empréstimos retornados (se ele não tem empréstimos, dashboard vazio)
-  if (!isOwner && user?.id) {
-    const ids = emprestimos.map((e) => String(e.id));
-    if (ids.length === 0) return buildEmptyDashboard(range);
-    parcQuery = parcQuery.in("emprestimo_id", ids);
-  }
+  const ids = emprestimos.map((e) => String(e.id));
+  if (ids.length === 0) return buildEmptyDashboard(range);
+  parcQuery = parcQuery.in("emprestimo_id", ids);
 
   const { data: parcelasData, error: parcErr } = await parcQuery;
   if (parcErr) throw parcErr;
@@ -432,7 +431,7 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
     const emprestimoIdsSet = new Set(emprestimos.map((e) => String(e.id)));
 
     const pagamentosMes = pagamentos.filter((p) => {
-      if (!isOwner && p.emprestimo_id && !emprestimoIdsSet.has(String(p.emprestimo_id))) return false;
+      if (p.emprestimo_id && !emprestimoIdsSet.has(String(p.emprestimo_id))) return false;
       if (p.estornado_em) return false;
       const dataRef = isoFromAny(p.data_pagamento ?? p.created_at ?? null);
       if (!dataRef) return false;
@@ -662,7 +661,7 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   };
 
   const rangeLabel = range === "30d" ? "últimos 30 dias" : range === "6m" ? "últimos 6 meses" : "últimos 12 meses";
-  const roleLabel = isOwner ? "Dono (acesso total)" : "Funcionário";
+  const roleLabel = "Usuário logado (escopo próprio)";
 
   return {
     header: {
@@ -707,6 +706,18 @@ function getTodaySP(): Date {
 }
 
 export async function getDashboardMetrics() {
+  const { data: authData, error: authErr } = await supabase.auth.getUser();
+  if (authErr) throw authErr;
+  const userId = authData?.user?.id ?? null;
+  if (!userId) return { lucro_30d: 0 };
+
+  let emprestimosScopeQuery = supabase.from("emprestimos").select("id");
+  emprestimosScopeQuery = applyPrincipalScope(emprestimosScopeQuery, userId);
+  const { data: scopedLoans, error: scopedLoansErr } = await emprestimosScopeQuery;
+  if (scopedLoansErr) throw scopedLoansErr;
+  const emprestimoIds = (scopedLoans ?? []).map((l: any) => String(l.id)).filter(Boolean);
+  if (emprestimoIds.length === 0) return { lucro_30d: 0 };
+
   const today = getTodaySP();
   const thirtyDaysAgo = new Date(today);
   thirtyDaysAgo.setDate(today.getDate() - 30);
@@ -716,33 +727,7 @@ export async function getDashboardMetrics() {
   tomorrow.setDate(today.getDate() + 1);
   const tomorrowISO = tomorrow.toISOString().split('T')[0];
 
-  const { data: view30d } = await supabase
-    .from('v_dashboard_metrics_30d')
-    .select('*')
-    .single();
-
   let lucro30d = 0;
-
-  if (view30d?.lucro_30d !== undefined) {
-    lucro30d = Number(view30d.lucro_30d) || 0;
-  } else {
-    const { data: parcelas } = await supabase
-      .from('parcelas')
-      .select('pago_em, emprestimo_id')
-      .eq('pago', true)
-      .gte('pago_em', startISO);
-
-    if (parcelas?.length) {
-      const { data: calc } = await supabase
-        .from('calc')
-        .select('emprestimo_id, juros_por_parcela');
-
-      parcelas.forEach((p: any) => {
-        const juros = calc?.find((c: any) => c.emprestimo_id === p.emprestimo_id);
-        lucro30d += Number(juros?.juros_por_parcela || 0);
-      });
-    }
-  }
 
   // Soma pagamentos registrados pelo botão "Pagar Juros" (e similares marcados como lucro).
   // A view v_dashboard_metrics_30d considera parcelas pagas; este bloco inclui pagamentos avulsos.
@@ -760,6 +745,7 @@ export async function getDashboardMetrics() {
     const { data: pagamentosByDate } = await supabase
       .from('pagamentos')
       .select('id, emprestimo_id, parcela_id, valor, juros_atraso, tipo, flags, data_pagamento, created_at, estornado_em')
+      .in('emprestimo_id', emprestimoIds)
       .is('estornado_em', null)
       .gte('data_pagamento', startISO)
       .lte('data_pagamento', todayISO);
@@ -767,6 +753,7 @@ export async function getDashboardMetrics() {
     const { data: pagamentosByCreated } = await supabase
       .from('pagamentos')
       .select('id, emprestimo_id, parcela_id, valor, juros_atraso, tipo, flags, data_pagamento, created_at, estornado_em')
+      .in('emprestimo_id', emprestimoIds)
       .is('estornado_em', null)
       .is('data_pagamento', null)
       .gte('created_at', `${startISO}T00:00:00`)

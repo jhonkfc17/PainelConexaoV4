@@ -170,6 +170,20 @@ function toNumber(v: any): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+async function getPrincipalUserId(): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.auth.getUser();
+    if (error) return null;
+    return data?.user?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function applyPrincipalEmprestimoScope<T>(query: T, userId: string): T {
+  return (query as any).or(`created_by.eq.${userId},and(created_by.is.null,user_id.eq.${userId})`) as T;
+}
+
 function mapEmprestimo(row: EmprestimoDb): Emprestimo {
   const payload = (row.payload ?? {}) as EmprestimoPayload;
   const valor = toNumber(payload.valor ?? (row as any).valor);
@@ -265,65 +279,15 @@ async function hydrateClienteNome(rows: any[]) {
 // =============================
 
 export async function listEmprestimos() {
-  // Opção definitiva: usar a view `v_emprestimos_status` como fonte de verdade para atraso/status.
-  // Isso elimina inconsistências no front (ordem de parcelas, timezone, render inicial sem parcelas).
-  const base = await supabase
-    .from("v_emprestimos_status")
-    .select("*")
-    .order("updated_at", { ascending: false });
-
-  if (!base.error) {
-    const rows = (base.data ?? []) as any[];
-    const ids = rows.map((r) => r.id).filter(Boolean);
-
-    // Busca parcelas separadamente e anexa (a view pode não ter relacionamento exposto).
-    const parcelasResp = ids.length
-      ? await supabase
-          .from("parcelas")
-          .select(
-            `
-              id,
-              emprestimo_id,
-              numero,
-              valor,
-              vencimento,
-              pago,
-              valor_pago,
-              valor_pago_acumulado,
-              juros_atraso,
-              multa_valor,
-              acrescimos,
-              saldo_restante,
-              pago_em,
-              created_at,
-              updated_at
-            `
-          )
-          .in("emprestimo_id", ids)
-          .order("numero", { ascending: true })
-      : { data: [], error: null as any };
-
-    const parcelas = (parcelasResp.data ?? []) as any[];
-    const byEmp: Record<string, any[]> = {};
-    for (const p of parcelas) {
-      const eid = String(p.emprestimo_id ?? "");
-      if (!eid) continue;
-      (byEmp[eid] ??= []).push(p);
-    }
-
-    const merged = rows.map((r) => ({ ...(r as any), parcelas: byEmp[String(r.id)] ?? [] }));
-    const hydrated = await hydrateClienteNome(merged);
-    return hydrated.map(mapEmprestimo);
-  }
-
-  // Fallback (legado): caso a view ainda não exista/permita select, usa o modelo anterior.
-  return listEmprestimosFallback();
+  const userId = await getPrincipalUserId();
+  if (!userId) return [];
+  return listEmprestimosFallback(userId);
 }
 
 
-async function listEmprestimosFallback() {
+async function listEmprestimosFallback(userId: string) {
   // Tentativa 1: traz parcelas embutidas (FK).
-  const r1 = await supabase
+  let r1q = supabase
     .from("emprestimos")
     .select(
       `
@@ -358,12 +322,14 @@ async function listEmprestimosFallback() {
       `
     )
     .order("created_at", { ascending: false });
+  r1q = applyPrincipalEmprestimoScope(r1q, userId);
+  const r1 = await r1q;
 
   if (!r1.error) return (r1.data ?? []).map(mapEmprestimo);
 
   // Fallback: se o relacionamento não existir / estiver quebrado no PostgREST,
   // busca emprestimos e parcelas separadamente e monta no client.
-  const r2 = await supabase
+  let r2q = supabase
     .from("emprestimos")
     .select(
       `
@@ -381,6 +347,8 @@ async function listEmprestimosFallback() {
       `
     )
     .order("created_at", { ascending: false });
+  r2q = applyPrincipalEmprestimoScope(r2q, userId);
+  const r2 = await r2q;
   if (r2.error) throw r2.error;
 
   const emprestimos = (r2.data ?? []) as any[];
@@ -433,7 +401,10 @@ async function listEmprestimosFallback() {
  * - alguns campos planos como `createdAt` e `valorTotal`
  */
 export async function listEmprestimosByCliente(clienteId: string) {
-  const r1 = await supabase
+  const userId = await getPrincipalUserId();
+  if (!userId) return [];
+
+  let r1q = supabase
     .from("emprestimos")
     .select(
       `
@@ -469,12 +440,14 @@ export async function listEmprestimosByCliente(clienteId: string) {
     )
     .eq("cliente_id", clienteId)
     .order("created_at", { ascending: false });
+  r1q = applyPrincipalEmprestimoScope(r1q, userId);
+  const r1 = await r1q;
 
   let rows: any[] = [];
   if (!r1.error) {
     rows = (r1.data ?? []) as any[];
   } else {
-    const r2 = await supabase
+    let r2q = supabase
       .from("emprestimos")
       .select(
         `
@@ -493,6 +466,8 @@ export async function listEmprestimosByCliente(clienteId: string) {
       )
       .eq("cliente_id", clienteId)
       .order("created_at", { ascending: false });
+    r2q = applyPrincipalEmprestimoScope(r2q, userId);
+    const r2 = await r2q;
     if (r2.error) throw r2.error;
     rows = (r2.data ?? []) as any[];
 
@@ -571,8 +546,11 @@ export async function listEmprestimosByCliente(clienteId: string) {
 }
 
 export async function getEmprestimoById(emprestimoId: string) {
+  const userId = await getPrincipalUserId();
+  if (!userId) return null;
+
   // Traz um único empréstimo com parcelas (se FK estiver ok); fallback para busca separada.
-  const r1 = await supabase
+  let r1q = supabase
     .from("emprestimos")
     .select(
       `
@@ -608,10 +586,12 @@ export async function getEmprestimoById(emprestimoId: string) {
     )
     .eq("id", emprestimoId)
     .maybeSingle();
+  r1q = applyPrincipalEmprestimoScope(r1q, userId);
+  const r1 = await r1q;
 
   if (!r1.error && r1.data) return mapEmprestimo(r1.data as any);
 
-  const r2 = await supabase
+  let r2q = supabase
     .from("emprestimos")
     .select(
       `
@@ -630,6 +610,8 @@ export async function getEmprestimoById(emprestimoId: string) {
     )
     .eq("id", emprestimoId)
     .maybeSingle();
+  r2q = applyPrincipalEmprestimoScope(r2q, userId);
+  const r2 = await r2q;
 
   if (r2.error) throw r2.error;
   if (!r2.data) return null;
@@ -664,7 +646,10 @@ export async function getEmprestimoById(emprestimoId: string) {
 }
 
 export async function createEmprestimo(payload: any) {
-  const { data, error } = await supabase.from("emprestimos").insert(payload).select("*").single();
+  const userId = await getPrincipalUserId();
+  if (!userId) throw new Error("Sessão inválida para criar empréstimo.");
+  const scopedPayload = { ...payload, user_id: userId, created_by: userId };
+  const { data, error } = await supabase.from("emprestimos").insert(scopedPayload).select("*").single();
   if (error) throw error;
   return data;
 }
@@ -674,6 +659,15 @@ export async function createEmprestimo(payload: any) {
 // =============================
 
 export async function listPagamentosByEmprestimoDb(emprestimoId: string) {
+  const userId = await getPrincipalUserId();
+  if (!userId) return [];
+
+  let ownLoanQuery = supabase.from("emprestimos").select("id").eq("id", emprestimoId).limit(1).maybeSingle();
+  ownLoanQuery = applyPrincipalEmprestimoScope(ownLoanQuery, userId);
+  const ownLoan = await ownLoanQuery;
+  if (ownLoan.error) throw ownLoan.error;
+  if (!ownLoan.data) return [];
+
   const { data, error } = await supabase
     .from("pagamentos")
     .select("*")

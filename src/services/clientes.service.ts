@@ -13,6 +13,20 @@ type ClienteRow = {
   updated_at?: string | null;
 };
 
+async function getPrincipalUserId(): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.auth.getUser();
+    if (error) return null;
+    return data?.user?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function applyPrincipalClienteScope<T>(query: T, userId: string): T {
+  return (query as any).or(`created_by.eq.${userId},and(created_by.is.null,user_id.eq.${userId})`) as T;
+}
+
 function normalizeTipoCliente(v: any): TipoCliente {
   if (v === "emprestimo" || v === "produto" || v === "geral") return v;
   return "geral";
@@ -80,10 +94,15 @@ function mapClienteToRow(cliente: Cliente): ClienteRow {
 }
 
 export async function listClientes(): Promise<Cliente[]> {
-  const { data, error } = await supabase
+  const userId = await getPrincipalUserId();
+  if (!userId) return [];
+
+  let query = supabase
     .from("clientes")
     .select("*")
     .order("created_at", { ascending: false });
+  query = applyPrincipalClienteScope(query, userId);
+  const { data, error } = await query;
 
   if (error) throw error;
 
@@ -92,11 +111,16 @@ export async function listClientes(): Promise<Cliente[]> {
 }
 
 export async function getClienteById(id: string): Promise<Cliente | null> {
-  const { data, error } = await supabase
+  const userId = await getPrincipalUserId();
+  if (!userId) return null;
+
+  let query = supabase
     .from("clientes")
     .select("*")
     .eq("id", id)
     .maybeSingle();
+  query = applyPrincipalClienteScope(query, userId);
+  const { data, error } = await query;
 
   if (error) throw error;
   if (!data) return null;
@@ -105,19 +129,29 @@ export async function getClienteById(id: string): Promise<Cliente | null> {
 }
 
 export async function upsertCliente(cliente: Cliente): Promise<Cliente> {
+  const userId = await getPrincipalUserId();
+  if (!userId) throw new Error("Sessão inválida para salvar cliente.");
   const row = mapClienteToRow(cliente);
+  (row as any).user_id = userId;
+  (row as any).created_by = userId;
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("clientes")
     .upsert(row, { onConflict: "id" })
     .select("*")
     .single();
+  query = applyPrincipalClienteScope(query, userId);
+  const { data, error } = await query;
 
   if (error) throw error;
   return mapRowToCliente(data as ClienteRow);
 }
 
 export async function deleteCliente(id: string) {
-  const { error } = await supabase.from("clientes").delete().eq("id", id);
+  const userId = await getPrincipalUserId();
+  if (!userId) throw new Error("Sessão inválida para excluir cliente.");
+  let query = supabase.from("clientes").delete().eq("id", id);
+  query = applyPrincipalClienteScope(query, userId);
+  const { error } = await query;
   if (error) throw error;
 }

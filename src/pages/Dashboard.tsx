@@ -15,7 +15,6 @@ import {
   peekDashboardCache,
   type DashboardData,
   type DashboardRange,
-  getLucroMensal,
   getDashboardMetrics,
 } from "../services/dashboard.service";
 
@@ -63,16 +62,29 @@ export default function Dashboard() {
       try {
         setQLoading(true);
         const like = `%${term}%`;
-        const { data, error } = await supabase
+        let query = supabase
           .from("clientes")
           .select("id, nome, cpf, telefone, payload")
-          .or(`nome.ilike.${like},cpf.ilike.${like},telefone.ilike.${like}`)
-          .limit(8);
+          .limit(120);
+        if (user?.id) {
+          query = query.or(`created_by.eq.${user.id},and(created_by.is.null,user_id.eq.${user.id})`);
+        }
+        const { data, error } = await query;
 
         if (error) throw error;
 
         const rows = (data ?? []) as any[];
-        const normalized = rows.map((r) => {
+        const normalized = rows
+          .filter((r) => {
+            const p = (r.payload ?? {}) as any;
+            const nome = String(p.nomeCompleto ?? r.nome ?? "").toLowerCase();
+            const cpf = String(p.cpf ?? r.cpf ?? "").toLowerCase();
+            const tel = String(p.telefone ?? r.telefone ?? "").toLowerCase();
+            const t = term.toLowerCase();
+            return nome.includes(t) || cpf.includes(t) || tel.includes(t);
+          })
+          .slice(0, 8)
+          .map((r) => {
           const p = (r.payload ?? {}) as any;
           return {
             id: String(r.id),
@@ -91,7 +103,7 @@ export default function Dashboard() {
     }, 250);
 
     return () => window.clearTimeout(t);
-  }, [q]);
+  }, [q, user?.id]);
 
 
   const load = async (opts?: { force?: boolean }) => {
@@ -114,6 +126,11 @@ export default function Dashboard() {
       ]);
       setData(d);
       setLucro30d(Number(metrics?.lucro_30d ?? 0));
+      const chartRows = (d?.charts?.evolucao?.data ?? []).map((r: any) => ({
+        mes_ref: String(r.label ?? ""),
+        lucro_mes: Number(r.lucro ?? 0),
+      }));
+      setLucroMensal(chartRows);
     } catch (e: any) {
       console.error(e);
       setError(e?.message || "Falha ao carregar dados do dashboard.");
@@ -129,13 +146,6 @@ export default function Dashboard() {
     const t = window.setTimeout(() => load({ force: true }), 0);
     return () => window.clearTimeout(t);
   }, [range]);
-
-  // Lucro mensal (view)
-  useEffect(() => {
-    getLucroMensal()
-      .then((rows) => setLucroMensal(Array.isArray(rows) ? rows : []))
-      .catch(() => setLucroMensal([]));
-  }, []);
 
   useEffect(() => {
     let active = true;
