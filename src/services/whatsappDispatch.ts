@@ -35,7 +35,9 @@ function repairBrokenGlyphsOnly(raw: string) {
 function finalizeManualWhatsAppText(raw: string) {
   return repairBrokenGlyphsOnly(raw)
     .replace(/\uFFFD+/g, "📌")
-    .replace(/ï¿½|�/g, "📌");
+    .replace(/ï¿½|�/g, "📌")
+    .replace(/\u0000/g, "")
+    .normalize("NFC");
 }
 
 export function sanitizeOutgoingWhatsAppText(raw: string) {

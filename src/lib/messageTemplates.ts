@@ -179,11 +179,17 @@ function repairBrokenEmojiLines(template: string) {
     .join("\n");
 }
 
+function sanitizeTemplateForStorage(template: string) {
+  return repairBrokenEmojiLines(String(template ?? ""))
+    .replace(/\uFFFD+/g, "📌 ")
+    .replace(/ï¿½|�/g, "📌");
+}
+
 export function getMessageTemplate(key: MessageTemplateKey) {
   const raw = lsGet(`cfg_tpl_${key}`, DEFAULT_MESSAGE_TEMPLATES[key]);
 
   // Se o texto tiver sinais claros de mojibake (UTF-8 lido como ISO), volta ao default e corrige storage
-  const repaired = repairBrokenEmojiLines(raw);
+  const repaired = sanitizeTemplateForStorage(raw);
   const looksBroken = /ðŸ|âœ|âš|â|â˜‚|â¤|\uFFFD|ï¿½|�/.test(raw);
   if (repaired !== raw) {
     lsSet(`cfg_tpl_${key}`, repaired);
@@ -199,7 +205,7 @@ export function getMessageTemplate(key: MessageTemplateKey) {
 }
 
 export function setMessageTemplate(key: MessageTemplateKey, value: string) {
-  lsSet(`cfg_tpl_${key}`, value);
+  lsSet(`cfg_tpl_${key}`, sanitizeTemplateForStorage(value));
 }
 
 export function getAllMessageTemplates(): Record<MessageTemplateKey, string> {
