@@ -10,7 +10,7 @@ import PagamentosSidepanel from "./PagamentosSidepanel";
 import { useEmprestimosStore } from "../../store/useEmprestimosStore";
 import { fillTemplate, getMessageTemplate } from "@/lib/messageTemplates";
 import { supabase } from "@/lib/supabaseClient";
-import { sanitizeOutgoingWhatsAppText, sendWhatsAppFromPanel } from "@/services/whatsappDispatch";
+import { buildWhatsAppWebUrl, sendWhatsAppFromPanel } from "@/services/whatsappDispatch";
 
 type Props = {
   viewMode?: "grid" | "list";
@@ -679,10 +679,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
 
     const waPhone = phone.startsWith("55") ? phone : `55${phone}`;
     const texto = mensagem ?? montarMensagemPadraoWhatsApp();
-    const manualText = sanitizeOutgoingWhatsAppText(String(texto ?? ""))
-      .replace(/\uFFFD+/g, "📌")
-      .replace(/ï¿½|�/g, "📌");
-    const manualUrl = `https://wa.me/${encodeURIComponent(waPhone)}?text=${encodeURIComponent(manualText)}`;
+    const manualUrl = buildWhatsAppWebUrl(waPhone, String(texto ?? ""));
 
     if (manualMode) {
       if (manualTab && !manualTab.closed) {

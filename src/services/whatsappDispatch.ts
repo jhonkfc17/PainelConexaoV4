@@ -33,11 +33,24 @@ function repairBrokenGlyphsOnly(raw: string) {
 }
 
 function finalizeManualWhatsAppText(raw: string) {
-  return repairBrokenGlyphsOnly(raw)
+  const cleaned = repairBrokenGlyphsOnly(raw)
     .replace(/\uFFFD+/g, "📌")
     .replace(/ï¿½|�/g, "📌")
     .replace(/\u0000/g, "")
     .normalize("NFC");
+
+  // Failsafe extra: remove qualquer prefixo inválido em linhas de rótulo
+  // (Nome/Valor/Pagamento/Vencimento/Juros/PIX), mantendo o conteúdo da linha.
+  return cleaned.replace(
+    /(^|\n)\s*[^A-Za-z0-9À-ÿ*{(]+(?=\s*\*?\s*(?:Nome|Valor|Pagamento|Vencimento|Juros|Chave|Pix|PagSeguro))/gim,
+    "$1📌 "
+  );
+}
+
+export function buildWhatsAppWebUrl(to: string, message: string) {
+  const safeTo = String(to ?? "").trim();
+  const safeMessage = finalizeManualWhatsAppText(message);
+  return `https://wa.me/${encodeURIComponent(safeTo)}?text=${encodeURIComponent(safeMessage)}`;
 }
 
 export function sanitizeOutgoingWhatsAppText(raw: string) {
@@ -112,7 +125,7 @@ export async function sendWhatsAppFromPanel(params: { to: string; message: strin
     if (manual && typeof window !== "undefined") {
       // No modo manual (WhatsApp Web), preserve o texto exatamente como digitado
       // para não corromper emojis personalizados do template.
-      const url = `https://wa.me/${encodeURIComponent(to)}?text=${encodeURIComponent(manualMessage)}`;
+      const url = buildWhatsAppWebUrl(to, manualMessage);
       window.open(url, "_blank", "noreferrer");
       return { ok: true, manual: true };
     }
