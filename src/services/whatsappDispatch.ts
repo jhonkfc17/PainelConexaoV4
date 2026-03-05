@@ -48,6 +48,20 @@ export function sanitizeOutgoingWhatsAppText(raw: string) {
         return line.replace(/\uFFFD+/g, emoji);
       }
 
+      const lower = stripDiacritics(line.toLowerCase());
+      const isLabelLine =
+        lower.includes("*nome") ||
+        lower.includes("*valor") ||
+        lower.includes("*pagamento") ||
+        lower.includes("*vencimento") ||
+        lower.includes("*parcela") ||
+        lower.includes("*pix");
+      const hasKnownEmojiPrefix = /^\s*(?:📄|💰|📆|🗓|🔑|⚠️|👤|📌)/.test(line);
+      if (isLabelLine && !hasKnownEmojiPrefix) {
+        const emoji = inferEmojiByContent(line);
+        return line.replace(/^\s*[^A-Za-z0-9À-ÿ]*\s*(\*.*)$/u, `${emoji} $1`);
+      }
+
       return line;
     })
     .join("\n");
