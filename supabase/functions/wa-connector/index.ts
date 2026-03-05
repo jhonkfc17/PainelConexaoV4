@@ -80,16 +80,20 @@ function sanitizeWhatsAppMessage(raw: string) {
 
       const lower = stripDiacritics(line.toLowerCase());
       const isLabelLine =
-        lower.includes("*nome") ||
-        lower.includes("*valor") ||
-        lower.includes("*pagamento") ||
-        lower.includes("*vencimento") ||
-        lower.includes("*parcela") ||
-        lower.includes("*pix");
+        lower.includes("nome") ||
+        lower.includes("valor") ||
+        lower.includes("pagamento") ||
+        lower.includes("vencimento") ||
+        lower.includes("parcela") ||
+        lower.includes("juros") ||
+        lower.includes("pix") ||
+        lower.includes("chave") ||
+        lower.includes("pagseguro");
       const hasKnownEmojiPrefix = /^\s*(?:📄|💰|📆|🗓|🔑|⚠️|👤|📌)/.test(line);
       if (isLabelLine && !hasKnownEmojiPrefix) {
         const emoji = inferEmojiByContent(line);
-        return line.replace(/^\s*[^A-Za-z0-9À-ÿ]*\s*(\*.*)$/u, `${emoji} $1`);
+        const normalized = line.replace(/^\s*[^A-Za-z0-9À-ÿ]*\s*/u, "");
+        return `${emoji} ${normalized}`;
       }
 
       return line;
