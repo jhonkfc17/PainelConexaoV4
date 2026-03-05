@@ -108,10 +108,34 @@ export function gerarVencimentosParcelas(params: {
 
   const mod = params.modalidade ?? "mensal";
 
+  function proximaDataQuinzenalSemimestral(prev: Date) {
+    const next = new Date(prev.getTime());
+    const dia = next.getDate();
+
+    // Regra de cobranca quinzenal em dias fixos do mes:
+    // 5 -> 20 (mesmo mes) -> 5 (mes seguinte) -> 20 ...
+    if (dia <= 5) {
+      next.setDate(20);
+      return next;
+    }
+
+    if (dia <= 20) {
+      next.setMonth(next.getMonth() + 1);
+      next.setDate(5);
+      return next;
+    }
+
+    next.setMonth(next.getMonth() + 1);
+    next.setDate(5);
+    return next;
+  }
+
   // Alinha a base primeiro (para semanal/quinzenal)
   if (mod === "semanal" || mod === "quinzenal") {
     alinharAoDiaFixo(base);
   }
+
+  const cursorQuinzenal = new Date(base.getTime());
 
   for (let i = 0; i < n; i++) {
     const alvo = new Date(base.getTime());
@@ -120,7 +144,12 @@ export function gerarVencimentosParcelas(params: {
     } else if (mod === "semanal") {
       alvo.setDate(alvo.getDate() + i * 7);
     } else if (mod === "quinzenal") {
-      alvo.setDate(alvo.getDate() + i * 14);
+      if (i === 0) {
+        alvo.setTime(cursorQuinzenal.getTime());
+      } else {
+        cursorQuinzenal.setTime(proximaDataQuinzenalSemimestral(cursorQuinzenal).getTime());
+        alvo.setTime(cursorQuinzenal.getTime());
+      }
     } else {
       // mensal
       const m = addMonthsKeepingDay(base, i);
