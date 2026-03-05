@@ -639,11 +639,6 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
 
   const abrirWhatsapp = async (mensagem?: string) => {
     const manualMode = lsGet("wa_manual_mode", "0") === "1";
-    let manualTab: Window | null = null;
-    if (typeof window !== "undefined") {
-      // Abre de forma sincrona no clique para evitar bloqueio de pop-up.
-      manualTab = window.open("about:blank", "_blank", "noopener,noreferrer");
-    }
 
     let phoneRaw =
       (emprestimo as any)?.clienteContato ??
@@ -672,7 +667,6 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
 
     const phone = String(phoneRaw).replace(/\D/g, "");
     if (!phone) {
-      if (manualTab && !manualTab.closed) manualTab.close();
       alert("Cliente sem telefone cadastrado.");
       return;
     }
@@ -682,9 +676,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
     const manualUrl = buildWhatsAppWebUrl(waPhone, String(texto ?? ""));
 
     if (manualMode) {
-      if (manualTab && !manualTab.closed) {
-        manualTab.location.href = manualUrl;
-      } else if (typeof window !== "undefined") {
+      if (typeof window !== "undefined") {
         window.open(manualUrl, "_blank", "noopener,noreferrer");
       }
       return;
@@ -692,12 +684,9 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
 
     try {
       const res = await sendWhatsAppFromPanel({ to: waPhone, message: texto });
-      if (manualTab && !manualTab.closed) manualTab.close();
       if (!res?.ok) alert("N\u00e3o foi poss\u00edvel enviar pelo WhatsApp.");
     } catch {
-      if (manualTab && !manualTab.closed) {
-        manualTab.location.href = manualUrl;
-      } else if (typeof window !== "undefined") {
+      if (typeof window !== "undefined") {
         window.open(manualUrl, "_blank", "noopener,noreferrer");
       } else {
         alert("N\u00e3o foi poss\u00edvel enviar pelo conector. Tente novamente.");
