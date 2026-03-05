@@ -155,11 +155,40 @@ export const MESSAGE_TEMPLATE_VARIABLES = [
   "{ASSINATURA}",
 ] as const;
 
+function repairBrokenEmojiLines(template: string) {
+  const stripDiacritics = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const inferEmoji = (line: string) => {
+    const l = stripDiacritics(line.toLowerCase());
+    if (l.includes("nome")) return "👤";
+    if (l.includes("valor") || l.includes("pagamento")) return "💰";
+    if (l.includes("parcela")) return "📆";
+    if (l.includes("vencimento")) return "🗓";
+    if (l.includes("pix") || l.includes("chave")) return "🔑";
+    if (l.includes("atraso") || l.includes("juros")) return "⚠️";
+    return "📌";
+  };
+
+  return template
+    .split("\n")
+    .map((line) => {
+      const hasBrokenPrefix = /^\s*(?:\uFFFD|ï¿½|�|\?)+\s*/.test(line);
+      if (!hasBrokenPrefix) return line;
+      const normalized = line.replace(/^\s*(?:\uFFFD|ï¿½|�|\?)+\s*/g, "");
+      return `${inferEmoji(normalized)} ${normalized}`.trimEnd();
+    })
+    .join("\n");
+}
+
 export function getMessageTemplate(key: MessageTemplateKey) {
   const raw = lsGet(`cfg_tpl_${key}`, DEFAULT_MESSAGE_TEMPLATES[key]);
 
   // Se o texto tiver sinais claros de mojibake (UTF-8 lido como ISO), volta ao default e corrige storage
-  const looksBroken = /ðŸ|âœ|âš|â|â˜‚|â¤/.test(raw);
+  const repaired = repairBrokenEmojiLines(raw);
+  const looksBroken = /ðŸ|âœ|âš|â|â˜‚|â¤|\uFFFD|ï¿½|�/.test(raw);
+  if (repaired !== raw) {
+    lsSet(`cfg_tpl_${key}`, repaired);
+    return repaired;
+  }
   if (looksBroken) {
     const fixed = DEFAULT_MESSAGE_TEMPLATES[key];
     lsSet(`cfg_tpl_${key}`, fixed);
