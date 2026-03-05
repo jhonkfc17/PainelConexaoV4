@@ -358,8 +358,17 @@ export default function RelatorioOperacional() {
               return null;
             }
           })();
+          const tipo = String(p?.tipo ?? "").toUpperCase();
+          const modo = String((flags as any)?.modo ?? "").toUpperCase();
           const contabilizar = Boolean((flags as any)?.contabilizar_como_lucro);
-          return contabilizar;
+          const jurosAtraso = safeNumber(p?.juros_atraso);
+
+          // Mantem o mesmo criterio do Dashboard (getDashboardMetrics),
+          // para evitar divergencia entre card e detalhamento.
+          const isJurosTipo = tipo === "JUROS";
+          const isLegacyJuros = tipo === "ADIANTAMENTO_MANUAL" && jurosAtraso > 0;
+          const isModoJuros = modo === "JUROS";
+          return contabilizar || isJurosTipo || isLegacyJuros || isModoJuros;
         })
         .map((p) => {
           const valor = safeNumber(p?.valor);
