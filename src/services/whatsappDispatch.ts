@@ -2,62 +2,24 @@
 
 const MANUAL_KEY = "wa_manual_mode";
 
-function stripDiacritics(s: string) {
-  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-}
-
-function inferEmojiByContent(line: string) {
-  const lower = stripDiacritics(line.toLowerCase());
-  if (lower.includes("nome")) return "\u{1F464}";
-  if (lower.includes("valor") || lower.includes("pagamento")) return "\u{1F4B0}";
-  if (lower.includes("parcela")) return "\u{1F4C6}";
-  if (lower.includes("vencimento")) return "\u{1F5D3}";
-  if (lower.includes("pix") || lower.includes("chave")) return "\u{1F511}";
-  if (lower.includes("atencao") || lower.includes("atraso") || lower.includes("juros")) return "\u{26A0}\u{FE0F}";
-  if (lower.includes("ola")) return "\u{1F4C4}";
-  return "\u{1F4CC}";
-}
-
-function repairBrokenGlyphsOnly(raw: string) {
-  return String(raw ?? "")
-    .normalize("NFC")
-    .split("\n")
-    .map((line) => {
-      const hasBrokenPrefix = /^\s*(?:\uFFFD|ï¿½|�)+\s*/.test(line);
-      if (!hasBrokenPrefix && !line.includes("\uFFFD")) return line;
-      const normalized = line.replace(/^\s*(?:\uFFFD|ï¿½|�)+\s*/g, "").replace(/\uFFFD+/g, "");
-      const emoji = inferEmojiByContent(normalized);
-      return `${emoji} ${normalized}`.trimEnd();
-    })
-    .join("\n");
-}
-
+/**
+ * No modo manual (WhatsApp Web), NÃO tente "corrigir" emojis substituindo caracteres
+ * quebrados por um emoji genérico (ex: 📌). Isso causava exatamente o problema reportado:
+ * todas as linhas acabavam com o mesmo emoji.
+ */
 function finalizeManualWhatsAppText(raw: string) {
-  const cleaned = repairBrokenGlyphsOnly(raw)
-    .replace(/\uFFFD+/g, "📌")
-    .replace(/ï¿½|�/g, "📌")
+  return String(raw ?? "")
     .replace(/\u0000/g, "")
+    .replace(/\r\n/g, "\n")
     .normalize("NFC");
-
-  // Failsafe extra: remove qualquer prefixo inválido em linhas de rótulo
-  // (Nome/Valor/Pagamento/Vencimento/Juros/PIX), mantendo o conteúdo da linha.
-  return cleaned.replace(
-    /(^|\n)\s*[^A-Za-z0-9À-ÿ*{(]+(?=\s*\*?\s*(?:Nome|Valor|Pagamento|Vencimento|Juros|Chave|Pix|PagSeguro))/gim,
-    "$1📌 "
-  );
 }
 
 export function buildWhatsAppWebUrl(to: string, message: string) {
-  // IMPORTANTE:
-  // - Sempre use encodeURIComponent APENAS UMA VEZ no texto.
-  // - Evite o encurtador/redirect do wa.me, porque em alguns browsers ele
-  //   pode reescrever a URL e exibir caracteres unicode "quebrados" (ex: �)
-  //   na barra de endereços.
-  // Usando diretamente api.whatsapp.com com o texto url-encoded preserva emojis.
-
-  const safeTo = String(to ?? "").trim().replace(/\D/g, "");
+  const safeTo = String(to ?? "").trim();
   const safeMessage = finalizeManualWhatsAppText(message);
-  return `https://api.whatsapp.com/send/?phone=${safeTo}&text=${encodeURIComponent(safeMessage)}`;
+  // Use o endpoint oficial do WhatsApp para evitar reescritas/redirects que quebram Unicode.
+  // `encodeURIComponent` deve ser aplicado UMA única vez.
+  return `https://api.whatsapp.com/send/?phone=${encodeURIComponent(safeTo)}&text=${encodeURIComponent(safeMessage)}`;
 }
 
 export function sanitizeOutgoingWhatsAppText(raw: string) {
@@ -79,43 +41,11 @@ export function sanitizeOutgoingWhatsAppText(raw: string) {
     if (txt.includes(bad)) txt = txt.split(bad).join(good);
   }
 
-  txt = txt
-    .split("\n")
-    .map((line) => {
-      const hasBrokenPrefix = /^\s*(?:\uFFFD|ï¿½|�|\?)+\s*/.test(line);
-      if (hasBrokenPrefix) {
-        const emoji = inferEmojiByContent(line);
-        return line.replace(/^\s*(?:\uFFFD|ï¿½|�|\?)+\s*/, `${emoji} `);
-      }
-
-      if (line.includes("\uFFFD")) {
-        const emoji = inferEmojiByContent(line);
-        return line.replace(/\uFFFD+/g, emoji);
-      }
-
-      const lower = stripDiacritics(line.toLowerCase());
-      const isLabelLine =
-        lower.includes("nome") ||
-        lower.includes("valor") ||
-        lower.includes("pagamento") ||
-        lower.includes("vencimento") ||
-        lower.includes("parcela") ||
-        lower.includes("juros") ||
-        lower.includes("pix") ||
-        lower.includes("chave") ||
-        lower.includes("pagseguro");
-      const hasKnownEmojiPrefix = /^\s*(?:📄|💰|📆|🗓|🔑|⚠️|👤|📌)/.test(line);
-      if (isLabelLine && !hasKnownEmojiPrefix) {
-        const emoji = inferEmojiByContent(line);
-        const normalized = line.replace(/^\s*[^A-Za-z0-9À-ÿ]*\s*/u, "");
-        return `${emoji} ${normalized}`;
-      }
-
-      return line;
-    })
-    .join("\n");
-
-  return txt.replace(/\uFFFD+/g, "");
+  // Não prefixe linhas com emojis automaticamente. Apenas remova caracteres claramente quebrados.
+  return txt
+    .replace(/\uFFFD+/g, "")
+    .replace(/ï¿½|�/g, "")
+    .replace(/^\s*(?:\?)+\s*/gm, "");
 }
 
 /**

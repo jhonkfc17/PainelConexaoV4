@@ -155,57 +155,31 @@ export const MESSAGE_TEMPLATE_VARIABLES = [
   "{ASSINATURA}",
 ] as const;
 
-function repairBrokenEmojiLines(template: string) {
-  const stripDiacritics = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  const inferEmoji = (line: string) => {
-    const l = stripDiacritics(line.toLowerCase());
-    if (l.includes("nome")) return "👤";
-    if (l.includes("valor") || l.includes("pagamento")) return "💰";
-    if (l.includes("parcela")) return "📆";
-    if (l.includes("vencimento")) return "🗓";
-    if (l.includes("pix") || l.includes("chave")) return "🔑";
-    if (l.includes("atraso") || l.includes("juros")) return "⚠️";
-    return "📌";
-  };
-
-  return template
-    .split("\n")
-    .map((line) => {
-      const hasBrokenPrefix = /^\s*(?:\uFFFD|ï¿½|�|\?)+\s*/.test(line);
-      if (!hasBrokenPrefix) return line;
-      const normalized = line.replace(/^\s*(?:\uFFFD|ï¿½|�|\?)+\s*/g, "");
-      return `${inferEmoji(normalized)} ${normalized}`.trimEnd();
-    })
-    .join("\n");
-}
-
-function sanitizeTemplateForStorage(template: string) {
-  return repairBrokenEmojiLines(String(template ?? ""))
-    .replace(/\uFFFD+/g, "📌 ")
-    .replace(/ï¿½|�/g, "📌");
+function normalizeTemplateForStorage(template: string) {
+  // Não substitua caracteres quebrados por emojis genéricos (ex: 📌).
+  // Se o template estiver corrompido (mojibake), preferimos resetar para o default.
+  return String(template ?? "")
+    .replace(/\u0000/g, "")
+    .replace(/\r\n/g, "\n")
+    .normalize("NFC");
 }
 
 export function getMessageTemplate(key: MessageTemplateKey) {
   const raw = lsGet(`cfg_tpl_${key}`, DEFAULT_MESSAGE_TEMPLATES[key]);
 
-  // Se o texto tiver sinais claros de mojibake (UTF-8 lido como ISO), volta ao default e corrige storage
-  const repaired = sanitizeTemplateForStorage(raw);
+  // Se o texto tiver sinais claros de mojibake (UTF-8 lido como ISO), volta ao default.
   const looksBroken = /ðŸ|âœ|âš|â|â˜‚|â¤|\uFFFD|ï¿½|�/.test(raw);
-  if (repaired !== raw) {
-    lsSet(`cfg_tpl_${key}`, repaired);
-    return repaired;
-  }
   if (looksBroken) {
     const fixed = DEFAULT_MESSAGE_TEMPLATES[key];
     lsSet(`cfg_tpl_${key}`, fixed);
     return fixed;
   }
 
-  return raw;
+  return normalizeTemplateForStorage(raw);
 }
 
 export function setMessageTemplate(key: MessageTemplateKey, value: string) {
-  lsSet(`cfg_tpl_${key}`, sanitizeTemplateForStorage(value));
+  lsSet(`cfg_tpl_${key}`, normalizeTemplateForStorage(value));
 }
 
 export function getAllMessageTemplates(): Record<MessageTemplateKey, string> {
