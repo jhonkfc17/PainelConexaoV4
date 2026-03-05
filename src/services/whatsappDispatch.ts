@@ -48,9 +48,16 @@ function finalizeManualWhatsAppText(raw: string) {
 }
 
 export function buildWhatsAppWebUrl(to: string, message: string) {
-  const safeTo = String(to ?? "").trim();
+  // IMPORTANTE:
+  // - Sempre use encodeURIComponent APENAS UMA VEZ no texto.
+  // - Evite o encurtador/redirect do wa.me, porque em alguns browsers ele
+  //   pode reescrever a URL e exibir caracteres unicode "quebrados" (ex: �)
+  //   na barra de endereços.
+  // Usando diretamente api.whatsapp.com com o texto url-encoded preserva emojis.
+
+  const safeTo = String(to ?? "").trim().replace(/\D/g, "");
   const safeMessage = finalizeManualWhatsAppText(message);
-  return `https://wa.me/${encodeURIComponent(safeTo)}?text=${encodeURIComponent(safeMessage)}`;
+  return `https://api.whatsapp.com/send/?phone=${safeTo}&text=${encodeURIComponent(safeMessage)}`;
 }
 
 export function sanitizeOutgoingWhatsAppText(raw: string) {
