@@ -80,11 +80,14 @@ export function sanitizeOutgoingWhatsAppText(raw: string) {
 export async function sendWhatsAppFromPanel(params: { to: string; message: string }) {
   const { to, message } = params;
   const cleanMessage = sanitizeOutgoingWhatsAppText(message);
+  const manualMessage = String(message ?? "").normalize("NFC");
 
   try {
     const manual = localStorage.getItem(MANUAL_KEY) === "1";
     if (manual && typeof window !== "undefined") {
-      const url = `https://wa.me/${encodeURIComponent(to)}?text=${encodeURIComponent(cleanMessage)}`;
+      // No modo manual (WhatsApp Web), preserve o texto exatamente como digitado
+      // para não corromper emojis personalizados do template.
+      const url = `https://wa.me/${encodeURIComponent(to)}?text=${encodeURIComponent(manualMessage)}`;
       window.open(url, "_blank", "noreferrer");
       return { ok: true, manual: true };
     }
