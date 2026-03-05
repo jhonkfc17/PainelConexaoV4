@@ -32,6 +32,12 @@ function repairBrokenGlyphsOnly(raw: string) {
     .join("\n");
 }
 
+function finalizeManualWhatsAppText(raw: string) {
+  return repairBrokenGlyphsOnly(raw)
+    .replace(/\uFFFD+/g, "📌")
+    .replace(/ï¿½|�/g, "📌");
+}
+
 export function sanitizeOutgoingWhatsAppText(raw: string) {
   let txt = String(raw ?? "").normalize("NFC");
 
@@ -97,7 +103,7 @@ export function sanitizeOutgoingWhatsAppText(raw: string) {
 export async function sendWhatsAppFromPanel(params: { to: string; message: string }) {
   const { to, message } = params;
   const cleanMessage = sanitizeOutgoingWhatsAppText(message);
-  const manualMessage = repairBrokenGlyphsOnly(message);
+  const manualMessage = finalizeManualWhatsAppText(message);
 
   try {
     const manual = localStorage.getItem(MANUAL_KEY) === "1";
