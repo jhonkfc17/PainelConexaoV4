@@ -679,7 +679,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
 
     const waPhone = phone.startsWith("55") ? phone : `55${phone}`;
     const texto = mensagem ?? montarMensagemPadraoWhatsApp();
-    const manualText = String(texto ?? "").normalize("NFC");
+    const manualText = sanitizeOutgoingWhatsAppText(String(texto ?? ""));
     const manualUrl = `https://wa.me/${encodeURIComponent(waPhone)}?text=${encodeURIComponent(manualText)}`;
 
     if (manualMode) {

@@ -2,21 +2,38 @@
 
 const MANUAL_KEY = "wa_manual_mode";
 
+function stripDiacritics(s: string) {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function inferEmojiByContent(line: string) {
+  const lower = stripDiacritics(line.toLowerCase());
+  if (lower.includes("nome")) return "\u{1F464}";
+  if (lower.includes("valor") || lower.includes("pagamento")) return "\u{1F4B0}";
+  if (lower.includes("parcela")) return "\u{1F4C6}";
+  if (lower.includes("vencimento")) return "\u{1F5D3}";
+  if (lower.includes("pix") || lower.includes("chave")) return "\u{1F511}";
+  if (lower.includes("atencao") || lower.includes("atraso") || lower.includes("juros")) return "\u{26A0}\u{FE0F}";
+  if (lower.includes("ola")) return "\u{1F4C4}";
+  return "\u{1F4CC}";
+}
+
+function repairBrokenGlyphsOnly(raw: string) {
+  return String(raw ?? "")
+    .normalize("NFC")
+    .split("\n")
+    .map((line) => {
+      const hasBrokenPrefix = /^\s*(?:\uFFFD|ï¿½|�)+\s*/.test(line);
+      if (!hasBrokenPrefix && !line.includes("\uFFFD")) return line;
+      const normalized = line.replace(/^\s*(?:\uFFFD|ï¿½|�)+\s*/g, "").replace(/\uFFFD+/g, "");
+      const emoji = inferEmojiByContent(normalized);
+      return `${emoji} ${normalized}`.trimEnd();
+    })
+    .join("\n");
+}
+
 export function sanitizeOutgoingWhatsAppText(raw: string) {
   let txt = String(raw ?? "").normalize("NFC");
-
-  const stripDiacritics = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  const inferEmojiByContent = (line: string) => {
-    const lower = stripDiacritics(line.toLowerCase());
-    if (lower.includes("nome")) return "\u{1F464}";
-    if (lower.includes("valor") || lower.includes("pagamento")) return "\u{1F4B0}";
-    if (lower.includes("parcela")) return "\u{1F4C6}";
-    if (lower.includes("vencimento")) return "\u{1F5D3}";
-    if (lower.includes("pix")) return "\u{1F511}";
-    if (lower.includes("atencao") || lower.includes("atraso")) return "\u{26A0}\u{FE0F}";
-    if (lower.includes("ola")) return "\u{1F4C4}";
-    return "\u{1F4CC}";
-  };
 
   const commonFixes: Array<[string, string]> = [
     ["Ã°Å¸â€œâ€ž", "\u{1F4C4}"], // ðŸ“„
@@ -80,7 +97,7 @@ export function sanitizeOutgoingWhatsAppText(raw: string) {
 export async function sendWhatsAppFromPanel(params: { to: string; message: string }) {
   const { to, message } = params;
   const cleanMessage = sanitizeOutgoingWhatsAppText(message);
-  const manualMessage = String(message ?? "").normalize("NFC");
+  const manualMessage = repairBrokenGlyphsOnly(message);
 
   try {
     const manual = localStorage.getItem(MANUAL_KEY) === "1";
