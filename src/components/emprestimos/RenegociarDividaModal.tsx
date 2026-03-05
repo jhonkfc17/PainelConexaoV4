@@ -152,12 +152,14 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
 
   useEffect(() => {
     if (!open) return;
+    const dataBase = ymdToday();
+    const proximoVencimentoInicial = parcelasAbertas[0]?.vencimento || dataBase;
     setTab(MODO_JUROS ? "PARCIAL" : "PARCELA");
-    setDataPagamento(ymdToday());
+    setDataPagamento(dataBase);
     const first = parcelasAbertas[0]?.numero ?? 1;
     setSelectedParcelas(first ? [first] : []);
     setValor(0);
-    setNovaDataVencimento("");
+    setNovaDataVencimento(proximoVencimentoInicial);
     setAmortizar(false);
     setAdiantamento(false);
   }, [open, parcelasAbertas, emprestimo]);
@@ -282,7 +284,7 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
             reiniciar_contrato_em: MODO_JUROS ? dataPagamento : undefined,
             amortizar_recalcular_juros: !MODO_JUROS ? amortizar || undefined : undefined,
             adiantamento_pagamento: !MODO_JUROS ? adiantamento || undefined : undefined,
-            nova_data_vencimento: MODO_JUROS ? dataPagamento : adiantamento ? undefined : novaDataVencimento || undefined,
+            nova_data_vencimento: MODO_JUROS ? novaDataVencimento || dataPagamento : adiantamento ? undefined : novaDataVencimento || undefined,
             juros_composto: MODO_JUROS
               ? {
                   juros_atraso: Number(compJuros?.jurosAtraso ?? 0),
@@ -557,6 +559,19 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
                 {MODO_JUROS ? " • Ao registrar, o contrato reinicia na data do pagamento." : ""}
               </div>
             </div>
+
+            {tab === "PARCIAL" && MODO_JUROS ? (
+              <div>
+                <label className="mb-1 block text-sm text-white/80">Próximo Vencimento</label>
+                <input
+                  type="date"
+                  value={novaDataVencimento}
+                  onChange={(e) => setNovaDataVencimento(e.target.value)}
+                  className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
+                />
+                <div className="mt-1 text-xs text-white/45">Opcional. Se preenchido, atualiza a próxima data de vencimento ao registrar.</div>
+              </div>
+            ) : null}
 
             {tab === "PARCIAL" && !MODO_JUROS ? (
               <>
