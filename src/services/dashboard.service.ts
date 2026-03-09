@@ -367,11 +367,26 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   // =========================
   // Week cards (semana atual)
   // =========================
+  const atrasadasEmAberto = parcelas.filter(
+    (p) => String(p.vencimento) < todayISO && !isPaidByDate(p, todayISO)
+  );
+  const emprestimosComAtraso = new Set(
+    atrasadasEmAberto.map((p) => String(p.emprestimo_id ?? "")).filter(Boolean)
+  );
+  const totalAtrasadoEmAberto = atrasadasEmAberto.reduce((acc, p) => acc + safeNum(p.valor), 0);
+
   const emprestimosSemana = emprestimos.filter((e) => isoFromAny(e.created_at) >= weekStartISO).length;
 
   const capitalEmprestado = emprestimos.reduce((acc, e) => acc + safeNum(e.payload?.valor), 0);
-  const totalReceberGeral = parcelas.reduce((acc, p) => acc + safeNum(p.valor), 0);
-  const lucroPrevisto = Math.max(0, totalReceberGeral - capitalEmprestado);
+  const capitalEmprestadoSemAtraso = emprestimos
+    .filter((e) => !emprestimosComAtraso.has(String(e.id)))
+    .reduce((acc, e) => acc + safeNum(e.payload?.valor), 0);
+
+  const totalReceberSemAtraso = parcelas
+    .filter((p) => !emprestimosComAtraso.has(String(p.emprestimo_id ?? "")))
+    .reduce((acc, p) => acc + safeNum(p.valor), 0);
+
+  const lucroPrevisto = Math.max(0, totalReceberSemAtraso - capitalEmprestadoSemAtraso);
 
   const venceHoje = parcelas.filter((p) => !p.pago && String(p.vencimento) === todayISO).length;
   const venceAmanha = parcelas.filter((p) => !p.pago && String(p.vencimento) === tomorrowISO).length;
@@ -601,9 +616,6 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
 
   // Lucro realizado (juros + multa) em todas as vencidas pagas
   const lucroRealizadoVencidas = lucroRealizadoTotal;
-
-  const atrasadasEmAberto = vencidasAteHoje.filter((p) => String(p.vencimento) < todayISO && !isPaidByDate(p, todayISO));
-  const totalAtrasadoEmAberto = atrasadasEmAberto.reduce((acc, p) => acc + safeNum(p.valor), 0);
 
   const recebimentoRate = totalDevido > 0 ? totalPagoBruto / totalDevido : 1;
   const inadimplenciaRate = totalDevido > 0 ? totalAtrasadoEmAberto / totalDevido : 0;
