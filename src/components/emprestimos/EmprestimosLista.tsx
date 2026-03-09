@@ -785,23 +785,6 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
             {multaExtra > 0 ? <span className="text-amber-200/90"> {`(inclui +${brl(multaExtra)} multa)`}</span> : null}
           </div>
         </div>
-
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => setJurosCfgAberto(true)}
-            className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-black/30"
-          >
-            Juros por atraso
-          </button>
-          <button
-            type="button"
-            onClick={() => setMultaAberto(true)}
-            className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-amber-100 hover:bg-black/30"
-          >
-            Aplicar multa
-          </button>
-        </div>
       </div>
 
       <div className="border-t border-white/10">
@@ -1155,6 +1138,35 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
               <span className="inline-flex items-center justify-center gap-2">
                 <span aria-hidden>💲</span> Pagar Juros
               </span>
+            </button>
+          </div>
+
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setJurosCfgAberto(true)}
+              disabled={isQuitado || isCancelado}
+              className={
+                "rounded-xl border px-3 py-2 text-sm font-semibold transition " +
+                (isQuitado || isCancelado
+                  ? "border-white/10 bg-white/5 text-white/30 cursor-not-allowed"
+                  : "border-sky-500/20 bg-sky-500/10 text-sky-100 hover:bg-sky-500/15")
+              }
+            >
+              Juros por atraso
+            </button>
+            <button
+              type="button"
+              onClick={() => setMultaAberto(true)}
+              disabled={isQuitado || isCancelado}
+              className={
+                "rounded-xl border px-3 py-2 text-sm font-semibold transition " +
+                (isQuitado || isCancelado
+                  ? "border-white/10 bg-white/5 text-white/30 cursor-not-allowed"
+                  : "border-amber-500/20 bg-amber-500/10 text-amber-100 hover:bg-amber-500/15")
+              }
+            >
+              Aplicar multa
             </button>
           </div>
 
