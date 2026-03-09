@@ -558,6 +558,8 @@ const jurosConfigurado = Math.max(0, Number(atraso.total ?? 0));
 const multaExtra = Math.max(0, multaConfigurada - Math.max(0, multaAplicada, multaJaRefletidaNoRestante));
 const jurosExtra = Math.max(0, jurosConfigurado - Math.max(0, jurosAplicado));
 const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante + multaExtra + jurosExtra);
+const jurosAtrasoResumo = Math.max(0, Math.max(jurosConfigurado, jurosAplicado));
+const multaResumo = Math.max(0, Math.max(multaAplicada, multaJaRefletidaNoRestante) + multaExtra);
   const proximaAberta = proximaParcelaAberta(emprestimo);
   const modalidadeLabel = String((emprestimo as any).modalidade ?? "mensal").toUpperCase();
   const proximoVenc = proximoVencimentoEmprestimo(emprestimo);
@@ -784,6 +786,26 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
             {multaAplicada > 0 ? <span className="text-amber-200/90"> {`(multa aplicada ${brl(multaAplicada)})`}</span> : null}
             {multaExtra > 0 ? <span className="text-amber-200/90"> {`(inclui +${brl(multaExtra)} multa)`}</span> : null}
           </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setJurosCfgAberto(true)}
+            className="rounded-xl border border-white/10 bg-black/20 px-3 py-3 text-left hover:bg-black/30"
+          >
+            <div className="text-[11px] uppercase tracking-wide text-white/55">Juros por atraso</div>
+            <div className="mt-1 text-sm font-semibold text-sky-100">{brl(jurosAtrasoResumo)}</div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMultaAberto(true)}
+            className="rounded-xl border border-white/10 bg-black/20 px-3 py-3 text-left hover:bg-black/30"
+          >
+            <div className="text-[11px] uppercase tracking-wide text-white/55">Aplicar multa</div>
+            <div className="mt-1 text-sm font-semibold text-amber-100">{brl(multaResumo)}</div>
+          </button>
         </div>
       </div>
 
