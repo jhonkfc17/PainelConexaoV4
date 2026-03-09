@@ -785,6 +785,23 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
             {multaExtra > 0 ? <span className="text-amber-200/90"> {`(inclui +${brl(multaExtra)} multa)`}</span> : null}
           </div>
         </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setJurosCfgAberto(true)}
+            className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-sky-100 hover:bg-black/30"
+          >
+            Juros por atraso
+          </button>
+          <button
+            type="button"
+            onClick={() => setMultaAberto(true)}
+            className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-amber-100 hover:bg-black/30"
+          >
+            Aplicar multa
+          </button>
+        </div>
       </div>
 
       <div className="border-t border-white/10">
