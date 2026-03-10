@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabaseClient";
+import { clearManagedSettingsFromLocalStorage } from "@/services/userSettings.service";
 
 function extractTenant(user: User | null) {
   const appMeta: any = (user as any)?.app_metadata ?? {};
@@ -63,6 +64,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
       supabase.auth.onAuthStateChange((_event, session) => {
         const u = session?.user ?? null;
         const claims = extractTenant(u);
+        if (!u) clearManagedSettingsFromLocalStorage();
         set({ session: session ?? null, user: u, loading: false, ...claims });
       });
 
@@ -100,6 +102,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
     try {
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
+      clearManagedSettingsFromLocalStorage();
       set({ user: null, session: null, loading: false });
     } catch (e: any) {
       set({ error: e?.message ?? "Falha ao sair", loading: false });

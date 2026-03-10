@@ -22,6 +22,11 @@ import {
   setAllMessageTemplates,
   fillTemplate,
 } from "../lib/messageTemplates";
+import {
+  hydrateMyUserSettingsToLocalStorage,
+  readManagedSettingsFromLocalStorage,
+  saveMyUserSettings,
+} from "@/services/userSettings.service";
 
 function lsGet(key: string, fallback: string) {
   try {
@@ -41,6 +46,7 @@ function lsSet(key: string, value: string) {
 
 export default function Configuracoes() {
   const user = useAuthStore((s) => s.user);
+  const [remoteLoaded, setRemoteLoaded] = useState(false);
 
   // profile
   const [nomeCompleto, setNomeCompleto] = useState(() => lsGet("cfg_nome_completo", ""));
@@ -93,6 +99,9 @@ export default function Configuracoes() {
     lsSet("cfg_auto_antecipada", autoAntecipada ? "1" : "0");
 
     setAllMessageTemplates(templates);
+    void saveMyUserSettings(readManagedSettingsFromLocalStorage()).catch((e) => {
+      console.error("Falha ao salvar configurações do usuário:", e);
+    });
 
     const el = document.getElementById("cfg_saved");
     if (el) {
@@ -104,6 +113,40 @@ export default function Configuracoes() {
   function resetTemplates() {
     setTemplates({ ...DEFAULT_MESSAGE_TEMPLATES });
   }
+
+  useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      if (!user?.id) {
+        setRemoteLoaded(true);
+        return;
+      }
+      try {
+        await hydrateMyUserSettingsToLocalStorage();
+        if (!alive) return;
+        setNomeCompleto(lsGet("cfg_nome_completo", ""));
+        setWhatsapp(lsGet("cfg_whatsapp", ""));
+        setEmpresaNome(lsGet("cfg_empresa_nome", ""));
+        setPixPadrao(lsGet("cfg_pix", ""));
+        setAssinaturaPadrao(lsGet("cfg_assinatura", ""));
+        setAutoEnabled(lsGet("cfg_auto_enabled", "0") === "1");
+        setAutoTime(lsGet("cfg_auto_time", "08:00"));
+        setAutoVenceHoje(lsGet("cfg_auto_vence_hoje", "1") === "1");
+        setAutoAtraso(lsGet("cfg_auto_atraso", "1") === "1");
+        setAutoAntecipada(lsGet("cfg_auto_antecipada", "0") === "1");
+        setTemplates(getAllMessageTemplates());
+      } catch (e) {
+        if (alive) console.error("Falha ao carregar configurações remotas:", e);
+      } finally {
+        if (alive) setRemoteLoaded(true);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [user?.id]);
 
   // persist live
   useEffect(() => lsSet("cfg_nome_completo", nomeCompleto), [nomeCompleto]);
@@ -120,6 +163,32 @@ export default function Configuracoes() {
   useEffect(() => lsSet("cfg_auto_antecipada", autoAntecipada ? "1" : "0"), [autoAntecipada]);
 
   useEffect(() => setAllMessageTemplates(templates), [templates]);
+
+  useEffect(() => {
+    if (!remoteLoaded || !user?.id) return;
+
+    const timer = setTimeout(() => {
+      void saveMyUserSettings(readManagedSettingsFromLocalStorage()).catch((e) => {
+        console.error("Falha ao sincronizar configurações do usuário:", e);
+      });
+    }, 600);
+
+    return () => clearTimeout(timer);
+  }, [
+    remoteLoaded,
+    user?.id,
+    nomeCompleto,
+    whatsapp,
+    empresaNome,
+    pixPadrao,
+    assinaturaPadrao,
+    autoEnabled,
+    autoTime,
+    autoVenceHoje,
+    autoAtraso,
+    autoAntecipada,
+    templates,
+  ]);
 
   const badgeStatus = autoEnabled ? "Ativo" : "Inativo";
   const badgeClass = autoEnabled

@@ -23,6 +23,7 @@ import ParcelasAtrasadas from "./pages/ParcelasAtrasadas";
 import CarteiraStaff from "./pages/CarteiraStaff";
 
 import { useAuthStore } from "./store/useAuthStore";
+import { clearManagedSettingsFromLocalStorage, hydrateMyUserSettingsToLocalStorage } from "./services/userSettings.service";
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -35,10 +36,31 @@ function Placeholder({ title }: { title: string }) {
 
 export default function App() {
   const init = useAuthStore((s) => s.init);
+  const user = useAuthStore((s) => s.user);
 
   useEffect(() => {
     init();
   }, [init]);
+
+  useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      if (!user?.id) {
+        clearManagedSettingsFromLocalStorage();
+        return;
+      }
+      try {
+        await hydrateMyUserSettingsToLocalStorage();
+      } catch (e) {
+        if (alive) console.error("Falha ao hidratar configurações do usuário:", e);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [user?.id]);
 
   return (
     <BrowserRouter>
