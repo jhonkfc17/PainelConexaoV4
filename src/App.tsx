@@ -79,11 +79,7 @@ export default function App() {
           />
           <Route
             path="/funcionarios/carteira"
-            element={
-              <RequireStaffManage>
-                <CarteiraStaff />
-              </RequireStaffManage>
-            }
+            element={<CarteiraStaff />}
           />
           <Route path="/config" element={<Configuracoes />} />
 

@@ -458,6 +458,42 @@ function moneyColorByDue(d: DueStatus, fallbackTone: VisualTone) {
   return moneyColorByTone(fallbackTone);
 }
 
+function getResumoEmprestimo(emprestimo: Emprestimo, pagamentosMapa?: Record<string, PagamentoDb[]>) {
+  const pagamentosMapaSafe = pagamentosMapa ?? {};
+  const parcelas = Array.isArray((emprestimo as any).parcelasDb) ? ((emprestimo as any).parcelasDb as any[]) : [];
+  const due = getDueStatusEmprestimo(emprestimo);
+  const totalEmprestado = Number((emprestimo as any).valor ?? 0);
+  const totalReceber = parcelas.length > 0 ? sumParcelasValor(parcelas) : Number((emprestimo as any).totalReceber ?? 0);
+  const totalPago = sumPagamentos(pagamentosMapaSafe?.[(emprestimo as any).id]) || sumRecebido(parcelas);
+  const restante = parcelas.length > 0 ? sumRestante(parcelas) : Math.max(totalReceber - totalPago, 0);
+  const proximoVencimento = proximoVencimentoEmprestimo(emprestimo);
+
+  return {
+    due,
+    totalEmprestado,
+    totalReceber,
+    totalPago,
+    restante,
+    lucroPrevisto: Math.max(totalReceber - totalEmprestado, 0),
+    proximoVencimento,
+  };
+}
+
+function getResumoGrupo(emprestimos: Emprestimo[], pagamentosMapa?: Record<string, PagamentoDb[]>) {
+  return emprestimos.reduce(
+    (acc, emprestimo) => {
+      const resumo = getResumoEmprestimo(emprestimo, pagamentosMapa);
+      acc.totalEmprestado += resumo.totalEmprestado;
+      acc.totalReceber += resumo.totalReceber;
+      acc.totalPago += resumo.totalPago;
+      acc.restante += resumo.restante;
+      acc.lucroPrevisto += resumo.lucroPrevisto;
+      return acc;
+    },
+    { totalEmprestado: 0, totalReceber: 0, totalPago: 0, restante: 0, lucroPrevisto: 0 }
+  );
+}
+
 function EmprestimoCardPasta({
   emprestimo,
   onRemover,
@@ -1365,6 +1401,157 @@ function PastaClienteCard({
   );
 }
 
+function EmprestimoLinhaLista({
+  emprestimo,
+  pagamentosMapa,
+  onPagar,
+  onComprovante,
+}: {
+  emprestimo: Emprestimo;
+  pagamentosMapa?: Record<string, PagamentoDb[]>;
+  onPagar?: (e: Emprestimo) => void;
+  onComprovante?: (e: Emprestimo) => void;
+}) {
+  const resumo = getResumoEmprestimo(emprestimo, pagamentosMapa);
+  const badge = dueBadge(resumo.due);
+  const modalidade = String((emprestimo as any).modalidade ?? "emprestimo").replaceAll("_", " ").toUpperCase();
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-slate-950/35 px-4 py-4 shadow-glow backdrop-blur-md">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-emerald-500/20 bg-emerald-500/15 text-sm font-extrabold text-emerald-100">
+              {initials(String((emprestimo as any).clienteNome ?? "Cliente"))}
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold text-white">{String((emprestimo as any).clienteNome ?? "Cliente")}</div>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-white/60">
+                <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1">{modalidade}</span>
+                <span className={`rounded-full border px-2 py-1 ${chipTone(badge.tone)}`}>
+                  {badge.text}
+                </span>
+                <span>Venc.: {fmtShort(resumo.proximoVencimento)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4 lg:min-w-[520px]">
+          <div>
+            <div className="text-[11px] uppercase tracking-wide text-white/50">Emprestado</div>
+            <div className="mt-1 font-semibold text-white">{brl(resumo.totalEmprestado)}</div>
+          </div>
+          <div>
+            <div className="text-[11px] uppercase tracking-wide text-white/50">Recebido</div>
+            <div className="mt-1 font-semibold text-emerald-300">{brl(resumo.totalPago)}</div>
+          </div>
+          <div>
+            <div className="text-[11px] uppercase tracking-wide text-white/50">Lucro previsto</div>
+            <div className="mt-1 font-semibold text-white">{brl(resumo.lucroPrevisto)}</div>
+          </div>
+          <div>
+            <div className="text-[11px] uppercase tracking-wide text-white/50">Restante</div>
+            <div className={`mt-1 font-semibold ${moneyColorByDue(resumo.due, "ok")}`}>{brl(resumo.restante)}</div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2 lg:justify-end">
+          {onComprovante ? (
+            <button
+              type="button"
+              onClick={() => onComprovante(emprestimo)}
+              className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/80 hover:bg-white/10"
+            >
+              Comprovante
+            </button>
+          ) : null}
+          {onPagar ? (
+            <button
+              type="button"
+              onClick={() => onPagar(emprestimo)}
+              className="rounded-lg bg-emerald-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-emerald-400"
+            >
+              Pagar
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PastaClienteLinhaLista({
+  clienteNome,
+  emprestimos,
+  groupDue,
+  pagamentosMapa,
+  onAbrirPasta,
+}: {
+  clienteNome: string;
+  emprestimos: Emprestimo[];
+  groupDue: DueStatus;
+  pagamentosMapa?: Record<string, PagamentoDb[]>;
+  onAbrirPasta: () => void;
+}) {
+  const resumo = useMemo(() => getResumoGrupo(emprestimos, pagamentosMapa), [emprestimos, pagamentosMapa]);
+  const badge = dueBadge(groupDue);
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-slate-950/35 px-4 py-4 shadow-glow backdrop-blur-md">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-emerald-500/20 bg-emerald-500/15 text-sm font-extrabold text-emerald-100">
+              {initials(clienteNome)}
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold text-white">{clienteNome}</div>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-white/60">
+                <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1">
+                  {emprestimos.length} empréstimos
+                </span>
+                <span className={`rounded-full border px-2 py-1 ${chipTone(badge.tone)}`}>
+                  {badge.text}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4 lg:min-w-[520px]">
+          <div>
+            <div className="text-[11px] uppercase tracking-wide text-white/50">Emprestado</div>
+            <div className="mt-1 font-semibold text-white">{brl(resumo.totalEmprestado)}</div>
+          </div>
+          <div>
+            <div className="text-[11px] uppercase tracking-wide text-white/50">Recebido</div>
+            <div className="mt-1 font-semibold text-emerald-300">{brl(resumo.totalPago)}</div>
+          </div>
+          <div>
+            <div className="text-[11px] uppercase tracking-wide text-white/50">Lucro previsto</div>
+            <div className="mt-1 font-semibold text-white">{brl(resumo.lucroPrevisto)}</div>
+          </div>
+          <div>
+            <div className="text-[11px] uppercase tracking-wide text-white/50">Restante</div>
+            <div className={`mt-1 font-semibold ${moneyColorByDue(groupDue, "ok")}`}>{brl(resumo.restante)}</div>
+          </div>
+        </div>
+
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={onAbrirPasta}
+            className="rounded-lg bg-emerald-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-emerald-400"
+          >
+            Abrir pasta
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function EmprestimosLista({
   viewMode = "grid",
   lista,
@@ -1418,10 +1605,6 @@ export default function EmprestimosLista({
     if (!pastaAberta) setPastaAbertaKey(null);
   }, [pastaAbertaKey, pastaAberta]);
 
-  if (viewMode !== "grid") {
-    // Mantém compatibilidade: caso tenha toggle de lista/tabela, não quebra.
-  }
-
   if (pastaAberta) {
     const totalReceber = pastaAberta.emprestimos.reduce((acc, e) => {
       const parcelas = Array.isArray((e as any).parcelasDb) ? ((e as any).parcelasDb as any[]) : [];
@@ -1469,18 +1652,64 @@ export default function EmprestimosLista({
           <div className="w-[96px]" />
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
-          {pastaAberta.emprestimos.map((e) => (
-            <EmprestimoCardPasta
-              key={(e as any).id}
-              emprestimo={e}
-              onRemover={onRemover}
-              onPagar={onPagar}
-              onComprovante={onComprovante}
+        {viewMode === "list" ? (
+          <div className="grid grid-cols-1 gap-3">
+            {pastaAberta.emprestimos.map((e) => (
+              <EmprestimoLinhaLista
+                key={(e as any).id}
+                emprestimo={e}
+                pagamentosMapa={pagamentosMapaSafe}
+                onPagar={onPagar}
+                onComprovante={onComprovante}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+            {pastaAberta.emprestimos.map((e) => (
+              <EmprestimoCardPasta
+                key={(e as any).id}
+                emprestimo={e}
+                onRemover={onRemover}
+                onPagar={onPagar}
+                onComprovante={onComprovante}
+                pagamentosMapa={pagamentosMapaSafe}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (viewMode === "list") {
+    return (
+      <div className="grid grid-cols-1 gap-3">
+        {grupos.map((g, idx) => {
+          if (g.emprestimos.length <= 1) {
+            const e = g.emprestimos[0];
+            return (
+              <EmprestimoLinhaLista
+                key={(e as any)?.id ?? g.key ?? `${g.clienteNome}-${idx}`}
+                emprestimo={e}
+                pagamentosMapa={pagamentosMapaSafe}
+                onPagar={onPagar}
+                onComprovante={onComprovante}
+              />
+            );
+          }
+
+          return (
+            <PastaClienteLinhaLista
+              key={g.key ?? `${g.clienteNome}-${idx}`}
+              clienteNome={g.clienteNome}
+              emprestimos={g.emprestimos}
+              groupDue={g.groupDue}
               pagamentosMapa={pagamentosMapaSafe}
+              onAbrirPasta={() => setPastaAbertaKey(g.key)}
             />
-          ))}
-        </div>
+          );
+        })}
       </div>
     );
   }

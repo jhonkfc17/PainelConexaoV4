@@ -99,6 +99,19 @@ export async function listStaffWalletPayouts(): Promise<StaffWalletPayout[]> {
   return ((data ?? []) as any[]).map(mapPayout);
 }
 
+export async function listMyStaffWalletPayouts(): Promise<StaffWalletPayout[]> {
+  const { data, error } = await supabase
+    .from("staff_profit_payouts")
+    .select(
+      "id, tenant_id, staff_member_id, staff_auth_user_id, valor, paid_at, notes, created_at, updated_at, created_by, estornado_em, estornado_por, estornado_motivo"
+    )
+    .order("paid_at", { ascending: false })
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return ((data ?? []) as any[]).map(mapPayout);
+}
+
 export async function createStaffWalletPayout(input: {
   staff_member_id: string;
   valor: number;

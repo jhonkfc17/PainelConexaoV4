@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Navigate } from "react-router-dom";
 import { CircleDollarSign, RefreshCcw, Shield, Wallet } from "lucide-react";
 
 import { supabase } from "@/lib/supabaseClient";
 import { usePermissoes } from "@/store/usePermissoes";
 import {
   createStaffWalletPayout,
+  getMyStaffWallet,
+  listMyStaffWalletPayouts,
   listStaffWalletPayouts,
   listStaffWallets,
   updateStaffWalletPayout,
@@ -50,7 +51,7 @@ function num(value: string): number {
 }
 
 export default function CarteiraStaff() {
-  const { canManageStaff, isAdmin } = usePermissoes();
+  const { isAdmin } = usePermissoes();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,12 +71,19 @@ export default function CarteiraStaff() {
     try {
       setLoading(true);
       setError(null);
-      const [walletRows, payoutRows] = await Promise.all([listStaffWallets(), listStaffWalletPayouts()]);
+      const [walletRows, payoutRows] = isAdmin
+        ? await Promise.all([listStaffWallets(), listStaffWalletPayouts()])
+        : await Promise.all([
+            getMyStaffWallet().then((wallet) => (wallet ? [wallet] : [])),
+            listMyStaffWalletPayouts(),
+          ]);
       setWallets(walletRows);
       setPayouts(payoutRows);
       setSelectedStaffId((current) => {
         if (current && walletRows.some((wallet) => wallet.staff_member_id === current)) return current;
-        const preferred = walletRows.find((wallet) => wallet.available_balance > 0) ?? walletRows[0];
+        const preferred = isAdmin
+          ? walletRows.find((wallet) => wallet.available_balance > 0) ?? walletRows[0]
+          : walletRows[0];
         return preferred?.staff_member_id ?? "";
       });
     } catch (e: any) {
@@ -88,7 +96,7 @@ export default function CarteiraStaff() {
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -257,10 +265,6 @@ export default function CarteiraStaff() {
     }
   };
 
-  if (!canManageStaff || !isAdmin) {
-    return <Navigate to="/" replace />;
-  }
-
   return (
     <div className="p-4 md:p-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -268,12 +272,12 @@ export default function CarteiraStaff() {
           <div className="flex items-center gap-2">
             <h1 className="text-xl md:text-2xl font-semibold text-white">Carteira Staff</h1>
             <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
-              Admin
+              {isAdmin ? "Admin" : "Staff"}
             </span>
           </div>
-          <p className="mt-1 text-sm text-white/70">
+          {isAdmin ? <p className="mt-1 text-sm text-white/70">
             Saldo de lucro realizado por funcionário, já considerando o percentual configurado e os repasses efetuados.
-          </p>
+          </p> : <p className="mt-1 text-sm text-white/70">Acompanhe seu saldo atual e o histórico de repasses registrados pelo admin.</p>}
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -285,15 +289,17 @@ export default function CarteiraStaff() {
             <RefreshCcw size={16} />
             Atualizar
           </button>
-          <button
-            type="button"
-            onClick={() => openCreateModal()}
-            className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 font-semibold text-black hover:bg-emerald-400"
-            disabled={wallets.length === 0}
-          >
-            <CircleDollarSign size={16} />
-            Registrar repasse
-          </button>
+          {isAdmin ? (
+            <button
+              type="button"
+              onClick={() => openCreateModal()}
+              className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 font-semibold text-black hover:bg-emerald-400"
+              disabled={wallets.length === 0}
+            >
+              <CircleDollarSign size={16} />
+              Registrar repasse
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -339,7 +345,7 @@ export default function CarteiraStaff() {
         </div>
       </div>
 
-      <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
+      {isAdmin ? <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
         <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
           <div className="text-white font-semibold">Resumo por funcionário</div>
           {loading ? <div className="text-sm text-white/60">Carregando...</div> : null}
@@ -399,23 +405,25 @@ export default function CarteiraStaff() {
             })}
           </div>
         )}
-      </div>
+      </div> : null}
 
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[1.1fr_1.4fr]">
         <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
           <div className="flex items-center justify-between">
             <div>
               <div className="text-white font-semibold">Funcionário selecionado</div>
-              <div className="mt-1 text-sm text-white/60">Resumo operacional da carteira individual.</div>
+              <div className="mt-1 text-sm text-white/60">{isAdmin ? "Resumo operacional da carteira individual." : "Seu resumo operacional de repasses."}</div>
             </div>
-            <button
-              type="button"
-              onClick={() => openCreateModal(selectedWallet?.staff_member_id)}
-              disabled={!selectedWallet}
-              className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-black hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-emerald-500/30 disabled:text-black/60"
-            >
-              Novo repasse
-            </button>
+            {isAdmin ? (
+              <button
+                type="button"
+                onClick={() => openCreateModal(selectedWallet?.staff_member_id)}
+                disabled={!selectedWallet}
+                className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-black hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-emerald-500/30 disabled:text-black/60"
+              >
+                Novo repasse
+              </button>
+            ) : null}
           </div>
 
           {!selectedWallet ? (
@@ -502,22 +510,30 @@ export default function CarteiraStaff() {
                       ) : null}
                     </div>
                     <div className="flex items-center justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => openEditModal(payout)}
-                        disabled={saving || isVoided}
-                        className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:text-white/40"
-                      >
-                        Editar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleVoidPayout(payout)}
-                        disabled={saving || isVoided}
-                        className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-100 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:text-red-100/40"
-                      >
-                        Estornar
-                      </button>
+                      {isAdmin ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => openEditModal(payout)}
+                            disabled={saving || isVoided}
+                            className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:text-white/40"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleVoidPayout(payout)}
+                            disabled={saving || isVoided}
+                            className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-100 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:text-red-100/40"
+                          >
+                            Estornar
+                          </button>
+                        </>
+                      ) : (
+                        <span className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/60">
+                          Visualização
+                        </span>
+                      )}
                     </div>
                   </div>
                 );
@@ -527,7 +543,7 @@ export default function CarteiraStaff() {
         </div>
       </div>
 
-      {modalOpen ? (
+      {isAdmin && modalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3">
           <div className="w-full max-w-[560px] rounded-2xl border border-white/10 bg-[#0B1220] shadow-xl">
             <div className="flex items-center justify-between border-b border-white/10 p-4">

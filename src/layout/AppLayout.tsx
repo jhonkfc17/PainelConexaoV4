@@ -44,7 +44,7 @@ const menu: NavItem[] = [
   { to: "/rel-vendas", label: "Rel. Vendas", icon: <TrendingUp size={16} /> },
   { to: "/simulador", label: "Simulador", icon: <Calculator size={16} /> },
   { to: "/funcionarios", label: "Funcionários", icon: <Shield size={16} />, requiresStaffManage: true },
-  { to: "/funcionarios/carteira", label: "Carteira Staff", icon: <Wallet size={16} />, requiresAdminOnly: true },
+  { to: "/funcionarios/carteira", label: "Carteira Staff", icon: <Wallet size={16} /> },
   { to: "/config", label: "Configurações", icon: <Settings size={16} /> },
 ];
 
