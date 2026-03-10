@@ -28,7 +28,8 @@ import { supabase } from "@/lib/supabaseClient";
 import { usePermissoes } from "@/store/usePermissoes";
 import { useAuthStore } from "@/store/useAuthStore";
 import { commissionFactorFromPct, getStaffCommissionPct, scaleByCommission } from "@/lib/staffCommission";
-import { listEmprestimos, type Emprestimo, type ParcelaDb } from "@/services/emprestimos.service";
+import { type Emprestimo, type ParcelaDb } from "@/services/emprestimos.service";
+import { listStaff, type StaffMember } from "@/services/funcionarios.service";
 
 type MoneyRow = { label: string; value: number };
 
@@ -108,6 +109,167 @@ function toISODateOnly(v: any): string {
 function safeNumber(v: any): number {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
+}
+
+function applyEmprestimoScope<T>(query: T, userId: string): T {
+  return (query as any).or(`created_by.eq.${userId},and(created_by.is.null,user_id.eq.${userId})`) as T;
+}
+
+function mapRelatorioEmprestimo(row: any): Emprestimo {
+  const payload = (row?.payload ?? {}) as Record<string, any>;
+  const valor = safeNumber(payload.valor ?? row?.valor);
+  const numeroParcelas = safeNumber(payload.parcelas ?? row?.numero_parcelas ?? row?.numeroParcelas);
+  const valorParcela = safeNumber(payload.valorParcela ?? payload.valor_parcela ?? row?.valor_parcela);
+  const totalReceber = safeNumber(
+    payload.totalReceber ?? payload.total_receber ?? payload.total_receber_calc ?? payload.total_receber_previsto
+  );
+  const clienteNome = String(payload.clienteNome ?? payload.cliente_nome ?? row?.cliente_nome ?? "").trim();
+
+  return {
+    id: String(row?.id ?? ""),
+    user_id: String(row?.user_id ?? ""),
+    clienteId: row?.cliente_id ? String(row.cliente_id) : "",
+    clienteNome,
+    clienteContato: String(row?.cliente_contato ?? ""),
+    status: String(row?.status ?? "ativo"),
+    modalidade: String(row?.modalidade ?? payload.modalidade ?? "mensal"),
+    createdAt: String(row?.created_at ?? ""),
+    payload,
+    parcelasDb: ((row?.parcelas ?? []) as ParcelaDb[]) ?? [],
+    valor,
+    numeroParcelas,
+    valorParcela,
+    totalReceber,
+    taxaJuros: safeNumber(payload.taxaJuros ?? row?.taxa_juros ?? row?.taxaJuros),
+    jurosAplicado: payload.jurosAplicado ?? row?.juros_aplicado ?? row?.jurosAplicado,
+  } as Emprestimo;
+}
+
+async function listEmprestimosForRelatorio(params: {
+  canViewAll: boolean;
+  currentUserId: string | null;
+  scopedUserId: string | null;
+}) {
+  const { canViewAll, currentUserId, scopedUserId } = params;
+  const filterUserId = canViewAll ? scopedUserId : currentUserId;
+  if (!canViewAll && !filterUserId) return [];
+
+  let query = supabase
+    .from("emprestimos")
+    .select(
+      `
+        id,
+        user_id,
+        created_by,
+        cliente_id,
+        cliente_nome,
+        cliente_contato,
+        status,
+        modalidade,
+        created_at,
+        updated_at,
+        payload,
+        parcelas:parcelas(
+          id,
+          emprestimo_id,
+          numero,
+          valor,
+          vencimento,
+          pago,
+          valor_pago,
+          valor_pago_acumulado,
+          juros_atraso,
+          multa_valor,
+          acrescimos,
+          saldo_restante,
+          pago_em,
+          created_at,
+          updated_at
+        )
+      `
+    )
+    .order("created_at", { ascending: false });
+
+  if (filterUserId) {
+    query = applyEmprestimoScope(query, filterUserId);
+  }
+
+  const embedded = await query;
+  if (!embedded.error) {
+    return ((embedded.data ?? []) as any[]).map(mapRelatorioEmprestimo);
+  }
+
+  let fallbackQuery = supabase
+    .from("emprestimos")
+    .select(
+      `
+        id,
+        user_id,
+        created_by,
+        cliente_id,
+        cliente_nome,
+        cliente_contato,
+        status,
+        modalidade,
+        created_at,
+        updated_at,
+        payload
+      `
+    )
+    .order("created_at", { ascending: false });
+
+  if (filterUserId) {
+    fallbackQuery = applyEmprestimoScope(fallbackQuery, filterUserId);
+  }
+
+  const fallback = await fallbackQuery;
+  if (fallback.error) throw fallback.error;
+
+  const emprestimosRows = (fallback.data ?? []) as any[];
+  const ids = emprestimosRows.map((row) => String(row?.id ?? "")).filter(Boolean);
+
+  const parcelasResp = ids.length
+    ? await supabase
+        .from("parcelas")
+        .select(
+          `
+            id,
+            emprestimo_id,
+            numero,
+            valor,
+            vencimento,
+            pago,
+            valor_pago,
+            valor_pago_acumulado,
+            juros_atraso,
+            multa_valor,
+            acrescimos,
+            saldo_restante,
+            pago_em,
+            created_at,
+            updated_at
+          `
+        )
+        .in("emprestimo_id", ids)
+    : { data: [] as ParcelaDb[], error: null as any };
+
+  if (parcelasResp.error) throw parcelasResp.error;
+
+  const parcelasByLoan = new Map<string, ParcelaDb[]>();
+  for (const parcela of (parcelasResp.data ?? []) as ParcelaDb[]) {
+    const loanId = String((parcela as any)?.emprestimo_id ?? "");
+    if (!loanId) continue;
+    const current = parcelasByLoan.get(loanId) ?? [];
+    current.push(parcela);
+    parcelasByLoan.set(loanId, current);
+  }
+
+  return emprestimosRows.map((row) =>
+    mapRelatorioEmprestimo({
+      ...row,
+      parcelas: parcelasByLoan.get(String(row?.id ?? "")) ?? [],
+    })
+  );
 }
 
 function parsePaymentFlags(raw: any): Record<string, any> | null {
@@ -302,15 +464,36 @@ function statusContrato(psAbertas: ParcelaDb[], hoje: string): Status {
 
 export default function RelatorioOperacional() {
   const location = useLocation();
-  const { isOwner } = usePermissoes();
+  const { isOwner, isAdmin } = usePermissoes();
   const user = useAuthStore((s) => s.user);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [emprestimos, setEmprestimos] = useState<Emprestimo[]>([]);
   const [pagamentosRegistros, setPagamentosRegistros] = useState<PagamentoRow[]>([]);
   const [lucro30Rows, setLucro30Rows] = useState<Lucro30Row[]>([]);
+  const [staffRows, setStaffRows] = useState<StaffMember[]>([]);
+  const [reportScope, setReportScope] = useState("__all__");
   const [staffCommissionPct, setStaffCommissionPct] = useState(0);
   const lucro30Ref = useRef<HTMLDivElement | null>(null);
+  const canChooseScope = isAdmin;
+  const scopedUserId = useMemo(() => {
+    if (!canChooseScope) return user?.id ?? null;
+    if (reportScope === "__all__") return null;
+    if (reportScope === "__self__") return user?.id ?? null;
+    return reportScope;
+  }, [canChooseScope, reportScope, user?.id]);
+
+  const selectedScopeStaff = useMemo(() => {
+    if (!scopedUserId) return null;
+    return staffRows.find((staff) => staff.auth_user_id === scopedUserId) ?? null;
+  }, [staffRows, scopedUserId]);
+
+  const selectedScopeLabel = useMemo(() => {
+    if (!canChooseScope) return "Meu escopo";
+    if (reportScope === "__all__") return "Todos os contratos";
+    if (reportScope === "__self__") return "Meu escopo";
+    return selectedScopeStaff?.nome || selectedScopeStaff?.email || "Staff";
+  }, [canChooseScope, reportScope, selectedScopeStaff]);
 
   const hojeISO = useMemo(() => toISODateOnly(getTodaySP().toISOString()), []);
   const inicioMesISO = useMemo(() => {
@@ -328,22 +511,22 @@ export default function RelatorioOperacional() {
       start30.setDate(todaySP.getDate() - 30);
       const start30ISO = start30.toISOString().split("T")[0];
       const todaySPISO = todaySP.toISOString().split("T")[0];
-      const emp = await listEmprestimos();
+      const emp = await listEmprestimosForRelatorio({
+        canViewAll: canChooseScope,
+        currentUserId: user?.id ?? null,
+        scopedUserId,
+      });
       const emprestimoIds = ((emp ?? []) as any[]).map((e) => String(e?.id ?? "")).filter(Boolean);
 
-      const [view30d, pagamentosResp] = await Promise.all([
-        supabase.from("v_dashboard_metrics_30d").select("lucro_30d").single(),
-        emprestimoIds.length
-          ? supabase
-              .from("pagamentos")
-              .select("id, emprestimo_id, tipo, valor, juros_atraso, data_pagamento, created_at, flags, estornado_em")
-              .in("emprestimo_id", emprestimoIds)
-              .is("estornado_em", null)
-          : Promise.resolve({ data: [] as PagamentoRow[], error: null as any }),
-      ]);
+      const pagamentosResp = emprestimoIds.length
+        ? await supabase
+            .from("pagamentos")
+            .select("id, emprestimo_id, tipo, valor, juros_atraso, data_pagamento, created_at, flags, estornado_em")
+            .in("emprestimo_id", emprestimoIds)
+            .is("estornado_em", null)
+        : { data: [] as PagamentoRow[], error: null as any };
 
       setEmprestimos((emp ?? []) as any);
-      if (view30d.error) throw view30d.error;
       if (pagamentosResp.error) throw pagamentosResp.error;
 
       const pagamentosTodos = ((pagamentosResp.data ?? []) as PagamentoRow[]).filter((p) => !p.estornado_em);
@@ -378,6 +561,42 @@ export default function RelatorioOperacional() {
         })
         .sort((a, b) => b.dataRef.localeCompare(a.dataRef));
 
+      const pagamentosByLoan = new Map<string, PagamentoRow[]>();
+      for (const payment of pagamentosTodos) {
+        const loanId = String(payment.emprestimo_id ?? "");
+        if (!loanId) continue;
+        const current = pagamentosByLoan.get(loanId) ?? [];
+        current.push(payment);
+        pagamentosByLoan.set(loanId, current);
+      }
+
+      const lucro30Base = (emp ?? []).reduce((acc, loan) => {
+        const loanId = String((loan as any).id ?? "");
+        const payments = [...(pagamentosByLoan.get(loanId) ?? [])].sort((a, b) =>
+          paymentDateRef(a).localeCompare(paymentDateRef(b))
+        );
+        let principalRemaining = safeNumber((loan as any).valor ?? 0);
+        let total = 0;
+
+        for (const payment of payments) {
+          const ref = paymentDateRef(payment);
+          if (!ref) continue;
+          if (isAutoGeneratedProfitMirror(payment) || isDirectProfitPayment(payment)) continue;
+
+          const value = safeNumber(payment.valor);
+          const juros = safeNumber(payment.juros_atraso);
+          const principalPart = Math.min(value, principalRemaining);
+          principalRemaining = Math.max(0, principalRemaining - principalPart);
+          const profitPart = Math.max(0, value - principalPart) + juros;
+
+          if (ref >= start30ISO && ref <= todaySPISO) {
+            total += profitPart;
+          }
+        }
+
+        return acc + total;
+      }, 0);
+
       const rows30 = [
         {
           id: "__view_30d__",
@@ -385,9 +604,9 @@ export default function RelatorioOperacional() {
           emprestimoId: "",
           cliente: "Base consolidada (parcelas pagas)",
           tipo: "VIEW_30D",
-          valor: safeNumber((view30d.data as any)?.lucro_30d ?? 0),
+          valor: safeNumber(lucro30Base),
           jurosAtraso: 0,
-          total: safeNumber((view30d.data as any)?.lucro_30d ?? 0),
+          total: safeNumber(lucro30Base),
         } as Lucro30Row,
         ...rows30Pagamentos,
       ];
@@ -403,7 +622,7 @@ export default function RelatorioOperacional() {
   useEffect(() => {
     void carregar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inicioMesISO, hojeISO]);
+  }, [inicioMesISO, hojeISO, canChooseScope, scopedUserId, user?.id]);
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -433,6 +652,18 @@ export default function RelatorioOperacional() {
 
     (async () => {
       try {
+        if (canChooseScope) {
+          const staff = await listStaff();
+          if (alive) setStaffRows(staff.filter((row) => row.active));
+        } else if (alive) {
+          setStaffRows([]);
+        }
+
+        if (canChooseScope && scopedUserId && scopedUserId !== user?.id) {
+          if (alive) setStaffCommissionPct(Number(selectedScopeStaff?.commission_pct ?? 0));
+          return;
+        }
+
         if (isOwner || !user?.id) {
           if (alive) setStaffCommissionPct(0);
           return;
@@ -448,7 +679,7 @@ export default function RelatorioOperacional() {
     return () => {
       alive = false;
     };
-  }, [isOwner, user?.id]);
+  }, [canChooseScope, isOwner, scopedUserId, selectedScopeStaff?.commission_pct, user?.id]);
 
   useEffect(() => {
     if (loading) return;
@@ -460,9 +691,10 @@ export default function RelatorioOperacional() {
   }, [location.search, loading]);
 
   const staffCommissionFactor = useMemo(() => {
+    if (canChooseScope && (!scopedUserId || scopedUserId === user?.id)) return 1;
     if (isOwner) return 1;
     return commissionFactorFromPct(staffCommissionPct);
-  }, [isOwner, staffCommissionPct]);
+  }, [canChooseScope, isOwner, scopedUserId, staffCommissionPct, user?.id]);
 
   const emprestimosAtivos = useMemo(() => {
     return emprestimos.filter((e) => {
@@ -883,9 +1115,32 @@ export default function RelatorioOperacional() {
           <div className="mt-2 text-[11px] text-slate-500">
             Período: {formatBR(inicioMesISO)} até {formatBR(hojeISO)}
           </div>
-          {!isOwner ? (
+          <div className="mt-2 text-[11px] text-slate-500">Escopo: {selectedScopeLabel}</div>
+          {canChooseScope ? (
+            <div className="mt-3">
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                Visualizar relatório
+              </label>
+              <select
+                value={reportScope}
+                onChange={(event) => setReportScope(event.target.value)}
+                className="w-full max-w-xs rounded-xl border border-emerald-500/20 bg-slate-950/50 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-emerald-400"
+              >
+                <option value="__all__">Todos os contratos</option>
+                <option value="__self__">Meu escopo</option>
+                {staffRows
+                  .filter((staff) => staff.auth_user_id !== user?.id)
+                  .map((staff) => (
+                    <option key={staff.auth_user_id} value={staff.auth_user_id}>
+                      {(staff.nome || staff.email) + (staff.role === "admin" ? " (admin)" : " (staff)")}
+                    </option>
+                  ))}
+              </select>
+            </div>
+          ) : null}
+          {staffCommissionFactor !== 1 ? (
             <div className="mt-2 text-[11px] text-emerald-300/80">
-              Valores financeiros exibidos com {staffCommissionPct.toFixed(1)}% aplicado.
+              Valores financeiros exibidos com {staffCommissionPct.toFixed(1)}% aplicado para {selectedScopeLabel}.
             </div>
           ) : null}
           {error ? <div className="mt-2 text-[11px] text-red-300">{error}</div> : null}
@@ -1013,7 +1268,7 @@ export default function RelatorioOperacional() {
 
           <div className="border-t border-white/10">
             <div className="px-4 py-3 border-b border-white/5">
-              <div className="text-xs font-semibold text-slate-400">Base consolidada (view)</div>
+              <div className="text-xs font-semibold text-slate-400">Base consolidada (30 dias)</div>
               <div className="mt-1 text-sm text-slate-200">
                 {brl(displayLucro30BaseRows.reduce((acc, r) => acc + safeNumber(r.total), 0))}
               </div>
