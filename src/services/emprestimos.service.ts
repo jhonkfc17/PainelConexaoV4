@@ -304,25 +304,7 @@ async function listEmprestimosFallback(userId: string) {
         created_at,
         updated_at,
         payload,
-        parcelas:parcelas(
-          id,
-          emprestimo_id,
-          numero,
-          descricao,
-          referencia_parcela_numero,
-          valor,
-          vencimento,
-          pago,
-          valor_pago,
-          valor_pago_acumulado,
-          juros_atraso,
-          multa_valor,
-          acrescimos,
-          saldo_restante,
-          pago_em,
-          created_at,
-          updated_at
-        )
+        parcelas:parcelas(*)
       `
     )
     .order("created_at", { ascending: false });
@@ -361,27 +343,7 @@ async function listEmprestimosFallback(userId: string) {
   const pr = ids.length
     ? await supabase
         .from("parcelas")
-        .select(
-          `
-            id,
-            emprestimo_id,
-            numero,
-            descricao,
-            referencia_parcela_numero,
-            valor,
-            vencimento,
-            pago,
-            valor_pago_acumulado,
-            juros_atraso,
-            multa_valor,
-            acrescimos,
-            valor_pago_acumulado,
-            saldo_restante,
-            pago_em,
-            created_at,
-            updated_at
-          `
-        )
+        .select("*")
         .in("emprestimo_id", ids)
     : { data: [], error: null };
 
@@ -425,25 +387,7 @@ export async function listEmprestimosByCliente(clienteId: string) {
         created_at,
         updated_at,
         payload,
-        parcelas:parcelas(
-          id,
-          emprestimo_id,
-          numero,
-          descricao,
-          referencia_parcela_numero,
-          valor,
-          vencimento,
-          pago,
-          valor_pago,
-          valor_pago_acumulado,
-          juros_atraso,
-          multa_valor,
-          acrescimos,
-          saldo_restante,
-          pago_em,
-          created_at,
-          updated_at
-        )
+        parcelas:parcelas(*)
       `
     )
     .eq("cliente_id", clienteId)
@@ -483,27 +427,7 @@ export async function listEmprestimosByCliente(clienteId: string) {
     const pr = ids.length
       ? await supabase
           .from("parcelas")
-          .select(
-            `
-              id,
-              emprestimo_id,
-              numero,
-              descricao,
-              referencia_parcela_numero,
-              valor,
-              vencimento,
-              pago,
-              valor_pago_acumulado,
-              juros_atraso,
-              multa_valor,
-              acrescimos,
-              valor_pago_acumulado,
-              saldo_restante,
-              pago_em,
-              created_at,
-              updated_at
-            `
-          )
+          .select("*")
           .in("emprestimo_id", ids)
       : { data: [], error: null };
     if (pr.error) throw pr.error;
@@ -575,25 +499,7 @@ export async function getEmprestimoById(emprestimoId: string) {
         created_at,
         updated_at,
         payload,
-        parcelas:parcelas(
-          id,
-          emprestimo_id,
-          numero,
-          descricao,
-          referencia_parcela_numero,
-          valor,
-          vencimento,
-          pago,
-          valor_pago,
-          valor_pago_acumulado,
-          juros_atraso,
-          multa_valor,
-          acrescimos,
-          saldo_restante,
-          pago_em,
-          created_at,
-          updated_at
-        )
+        parcelas:parcelas(*)
       `
     )
     .eq("id", emprestimoId)
@@ -630,27 +536,7 @@ export async function getEmprestimoById(emprestimoId: string) {
 
   const pr = await supabase
     .from("parcelas")
-    .select(
-      `
-        id,
-        emprestimo_id,
-        numero,
-        descricao,
-        referencia_parcela_numero,
-        valor,
-        vencimento,
-        pago,
-        valor_pago_acumulado,
-        juros_atraso,
-        multa_valor,
-        acrescimos,
-        valor_pago_acumulado,
-        saldo_restante,
-        pago_em,
-        created_at,
-        updated_at
-      `
-    )
+    .select("*")
     .eq("emprestimo_id", emprestimoId)
     .order("numero", { ascending: true });
 

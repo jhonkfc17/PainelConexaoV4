@@ -574,9 +574,7 @@ stopRealtime:
           if (!ins.error) {
             const sel = await supabase
               .from("parcelas")
-              .select(
-                "id, emprestimo_id, numero, descricao, referencia_parcela_numero, valor, vencimento, pago, valor_pago, valor_pago_acumulado, juros_atraso, multa_valor, acrescimos, saldo_restante, pago_em, created_at, updated_at"
-              )
+              .select("*")
               .eq("emprestimo_id", e.id)
               .order("numero", { ascending: true });
             if (!sel.error && Array.isArray(sel.data)) {
@@ -687,25 +685,7 @@ stopRealtime:
           created_at,
           updated_at,
           payload,
-          parcelas:parcelas(
-            id,
-            emprestimo_id,
-            numero,
-            descricao,
-            referencia_parcela_numero,
-            valor,
-            vencimento,
-            pago,
-            valor_pago,
-            valor_pago_acumulado,
-            juros_atraso,
-            multa_valor,
-            acrescimos,
-            saldo_restante,
-            pago_em,
-            created_at,
-            updated_at
-          )
+          parcelas:parcelas(*)
         `
         )
         .eq("id", created.id)

@@ -169,25 +169,7 @@ async function listEmprestimosForRelatorio(params: {
         created_at,
         updated_at,
         payload,
-        parcelas:parcelas(
-          id,
-          emprestimo_id,
-          numero,
-          descricao,
-          referencia_parcela_numero,
-          valor,
-          vencimento,
-          pago,
-          valor_pago,
-          valor_pago_acumulado,
-          juros_atraso,
-          multa_valor,
-          acrescimos,
-          saldo_restante,
-          pago_em,
-          created_at,
-          updated_at
-        )
+        parcelas:parcelas(*)
       `
     )
     .order("created_at", { ascending: false });
@@ -233,27 +215,7 @@ async function listEmprestimosForRelatorio(params: {
   const parcelasResp = ids.length
     ? await supabase
         .from("parcelas")
-        .select(
-          `
-            id,
-            emprestimo_id,
-            numero,
-            descricao,
-            referencia_parcela_numero,
-            valor,
-            vencimento,
-            pago,
-            valor_pago,
-            valor_pago_acumulado,
-            juros_atraso,
-            multa_valor,
-            acrescimos,
-            saldo_restante,
-            pago_em,
-            created_at,
-            updated_at
-          `
-        )
+        .select("*")
         .in("emprestimo_id", ids)
     : { data: [] as ParcelaDb[], error: null as any };
 
