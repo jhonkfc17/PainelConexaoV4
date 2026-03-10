@@ -25,6 +25,7 @@ import {
   type DashboardRange,
   getDashboardMetrics,
 } from "../services/dashboard.service";
+import { getMyStaffWallet } from "../services/staffWallet.service";
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -41,6 +42,7 @@ export default function Dashboard() {
   const [staffCommissionPct, setStaffCommissionPct] = useState<number>(0);
   const [staffLucroRealizado, setStaffLucroRealizado] = useState<number>(0);
   const [staffCommissionValue, setStaffCommissionValue] = useState<number>(0);
+  const [staffPaidOutValue, setStaffPaidOutValue] = useState<number>(0);
   const [lucro30d, setLucro30d] = useState<number>(0);
 
   // Pesquisa rápida (clientes) — ajuda a navegar sem sair do Dashboard
@@ -189,12 +191,22 @@ useEffect(() => {
       if (isOwner) return;
       if (!user?.id) return;
 
-      // 1) Pega % de comissão do funcionário
+      const wallet = await getMyStaffWallet();
+      if (wallet) {
+        if (!alive) return;
+        setStaffCommissionPct(wallet.commission_pct);
+        setStaffLucroRealizado(wallet.realized_profit);
+        setStaffCommissionValue(Math.max(0, wallet.available_balance));
+        setStaffPaidOutValue(Math.max(0, wallet.paid_total));
+        return;
+      }
+
+      // fallback local enquanto a migration nova não for aplicada
       const pct = await getStaffCommissionPct(user.id);
       if (!alive) return;
       setStaffCommissionPct(pct);
 
-      // 2) Calcula lucro realizado total (tenant) e comissão
+      // fallback: calcula comissão bruta sem saldo de repasse
       const { data: loans, error: loansErr } = await supabase
         .from("emprestimos")
         .select("id,payload,created_by")
@@ -227,6 +239,7 @@ useEffect(() => {
       if (!alive) return;
       setStaffLucroRealizado(lucroReal);
       setStaffCommissionValue(Math.max(0, scaleByCommission(lucroReal, commissionFactorFromPct(pct))));
+      setStaffPaidOutValue(0);
     } catch (e) {
       console.error(e);
     }
@@ -341,16 +354,19 @@ const header = data?.header ?? {
           <div className="mt-2 text-xs text-slate-400">
             Lucro realizado no sistema: <span className="text-slate-200">{staffLucroRealizado.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>
           </div>
+          <div className="mt-2 text-xs text-slate-400">
+            Já repassado: <span className="text-slate-200">{staffPaidOutValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>
+          </div>
           <div className="mt-2 text-[11px] text-slate-500">
             Valores financeiros do painel já consideram esse percentual.
           </div>
         </div>
         <div className="text-right">
-          <div className="text-xs text-slate-400">Comissão estimada</div>
+          <div className="text-xs text-slate-400">Saldo atual de repasse</div>
           <div className="mt-1 text-xl font-bold text-emerald-200">
             {staffCommissionValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
           </div>
-          <div className="mt-1 text-[11px] text-slate-500">Cálculo: lucro realizado × %</div>
+          <div className="mt-1 text-[11px] text-slate-500">Cálculo: carteira do staff - repasses já feitos</div>
         </div>
       </div>
     </div>

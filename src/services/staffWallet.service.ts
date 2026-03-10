@@ -79,6 +79,13 @@ export async function listStaffWallets(): Promise<StaffWallet[]> {
   return ((data ?? []) as any[]).map(mapWallet);
 }
 
+export async function getMyStaffWallet(): Promise<StaffWallet | null> {
+  const { data, error } = await supabase.rpc("get_my_staff_wallet");
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : null;
+  return row ? mapWallet(row) : null;
+}
+
 export async function listStaffWalletPayouts(): Promise<StaffWalletPayout[]> {
   const { data, error } = await supabase
     .from("staff_profit_payouts")
