@@ -352,17 +352,11 @@ const header = data?.header ?? {
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="text-sm font-semibold text-slate-100">Sua comissão</div>
-          <div className="mt-1 text-xs text-slate-400">
-            Percentual configurado: <span className="text-slate-200">{staffCommissionPct.toFixed(1)}%</span>
-          </div>
           <div className="mt-2 text-xs text-slate-400">
             Lucro realizado no sistema: <span className="text-slate-200">{staffLucroRealizado.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>
           </div>
           <div className="mt-2 text-xs text-slate-400">
             Já repassado: <span className="text-slate-200">{staffPaidOutValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>
-          </div>
-          <div className="mt-2 text-[11px] text-slate-500">
-            Valores financeiros do painel já consideram esse percentual.
           </div>
         </div>
         <div className="text-right">
