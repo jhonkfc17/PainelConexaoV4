@@ -20,6 +20,7 @@ import Simulador from "./pages/Simulador";
 import Configuracoes from "./pages/Configuracoes";
 import Funcionarios from "./pages/Funcionarios";
 import ParcelasAtrasadas from "./pages/ParcelasAtrasadas";
+import CarteiraStaff from "./pages/CarteiraStaff";
 
 import { useAuthStore } from "./store/useAuthStore";
 
@@ -73,6 +74,14 @@ export default function App() {
             element={
               <RequireStaffManage>
                 <Funcionarios />
+              </RequireStaffManage>
+            }
+          />
+          <Route
+            path="/funcionarios/carteira"
+            element={
+              <RequireStaffManage>
+                <CarteiraStaff />
               </RequireStaffManage>
             }
           />

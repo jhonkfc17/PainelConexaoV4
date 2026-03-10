@@ -23,7 +23,13 @@ import { useAuthStore } from "../store/useAuthStore";
 import { useEmprestimosStore } from "../store/useEmprestimosStore";
 import { usePermissoes } from "../store/usePermissoes";
 
-type NavItem = { to: string; label: string; icon: React.ReactNode; requiresStaffManage?: boolean };
+type NavItem = {
+  to: string;
+  label: string;
+  icon: React.ReactNode;
+  requiresStaffManage?: boolean;
+  requiresAdminOnly?: boolean;
+};
 
 const menu: NavItem[] = [
   { to: "/", label: "Dashboard", icon: <LayoutDashboard size={16} /> },
@@ -38,14 +44,16 @@ const menu: NavItem[] = [
   { to: "/rel-vendas", label: "Rel. Vendas", icon: <TrendingUp size={16} /> },
   { to: "/simulador", label: "Simulador", icon: <Calculator size={16} /> },
   { to: "/funcionarios", label: "Funcionários", icon: <Shield size={16} />, requiresStaffManage: true },
+  { to: "/funcionarios/carteira", label: "Carteira Staff", icon: <Wallet size={16} />, requiresAdminOnly: true },
   { to: "/config", label: "Configurações", icon: <Settings size={16} /> },
 ];
 
 function NavItemLink({ to, icon, label }: NavItem) {
+  const isExactRoute = to === "/" || to === "/funcionarios" || to === "/funcionarios/carteira";
   return (
     <NavLink
       to={to}
-      end={to === "/"}
+      end={isExactRoute}
       className={({ isActive }) =>
         [
           "w-full flex items-center gap-2 rounded-xl px-3 py-2 text-left transition border",
@@ -64,8 +72,10 @@ function NavItemLink({ to, icon, label }: NavItem) {
 
 function SidebarContent({ onLogout }: { onLogout: () => void }) {
   const user = useAuthStore((s) => s.user);
-  const { canManageStaff } = usePermissoes();
-  const visibleMenu = menu.filter((item) => !item.requiresStaffManage || canManageStaff);
+  const { canManageStaff, isAdmin } = usePermissoes();
+  const visibleMenu = menu.filter(
+    (item) => (!item.requiresStaffManage || canManageStaff) && (!item.requiresAdminOnly || isAdmin)
+  );
   return (
     <>
       <div className="h-14 px-3 sm:px-4 flex items-center gap-2 border-b border-emerald-500/10">
@@ -123,12 +133,14 @@ function SidebarContent({ onLogout }: { onLogout: () => void }) {
 export default function AppLayout() {
   const nav = useNavigate();
   const user = useAuthStore((s) => s.user);
-  const { canManageStaff } = usePermissoes();
+  const { canManageStaff, isAdmin } = usePermissoes();
   const startRealtime = useEmprestimosStore((s) => s.startRealtime);
   const stopRealtime = useEmprestimosStore((s) => s.stopRealtime);
   const signOut = useAuthStore((s) => s.signOut);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const visibleMenu = menu.filter((item) => !item.requiresStaffManage || canManageStaff);
+  const visibleMenu = menu.filter(
+    (item) => (!item.requiresStaffManage || canManageStaff) && (!item.requiresAdminOnly || isAdmin)
+  );
 
   useEffect(() => {
     if (!user?.id) return;
@@ -203,7 +215,7 @@ export default function AppLayout() {
                       <NavLink
                         key={it.to}
                         to={it.to}
-                        end={it.to === "/"}
+                        end={it.to === "/" || it.to === "/funcionarios" || it.to === "/funcionarios/carteira"}
                         onClick={() => setMobileOpen(false)}
                         className={({ isActive }) =>
                           [

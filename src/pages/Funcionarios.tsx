@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import {
   createStaff,
   listStaff,
@@ -55,7 +55,7 @@ function makeAllPermissions(value: boolean) {
 }
 
 export default function Funcionarios() {
-  const { canManageStaff } = usePermissoes();
+  const { canManageStaff, isAdmin: isAdminUser } = usePermissoes();
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -269,16 +269,26 @@ export default function Funcionarios() {
           <p className="text-white/70 text-sm">Gerencie acessos, permissões e comissão.</p>
         </div>
 
-        <button
-          onClick={() => {
-            setError(null);
-            resetForm();
-            setOpenNew(true);
-          }}
-          className="px-4 py-2 rounded-xl bg-emerald-500 text-black font-semibold hover:bg-emerald-400"
-        >
-          Novo Funcionário
-        </button>
+        <div className="flex flex-wrap gap-2">
+          {isAdminUser ? (
+            <Link
+              to="/funcionarios/carteira"
+              className="px-4 py-2 rounded-xl border border-white/10 bg-white/5 text-white hover:bg-white/10"
+            >
+              Carteira Staff
+            </Link>
+          ) : null}
+          <button
+            onClick={() => {
+              setError(null);
+              resetForm();
+              setOpenNew(true);
+            }}
+            className="px-4 py-2 rounded-xl bg-emerald-500 text-black font-semibold hover:bg-emerald-400"
+          >
+            Novo Funcionário
+          </button>
+        </div>
       </div>
 
       {error && (
