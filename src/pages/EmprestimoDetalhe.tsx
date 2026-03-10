@@ -176,12 +176,10 @@ export default function EmprestimoDetalhe() {
 
   const textoCobranca = (() => {
     const key =
-      emprestimo.modalidade === "semanal"
-        ? parcelaParaCobrar?.isAtraso
+      parcelaParaCobrar?.isAtraso
+        ? emprestimo.modalidade === "semanal"
           ? "atraso_semanal"
-          : "cobranca_semanal"
-        : parcelaParaCobrar?.isAtraso
-        ? "atraso_mensal"
+          : "atraso_mensal"
         : "cobranca_mensal";
 
     const tpl = getMessageTemplate(key);
