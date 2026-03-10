@@ -145,7 +145,8 @@ export default function Emprestimos() {
     let lista = emprestimos;
 
     const isQuitadoOuRecebido = (e: Emprestimo) => {
-      if ((e as any)?.status === "quitado") return true;
+      const status = String((e as any)?.status ?? "").toLowerCase();
+      if (status === "quitado" || status === "arquivado") return true;
       const parcelas = Array.isArray((e as any).parcelasDb) ? (e as any).parcelasDb : [];
       if (parcelas.length > 0 && parcelas.every((p: any) => p?.pago === true)) return true;
       return false;
@@ -175,7 +176,8 @@ export default function Emprestimos() {
 
   const contadores = useMemo(() => {
     const isQuitadoOuRecebido = (e: Emprestimo) => {
-      if ((e as any)?.status === "quitado") return true;
+      const status = String((e as any)?.status ?? "").toLowerCase();
+      if (status === "quitado" || status === "arquivado") return true;
       const parcelas = Array.isArray((e as any).parcelasDb) ? (e as any).parcelasDb : [];
       return parcelas.length > 0 && parcelas.every((p: any) => p?.pago === true);
     };

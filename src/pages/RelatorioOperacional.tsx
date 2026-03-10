@@ -699,7 +699,7 @@ export default function RelatorioOperacional() {
   const emprestimosAtivos = useMemo(() => {
     return emprestimos.filter((e) => {
       const status = String((e as any).status ?? "").toLowerCase();
-      return status !== "cancelado";
+      return status !== "cancelado" && status !== "arquivado";
     });
   }, [emprestimos]);
 

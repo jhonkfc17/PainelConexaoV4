@@ -497,12 +497,14 @@ function getResumoGrupo(emprestimos: Emprestimo[], pagamentosMapa?: Record<strin
 function EmprestimoCardPasta({
   emprestimo,
   onRemover,
+  onMudarStatus,
   onPagar,
   onComprovante,
   pagamentosMapa,
 }: {
   emprestimo: Emprestimo;
   onRemover: (id: string) => void;
+  onMudarStatus: (id: string, status: Emprestimo["status"]) => void;
   onPagar?: (e: Emprestimo) => void;
   onComprovante?: (e: Emprestimo) => void;
   pagamentosMapa?: Record<string, PagamentoDb[]>;
@@ -528,6 +530,7 @@ function EmprestimoCardPasta({
   }, [emprestimo]);
   const status = useMemo(() => String((emprestimo as any).status ?? "").toLowerCase(), [emprestimo]);
   const isCancelado = status === "cancelado";
+  const isArquivado = status === "arquivado";
   const isAdiantado = status === "adiantado";
   const isQuitado = useMemo(() => {
     if (status === "quitado") return true;
@@ -539,14 +542,15 @@ function EmprestimoCardPasta({
     const abertas = todas.filter((p) => !p?.pago);
     return abertas.length === 0;
   }, [parcelas, status]);
+  const isOperacaoBloqueada = isQuitado || isCancelado || isArquivado;
 
   const visualTone: VisualTone = useMemo(() => {
-    if (isCancelado) return "muted";
+    if (isCancelado || isArquivado) return "muted";
     if (isQuitado) return "ok";
     if (status === "atrasado" || due === "atrasado") return "danger";
     if (isAdiantado) return "info";
     return "ok";
-  }, [due, isCancelado, isQuitado, isAdiantado, status]);
+  }, [due, isArquivado, isCancelado, isQuitado, isAdiantado, status]);
 
   const totalEmprestado = Number((emprestimo as any).valor ?? 0);
   // IMPORTANTÍSSIMO:
@@ -762,6 +766,10 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
               {isCancelado ? (
                 <span className="inline-flex items-center rounded-full border border-slate-500/30 bg-slate-500/15 px-2.5 py-1 text-[11px] text-slate-100">
                   Cancelado ⛔
+                </span>
+              ) : isArquivado ? (
+                <span className="inline-flex items-center rounded-full border border-slate-500/30 bg-slate-500/15 px-2.5 py-1 text-[11px] text-slate-100">
+                  Arquivado
                 </span>
               ) : isQuitado ? (
                 <span className="inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2.5 py-1 text-[11px] text-emerald-100">
@@ -1132,8 +1140,11 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
               <button
                 type="button"
                 onClick={() => abrirWhatsapp()}
+                disabled={isOperacaoBloqueada}
                 className={`w-full rounded-xl border px-4 py-2 text-sm font-semibold hover:bg-emerald-500/15 ${
-                  atraso.detalhe
+                  isOperacaoBloqueada
+                    ? "border-white/10 bg-white/5 text-white/30 cursor-not-allowed"
+                    : atraso.detalhe
                     ? "border-red-500/25 bg-red-500/10 text-red-100 hover:bg-red-500/15"
                     : "border-emerald-500/25 bg-emerald-500/10 text-emerald-100"
                 }`}
@@ -1148,10 +1159,10 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
             <button
               type="button"
               onClick={() => onPagar?.(emprestimo)}
-              disabled={isQuitado || isCancelado}
+              disabled={isOperacaoBloqueada}
               className={
                 "rounded-xl border px-3 py-2 text-sm font-semibold transition " +
-                (isQuitado || isCancelado
+                (isOperacaoBloqueada
                   ? "border-white/10 bg-white/5 text-white/30 cursor-not-allowed"
                   : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10")
               }
@@ -1163,10 +1174,10 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
             <button
               type="button"
               onClick={() => setRenegociarAberto(true)}
-              disabled={isQuitado || isCancelado}
+              disabled={isOperacaoBloqueada}
               className={
                 "rounded-xl border px-3 py-2 text-sm font-semibold transition " +
-                (isQuitado || isCancelado
+                (isOperacaoBloqueada
                   ? "border-white/10 bg-white/5 text-white/30 cursor-not-allowed"
                   : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10")
               }
@@ -1181,10 +1192,10 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
             <button
               type="button"
               onClick={() => setJurosCfgAberto(true)}
-              disabled={isQuitado || isCancelado}
+              disabled={isOperacaoBloqueada}
               className={
                 "rounded-xl border px-3 py-2 text-sm font-semibold transition " +
-                (isQuitado || isCancelado
+                (isOperacaoBloqueada
                   ? "border-white/10 bg-white/5 text-white/30 cursor-not-allowed"
                   : "border-sky-500/20 bg-sky-500/10 text-sky-100 hover:bg-sky-500/15")
               }
@@ -1194,10 +1205,10 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
             <button
               type="button"
               onClick={() => setMultaAberto(true)}
-              disabled={isQuitado || isCancelado}
+              disabled={isOperacaoBloqueada}
               className={
                 "rounded-xl border px-3 py-2 text-sm font-semibold transition " +
-                (isQuitado || isCancelado
+                (isOperacaoBloqueada
                   ? "border-white/10 bg-white/5 text-white/30 cursor-not-allowed"
                   : "border-amber-500/20 bg-amber-500/10 text-amber-100 hover:bg-amber-500/15")
               }
@@ -1240,6 +1251,21 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
               >
                 ↺
               </button>
+              {!isCancelado ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextStatus = (isArquivado ? "ativo" : "arquivado") as Emprestimo["status"];
+                    const actionLabel = isArquivado ? "desarquivar" : "arquivar";
+                    if (!confirm(`Deseja ${actionLabel} este empréstimo?`)) return;
+                    onMudarStatus((emprestimo as any).id, nextStatus);
+                  }}
+                  className="h-9 rounded-xl border border-slate-500/25 bg-slate-500/10 px-3 text-[11px] font-semibold text-slate-100 hover:bg-slate-500/15"
+                  title={isArquivado ? "Desarquivar empréstimo" : "Arquivar empréstimo"}
+                >
+                  {isArquivado ? "Ativar" : "Arquivar"}
+                </button>
+              ) : null}
             </div>
 
             <button
@@ -1404,16 +1430,36 @@ function PastaClienteCard({
 function EmprestimoLinhaLista({
   emprestimo,
   pagamentosMapa,
+  onMudarStatus,
   onPagar,
   onComprovante,
 }: {
   emprestimo: Emprestimo;
   pagamentosMapa?: Record<string, PagamentoDb[]>;
+  onMudarStatus: (id: string, status: Emprestimo["status"]) => void;
   onPagar?: (e: Emprestimo) => void;
   onComprovante?: (e: Emprestimo) => void;
 }) {
   const resumo = getResumoEmprestimo(emprestimo, pagamentosMapa);
-  const badge = dueBadge(resumo.due);
+  const status = String((emprestimo as any).status ?? "").toLowerCase();
+  const isCancelado = status === "cancelado";
+  const isArquivado = status === "arquivado";
+  const isAdiantado = status === "adiantado";
+  const isQuitado =
+    status === "quitado" ||
+    (Array.isArray((emprestimo as any).parcelasDb) &&
+      ((emprestimo as any).parcelasDb as any[]).length > 0 &&
+      ((emprestimo as any).parcelasDb as any[]).every((p: any) => p?.pago === true));
+  const isOperacaoBloqueada = isQuitado || isCancelado || isArquivado;
+  const badge = isCancelado
+    ? { text: "Cancelado", tone: "muted" as const }
+    : isArquivado
+      ? { text: "Arquivado", tone: "muted" as const }
+      : isQuitado
+        ? { text: "Quitado", tone: "ok" as const }
+        : isAdiantado
+          ? { text: "Adiantado", tone: "info" as const }
+          : dueBadge(resumo.due);
   const modalidade = String((emprestimo as any).modalidade ?? "emprestimo").replaceAll("_", " ").toUpperCase();
 
   return (
@@ -1470,9 +1516,24 @@ function EmprestimoLinhaLista({
             <button
               type="button"
               onClick={() => onPagar(emprestimo)}
-              className="rounded-lg bg-emerald-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-emerald-400"
+              disabled={isOperacaoBloqueada}
+              className={
+                "rounded-lg px-3 py-2 text-xs font-bold " +
+                (isOperacaoBloqueada
+                  ? "cursor-not-allowed border border-white/10 bg-white/5 text-white/30"
+                  : "bg-emerald-500 text-slate-950 hover:bg-emerald-400")
+              }
             >
               Pagar
+            </button>
+          ) : null}
+          {!isCancelado ? (
+            <button
+              type="button"
+              onClick={() => onMudarStatus((emprestimo as any).id, (isArquivado ? "ativo" : "arquivado") as Emprestimo["status"])}
+              className="rounded-lg border border-slate-500/25 bg-slate-500/10 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-slate-500/15"
+            >
+              {isArquivado ? "Desarquivar" : "Arquivar"}
             </button>
           ) : null}
         </div>
@@ -1556,6 +1617,7 @@ export default function EmprestimosLista({
   viewMode = "grid",
   lista,
   onRemover,
+  onMudarStatus,
   onPagar,
   onComprovante,
   pagamentosMapa,
@@ -1659,6 +1721,7 @@ export default function EmprestimosLista({
                 key={(e as any).id}
                 emprestimo={e}
                 pagamentosMapa={pagamentosMapaSafe}
+                onMudarStatus={onMudarStatus}
                 onPagar={onPagar}
                 onComprovante={onComprovante}
               />
@@ -1671,6 +1734,7 @@ export default function EmprestimosLista({
                 key={(e as any).id}
                 emprestimo={e}
                 onRemover={onRemover}
+                onMudarStatus={onMudarStatus}
                 onPagar={onPagar}
                 onComprovante={onComprovante}
                 pagamentosMapa={pagamentosMapaSafe}
@@ -1693,6 +1757,7 @@ export default function EmprestimosLista({
                 key={(e as any)?.id ?? g.key ?? `${g.clienteNome}-${idx}`}
                 emprestimo={e}
                 pagamentosMapa={pagamentosMapaSafe}
+                onMudarStatus={onMudarStatus}
                 onPagar={onPagar}
                 onComprovante={onComprovante}
               />
@@ -1724,6 +1789,7 @@ export default function EmprestimosLista({
               key={(e as any)?.id ?? g.key ?? `${g.clienteNome}-${idx}`}
               emprestimo={e}
               onRemover={onRemover}
+              onMudarStatus={onMudarStatus}
               onPagar={onPagar}
               onComprovante={onComprovante}
               pagamentosMapa={pagamentosMapaSafe}
