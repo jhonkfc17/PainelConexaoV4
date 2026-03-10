@@ -20,6 +20,9 @@ type PayoutFormState = {
   valor: string;
   paid_at: string;
   notes: string;
+  comprovante_data_url: string | null;
+  comprovante_nome: string;
+  comprovante_mime_type: string;
 };
 
 function brl(value: number): string {
@@ -50,6 +53,24 @@ function num(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("Falha ao ler o comprovante."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function downloadDataUrl(dataUrl: string, fileName: string) {
+  const link = document.createElement("a");
+  link.href = dataUrl;
+  link.download = fileName || "comprovante";
+  link.target = "_blank";
+  link.rel = "noreferrer";
+  link.click();
+}
+
 export default function CarteiraStaff() {
   const { isAdmin } = usePermissoes();
   const [loading, setLoading] = useState(true);
@@ -65,6 +86,9 @@ export default function CarteiraStaff() {
     valor: "",
     paid_at: todayISO(),
     notes: "",
+    comprovante_data_url: null,
+    comprovante_nome: "",
+    comprovante_mime_type: "",
   });
 
   const load = async () => {
@@ -171,6 +195,9 @@ export default function CarteiraStaff() {
       valor: "",
       paid_at: todayISO(),
       notes: "",
+      comprovante_data_url: null,
+      comprovante_nome: "",
+      comprovante_mime_type: "",
     });
     setError(null);
     setModalOpen(true);
@@ -183,6 +210,9 @@ export default function CarteiraStaff() {
       valor: String(payout.valor),
       paid_at: payout.paid_at,
       notes: payout.notes ?? "",
+      comprovante_data_url: payout.comprovante_data_url,
+      comprovante_nome: payout.comprovante_nome ?? "",
+      comprovante_mime_type: payout.comprovante_mime_type ?? "",
     });
     setError(null);
     setModalOpen(true);
@@ -227,6 +257,9 @@ export default function CarteiraStaff() {
           valor: amount,
           paid_at: form.paid_at,
           notes: form.notes,
+          comprovante_data_url: form.comprovante_data_url,
+          comprovante_nome: form.comprovante_nome || null,
+          comprovante_mime_type: form.comprovante_mime_type || null,
         });
       } else {
         await createStaffWalletPayout({
@@ -234,6 +267,9 @@ export default function CarteiraStaff() {
           valor: amount,
           paid_at: form.paid_at,
           notes: form.notes,
+          comprovante_data_url: form.comprovante_data_url,
+          comprovante_nome: form.comprovante_nome || null,
+          comprovante_mime_type: form.comprovante_mime_type || null,
         });
       }
 
@@ -262,6 +298,37 @@ export default function CarteiraStaff() {
       setError(e?.message ?? "Falha ao estornar repasse.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleReceiptChange = async (file: File | null) => {
+    try {
+      if (!file) {
+        setForm((current) => ({
+          ...current,
+          comprovante_data_url: null,
+          comprovante_nome: "",
+          comprovante_mime_type: "",
+        }));
+        return;
+      }
+
+      if (file.size > 4 * 1024 * 1024) {
+        setError("O comprovante deve ter no mÃ¡ximo 4MB.");
+        return;
+      }
+
+      const dataUrl = await fileToDataUrl(file);
+      setForm((current) => ({
+        ...current,
+        comprovante_data_url: dataUrl,
+        comprovante_nome: file.name,
+        comprovante_mime_type: file.type || "application/octet-stream",
+      }));
+      setError(null);
+    } catch (e: any) {
+      console.error(e);
+      setError(e?.message ?? "Falha ao anexar comprovante.");
     }
   };
 
@@ -505,11 +572,32 @@ export default function CarteiraStaff() {
                       <div className={`mt-1 font-semibold ${isVoided ? "text-red-200" : "text-white"}`}>
                         {isVoided ? "Estornado" : "Ativo"}
                       </div>
+                      {payout.comprovante_nome ? (
+                        <div className="mt-1 text-xs text-white/60">Comprovante: {payout.comprovante_nome}</div>
+                      ) : null}
                       {isVoided && payout.estornado_motivo ? (
                         <div className="mt-1 text-xs text-red-200/80">{payout.estornado_motivo}</div>
                       ) : null}
                     </div>
                     <div className="flex items-center justify-end gap-2">
+                      {payout.comprovante_data_url ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => window.open(payout.comprovante_data_url ?? "", "_blank", "noopener,noreferrer")}
+                            className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm text-sky-100 hover:bg-sky-500/20"
+                          >
+                            Ver comprovante
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => downloadDataUrl(payout.comprovante_data_url ?? "", payout.comprovante_nome ?? "comprovante")}
+                            className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white hover:bg-white/10"
+                          >
+                            Baixar
+                          </button>
+                        </>
+                      ) : null}
                       {isAdmin ? (
                         <>
                           <button
@@ -606,6 +694,35 @@ export default function CarteiraStaff() {
                   className="min-h-[96px] w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-white outline-none"
                   placeholder="Ex: repasse referente ao fechamento da semana"
                 />
+              </label>
+
+              <label className="block">
+                <div className="mb-1 text-sm text-white/70">Comprovante do repasse</div>
+                <input
+                  type="file"
+                  accept="image/*,application/pdf"
+                  onChange={(event) => void handleReceiptChange(event.target.files?.[0] ?? null)}
+                  className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-white outline-none file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-500 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-black"
+                />
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-white/60">
+                  <span>{form.comprovante_nome ? `Arquivo atual: ${form.comprovante_nome}` : "Aceita imagem ou PDF atÃ© 4MB."}</span>
+                  {form.comprovante_data_url ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setForm((current) => ({
+                          ...current,
+                          comprovante_data_url: null,
+                          comprovante_nome: "",
+                          comprovante_mime_type: "",
+                        }))
+                      }
+                      className="rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1 text-red-100 hover:bg-red-500/20"
+                    >
+                      Remover comprovante
+                    </button>
+                  ) : null}
+                </div>
               </label>
 
               <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm text-emerald-100">

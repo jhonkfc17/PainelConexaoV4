@@ -30,6 +30,9 @@ export type StaffWalletPayout = {
   estornado_em: string | null;
   estornado_por: string | null;
   estornado_motivo: string | null;
+  comprovante_data_url: string | null;
+  comprovante_nome: string | null;
+  comprovante_mime_type: string | null;
 };
 
 function num(value: unknown): number {
@@ -70,6 +73,9 @@ function mapPayout(row: any): StaffWalletPayout {
     estornado_em: row?.estornado_em ? String(row.estornado_em) : null,
     estornado_por: row?.estornado_por ? String(row.estornado_por) : null,
     estornado_motivo: row?.estornado_motivo ? String(row.estornado_motivo) : null,
+    comprovante_data_url: row?.comprovante_data_url ? String(row.comprovante_data_url) : null,
+    comprovante_nome: row?.comprovante_nome ? String(row.comprovante_nome) : null,
+    comprovante_mime_type: row?.comprovante_mime_type ? String(row.comprovante_mime_type) : null,
   };
 }
 
@@ -90,7 +96,7 @@ export async function listStaffWalletPayouts(): Promise<StaffWalletPayout[]> {
   const { data, error } = await supabase
     .from("staff_profit_payouts")
     .select(
-      "id, tenant_id, staff_member_id, staff_auth_user_id, valor, paid_at, notes, created_at, updated_at, created_by, estornado_em, estornado_por, estornado_motivo"
+      "id, tenant_id, staff_member_id, staff_auth_user_id, valor, paid_at, notes, created_at, updated_at, created_by, estornado_em, estornado_por, estornado_motivo, comprovante_data_url, comprovante_nome, comprovante_mime_type"
     )
     .order("paid_at", { ascending: false })
     .order("created_at", { ascending: false });
@@ -103,7 +109,7 @@ export async function listMyStaffWalletPayouts(): Promise<StaffWalletPayout[]> {
   const { data, error } = await supabase
     .from("staff_profit_payouts")
     .select(
-      "id, tenant_id, staff_member_id, staff_auth_user_id, valor, paid_at, notes, created_at, updated_at, created_by, estornado_em, estornado_por, estornado_motivo"
+      "id, tenant_id, staff_member_id, staff_auth_user_id, valor, paid_at, notes, created_at, updated_at, created_by, estornado_em, estornado_por, estornado_motivo, comprovante_data_url, comprovante_nome, comprovante_mime_type"
     )
     .order("paid_at", { ascending: false })
     .order("created_at", { ascending: false });
@@ -117,12 +123,18 @@ export async function createStaffWalletPayout(input: {
   valor: number;
   paid_at: string;
   notes?: string;
+  comprovante_data_url?: string | null;
+  comprovante_nome?: string | null;
+  comprovante_mime_type?: string | null;
 }) {
   const payload = {
     staff_member_id: input.staff_member_id,
     valor: num(input.valor),
     paid_at: input.paid_at,
     notes: input.notes?.trim() || null,
+    comprovante_data_url: input.comprovante_data_url || null,
+    comprovante_nome: input.comprovante_nome || null,
+    comprovante_mime_type: input.comprovante_mime_type || null,
   };
 
   const { data, error } = await supabase.from("staff_profit_payouts").insert(payload).select("*").single();
@@ -136,12 +148,18 @@ export async function updateStaffWalletPayout(input: {
   valor: number;
   paid_at: string;
   notes?: string;
+  comprovante_data_url?: string | null;
+  comprovante_nome?: string | null;
+  comprovante_mime_type?: string | null;
 }) {
   const payload = {
     staff_member_id: input.staff_member_id,
     valor: num(input.valor),
     paid_at: input.paid_at,
     notes: input.notes?.trim() || null,
+    comprovante_data_url: input.comprovante_data_url || null,
+    comprovante_nome: input.comprovante_nome || null,
+    comprovante_mime_type: input.comprovante_mime_type || null,
   };
 
   const { data, error } = await supabase
