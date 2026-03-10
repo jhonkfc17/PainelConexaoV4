@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useEmprestimosStore } from "../../store/useEmprestimosStore";
 import type { Emprestimo } from "../../store/useEmprestimosStore";
 import { SelectPremium } from "../ui/SelectPremium";
+import { getParcelaLabel } from "@/lib/parcelaLabel";
 
 type Props = {
   open: boolean;
@@ -179,7 +180,13 @@ export default function PagarParcelaModal({ open, emprestimo, onClose, onConfirm
                   className="rounded-xl border border-slate-700/60 bg-slate-950/60 px-3 py-2 text-sm"
                   options={pendentes.map((i) => ({
                     value: String(i),
-                    label: `Parcela ${i + 1} • Venc.: ${
+                    label: `${getParcelaLabel({
+                      numero: i + 1,
+                      descricao:
+                        Array.isArray((emprestimo as any)?.parcelasDb)
+                          ? String((((emprestimo as any).parcelasDb as any[]).find((p: any) => Number(p?.numero ?? 0) === i + 1)?.descricao ?? ""))
+                          : "",
+                    })} • Venc.: ${
                       (Array.isArray((emprestimo as any)?.parcelasDb)
                         ? ((emprestimo as any).parcelasDb as any[]).find((p: any) => Number(p?.numero ?? 0) === i + 1)?.vencimento
                         : null) ||

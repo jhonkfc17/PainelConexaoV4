@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import ModalBase from "../ui/ModalBase";
+import { gerarVencimentosParcelas } from "@/utils/datasCobranca";
 
 type Props = {
   open: boolean;
@@ -50,6 +51,54 @@ function calcSaldoRestante(parcela: any, multaValor: number) {
   const acumulado = Number(parcela?.valor_pago_acumulado ?? 0);
   const total = valorParcela + multaValor + juros + acrescimos;
   return Math.max(Number((total - acumulado).toFixed(2)), 0);
+}
+
+function mapModalidadeCronograma(modalidade: string): "mensal" | "quinzenal" | "semanal" | "diario" {
+  const m = String(modalidade ?? "").toLowerCase();
+  if (m.includes("diar")) return "diario";
+  if (m.includes("seman")) return "semanal";
+  if (m.includes("quin")) return "quinzenal";
+  return "mensal";
+}
+
+function buildParcelaMultaDescricao(parcelasRef: any[]) {
+  const refs = parcelasRef
+    .map((p) => Number(p?.numero ?? 0))
+    .filter((n) => n > 0)
+    .sort((a, b) => a - b);
+  if (refs.length === 0) return "multa";
+  if (refs.length === 1) return `multa ref pcl ${refs[0]}`;
+  return `multa ref pcl ${refs.join(", ")}`;
+}
+
+function nextParcelaVencimento(parcelas: any[], emprestimo: any, payload: any) {
+  const ordenadas = [...parcelas]
+    .filter((p) => String(p?.vencimento ?? "").trim())
+    .sort((a, b) => Number(a?.numero ?? 0) - Number(b?.numero ?? 0));
+
+  const ultima = ordenadas[ordenadas.length - 1];
+  const baseISO = String(ultima?.vencimento ?? todayISO());
+  const modalidade = mapModalidadeCronograma(String(emprestimo?.modalidade ?? payload?.modalidade ?? "parcelado_mensal"));
+  const cobrarSabado = payload?.cobrarSabado !== false;
+  const cobrarDomingo = payload?.cobrarDomingo !== false;
+  const cobrarFeriados = payload?.cobrarFeriados !== false;
+  const usarDiaFixoSemana = Boolean(payload?.usarDiaFixoSemana ?? payload?.usar_dia_fixo_semana ?? false);
+  const diaSemanaCobranca = Number(payload?.diaSemanaCobranca ?? payload?.dia_semana_cobranca ?? 1);
+
+  const cronograma = gerarVencimentosParcelas({
+    primeiraParcelaISO: baseISO,
+    numeroParcelas: 2,
+    cobrarSabado,
+    cobrarDomingo,
+    cobrarFeriados,
+    modalidade,
+    diaFixoSemana:
+      (modalidade === "semanal" || modalidade === "quinzenal") && usarDiaFixoSemana
+        ? diaSemanaCobranca
+        : undefined,
+  });
+
+  return cronograma[1] ?? cronograma[0] ?? baseISO;
 }
 
 export default function AplicarMultaModal({ open, onClose, onSaved, emprestimo }: Props) {
@@ -129,41 +178,76 @@ export default function AplicarMultaModal({ open, onClose, onSaved, emprestimo }
       if (existingCfg?.modo_cobranca === "final_emprestimo" && aplicacaoAnterior?.parcelaNumero && aplicacaoAnterior?.valorTotal) {
         const parcelaAnterior = parcelas.find((p: any) => Number(p?.numero ?? 0) === Number(aplicacaoAnterior.parcelaNumero));
         if (parcelaAnterior) {
-          const multaSemTransferenciaAnterior = Math.max(
-            0,
-            Number((Number(parcelaAnterior?.multa_valor ?? 0) - Number(aplicacaoAnterior.valorTotal ?? 0)).toFixed(2))
-          );
-          scheduleUpdate(
-            parcelaAnterior,
-            multaSemTransferenciaAnterior,
-            multaSemTransferenciaAnterior > 0 ? String(parcelaAnterior?.multa_tipo ?? tipoDb) : null,
-            multaSemTransferenciaAnterior > 0 ? hoje : null
-          );
-          parcelaAnterior.multa_valor = multaSemTransferenciaAnterior;
+          if (aplicacaoAnterior?.created_extra) {
+            if (parcelaAnterior?.pago) {
+              throw new Error("A parcela de multa final já foi paga. Não é possível recriar automaticamente.");
+            }
+            const { error: errDelExtra } = await supabase
+              .from("parcelas")
+              .delete()
+              .eq("emprestimo_id", emprestimo.id)
+              .eq("numero", Number(aplicacaoAnterior.parcelaNumero));
+            if (errDelExtra) throw errDelExtra;
+            const idx = parcelas.findIndex((p: any) => Number(p?.numero ?? 0) === Number(aplicacaoAnterior.parcelaNumero));
+            if (idx >= 0) parcelas.splice(idx, 1);
+          } else {
+            const multaSemTransferenciaAnterior = Math.max(
+              0,
+              Number((Number(parcelaAnterior?.multa_valor ?? 0) - Number(aplicacaoAnterior.valorTotal ?? 0)).toFixed(2))
+            );
+            scheduleUpdate(
+              parcelaAnterior,
+              multaSemTransferenciaAnterior,
+              multaSemTransferenciaAnterior > 0 ? String(parcelaAnterior?.multa_tipo ?? tipoDb) : null,
+              multaSemTransferenciaAnterior > 0 ? hoje : null
+            );
+            parcelaAnterior.multa_valor = multaSemTransferenciaAnterior;
+          }
         }
       }
 
-      let aplicacaoFinal: { parcelaNumero: number; valorTotal: number } | null = null;
+      let aplicacaoFinal: { parcelaNumero: number; valorTotal: number; vencimento: string; descricao: string; created_extra: boolean } | null = null;
+      let parcelaExtraCriada: any | null = null;
 
       if (modoCobranca === "final_emprestimo") {
-        const parcelaFinal = [...abertas].sort((a: any, b: any) => Number(b?.numero ?? 0) - Number(a?.numero ?? 0))[0];
-        if (!parcelaFinal) throw new Error("Não existe parcela em aberto para lançar a multa final.");
-
         const totalMulta = alvoParcelas.reduce((acc: number, p: any) => {
           return acc + calcMultaValor({ parcela: p, hoje, tipoDb, valorConfigurado: vCfg });
         }, 0);
+        const totalMultaNormalizado = Math.max(0, Number(totalMulta.toFixed(2)));
+        if (!(totalMultaNormalizado > 0)) throw new Error("O valor total da multa precisa ser maior que zero.");
 
         for (const parcela of alvoParcelas) {
-          if (Number(parcela?.numero ?? 0) === Number(parcelaFinal?.numero ?? 0)) continue;
           scheduleUpdate(parcela, 0, null, null);
         }
 
-        const multaBaseFinal = Math.max(0, Number(parcelaFinal?.multa_valor ?? 0));
-        const totalFinal = Math.max(0, Number((multaBaseFinal + totalMulta).toFixed(2)));
-        scheduleUpdate(parcelaFinal, totalFinal, `${tipoDb}_final`, hoje);
+        const proximoNumero =
+          parcelas.reduce((max: number, p: any) => Math.max(max, Number(p?.numero ?? 0)), 0) + 1;
+        const proximoVencimento = nextParcelaVencimento(parcelas, emprestimo, payload);
+        const descricao = buildParcelaMultaDescricao(alvoParcelas);
+        parcelaExtraCriada = {
+          emprestimo_id: emprestimo.id,
+          numero: proximoNumero,
+          descricao,
+          referencia_parcela_numero:
+            alvo === "parcela" && alvoParcelas.length === 1 ? Number(alvoParcelas[0]?.numero ?? 0) : null,
+          vencimento: proximoVencimento,
+          valor: totalMultaNormalizado,
+          pago: false,
+          valor_pago: 0,
+          valor_pago_acumulado: 0,
+          juros_atraso: 0,
+          multa_valor: 0,
+          acrescimos: 0,
+          saldo_restante: totalMultaNormalizado,
+          pago_em: null,
+        };
+
         aplicacaoFinal = {
-          parcelaNumero: Number(parcelaFinal?.numero ?? 0),
-          valorTotal: Math.max(0, Number(totalMulta.toFixed(2))),
+          parcelaNumero: proximoNumero,
+          valorTotal: totalMultaNormalizado,
+          vencimento: proximoVencimento,
+          descricao,
+          created_extra: true,
         };
       } else {
         for (const parcela of alvoParcelas) {
@@ -171,6 +255,30 @@ export default function AplicarMultaModal({ open, onClose, onSaved, emprestimo }
           scheduleUpdate(parcela, multaCalc, tipoDb, hoje);
         }
       }
+
+      const parcelasAtualizadas = parcelas
+        .map((parcela: any) => {
+          const patch = updates.get(Number(parcela?.numero ?? 0));
+          return patch ? { ...parcela, ...patch } : parcela;
+        })
+        .filter(Boolean);
+
+      if (parcelaExtraCriada) {
+        const { error: errInsExtra } = await supabase.from("parcelas").insert(parcelaExtraCriada);
+        if (errInsExtra) throw errInsExtra;
+        parcelasAtualizadas.push(parcelaExtraCriada);
+      }
+
+      const ordenadasFinal = [...parcelasAtualizadas].sort((a: any, b: any) => Number(a?.numero ?? 0) - Number(b?.numero ?? 0));
+      const totalReceberAtualizado = ordenadasFinal.reduce(
+        (acc: number, parcela: any) =>
+          acc +
+          Number(parcela?.valor ?? 0) +
+          Number(parcela?.multa_valor ?? 0) +
+          Number(parcela?.juros_atraso ?? 0) +
+          Number(parcela?.acrescimos ?? 0),
+        0
+      );
 
       const cfg = {
         tipo,
@@ -182,13 +290,15 @@ export default function AplicarMultaModal({ open, onClose, onSaved, emprestimo }
       };
 
       const payloadAtual = (emprestimo?.payload ?? {}) as any;
-      const payloadNovo = { ...payloadAtual, multa_config: cfg };
-
-      const { error: errEmp } = await supabase
-        .from("emprestimos")
-        .update({ payload: payloadNovo })
-        .eq("id", emprestimo.id);
-      if (errEmp) throw errEmp;
+      const payloadNovo = {
+        ...payloadAtual,
+        multa_config: cfg,
+        parcelas: ordenadasFinal.length,
+        numeroParcelas: ordenadasFinal.length,
+        vencimentos: ordenadasFinal.map((parcela: any) => String(parcela?.vencimento ?? "")).filter(Boolean),
+        totalReceber: Number(totalReceberAtualizado.toFixed(2)),
+        total_receber: Number(totalReceberAtualizado.toFixed(2)),
+      };
 
       await Promise.all(
         Array.from(updates.entries()).map(async ([numero, update]) => {
@@ -200,6 +310,12 @@ export default function AplicarMultaModal({ open, onClose, onSaved, emprestimo }
           if (errUp) throw errUp;
         })
       );
+
+      const { error: errEmp } = await supabase
+        .from("emprestimos")
+        .update({ payload: payloadNovo })
+        .eq("id", emprestimo.id);
+      if (errEmp) throw errEmp;
 
       onSaved?.();
       onClose();

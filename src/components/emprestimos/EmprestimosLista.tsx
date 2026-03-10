@@ -11,6 +11,7 @@ import { useEmprestimosStore } from "../../store/useEmprestimosStore";
 import { fillTemplate, getMessageTemplate } from "@/lib/messageTemplates";
 import { supabase } from "@/lib/supabaseClient";
 import { buildWhatsAppWebUrl, sendWhatsAppFromPanel } from "@/services/whatsappDispatch";
+import { getParcelaLabel } from "@/lib/parcelaLabel";
 
 type Props = {
   viewMode?: "grid" | "list";
@@ -333,6 +334,7 @@ function calcularMultaEstimado(e: Emprestimo) {
   const payload = ((e as any).payload ?? {}) as any;
   const cfg = payload?.multa_config as any;
   if (!cfg?.tipo || !cfg?.valor) return { total: 0, detalhe: null as null | any };
+  if (String(cfg?.modo_cobranca ?? "") === "final_emprestimo") return { total: 0, detalhe: null as null | any };
 
   const tipo = String(cfg.tipo);
   const valor = Number(cfg.valor || 0);
@@ -1067,7 +1069,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
                   return (
                     <div key={`${String((p as any)?.id ?? idx)}-${numero}`} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
                       <div className="min-w-0">
-                        <div className="text-[12px] font-semibold text-white/90">Parcela {numero}/{total}</div>
+                        <div className="text-[12px] font-semibold text-white/90">{getParcelaLabel({ numero, descricao: String(p?.descricao ?? "") })}/{total}</div>
                         <div className="mt-0.5 text-[11px] text-white/60">{brl(valorP)} • {fmtShort(venc)}</div>
                       </div>
                       <span className={`shrink-0 rounded-full border px-3 py-1 text-[11px] font-semibold ${statusParcela.tone}`}>{statusParcela.text}</span>

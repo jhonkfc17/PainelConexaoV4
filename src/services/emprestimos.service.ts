@@ -53,6 +53,8 @@ export type ParcelaDb = {
   id: string;
   emprestimo_id: string;
   numero?: number | null;
+  descricao?: string | null;
+  referencia_parcela_numero?: number | null;
   valor: number | null;
   vencimento: string | null;
   pago: boolean | null;
@@ -306,6 +308,8 @@ async function listEmprestimosFallback(userId: string) {
           id,
           emprestimo_id,
           numero,
+          descricao,
+          referencia_parcela_numero,
           valor,
           vencimento,
           pago,
@@ -362,6 +366,8 @@ async function listEmprestimosFallback(userId: string) {
             id,
             emprestimo_id,
             numero,
+            descricao,
+            referencia_parcela_numero,
             valor,
             vencimento,
             pago,
@@ -423,6 +429,8 @@ export async function listEmprestimosByCliente(clienteId: string) {
           id,
           emprestimo_id,
           numero,
+          descricao,
+          referencia_parcela_numero,
           valor,
           vencimento,
           pago,
@@ -480,6 +488,8 @@ export async function listEmprestimosByCliente(clienteId: string) {
               id,
               emprestimo_id,
               numero,
+              descricao,
+              referencia_parcela_numero,
               valor,
               vencimento,
               pago,
@@ -569,6 +579,8 @@ export async function getEmprestimoById(emprestimoId: string) {
           id,
           emprestimo_id,
           numero,
+          descricao,
+          referencia_parcela_numero,
           valor,
           vencimento,
           pago,
@@ -623,6 +635,8 @@ export async function getEmprestimoById(emprestimoId: string) {
         id,
         emprestimo_id,
         numero,
+        descricao,
+        referencia_parcela_numero,
         valor,
         vencimento,
         pago,

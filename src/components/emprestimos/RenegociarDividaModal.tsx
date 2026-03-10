@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import { useEmprestimosStore } from "@/store/useEmprestimosStore";
 import type { PagamentoTipo } from "@/services/emprestimos.service";
+import { getParcelaLabel } from "@/lib/parcelaLabel";
 
 type Props = {
   open: boolean;
@@ -518,7 +519,7 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
                         }
                       >
                         <div className="min-w-0">
-                          <div className="text-sm text-white font-medium">Parcela {p.numero}/{parcelasTotal || "-"}</div>
+                          <div className="text-sm text-white font-medium">{getParcelaLabel({ numero: p.numero, descricao: (p as any).descricao })}/{parcelasTotal || "-"}</div>
                           <div className="text-xs text-white/50 truncate">{p.vencimento || "-"}</div>
                         </div>
                         <div className="text-right">

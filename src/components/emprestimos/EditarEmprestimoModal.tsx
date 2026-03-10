@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import type { Emprestimo } from "@/store/useEmprestimosStore";
+import { getParcelaLabel } from "@/lib/parcelaLabel";
 
 type Props = {
   open: boolean;
@@ -12,6 +13,7 @@ type Props = {
 type ParcelaEditable = {
   id: string;
   numero: number;
+  descricao?: string;
   valor: number;
   vencimento: string;
 };
@@ -27,6 +29,7 @@ export default function EditarEmprestimoModal({ open, emprestimo, onClose, onSav
       .map((p) => ({
         id: String(p.id ?? ""),
         numero: Number(p.numero ?? 0),
+        descricao: String((p as any).descricao ?? ""),
         valor: Number(p.valor ?? 0),
         vencimento: String(p.vencimento ?? ""),
       }))
@@ -117,7 +120,7 @@ export default function EditarEmprestimoModal({ open, emprestimo, onClose, onSav
                   key={p.id}
                   className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 flex items-center gap-3 text-sm text-white/80"
                 >
-                  <div className="w-24 font-semibold text-white">Parcela {p.numero}</div>
+                  <div className="w-40 font-semibold text-white">{getParcelaLabel({ numero: p.numero, descricao: p.descricao })}</div>
                   <div className="flex-1">
                     <label className="text-[11px] uppercase tracking-wide text-white/60">Vencimento</label>
                     <input

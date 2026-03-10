@@ -575,7 +575,7 @@ stopRealtime:
             const sel = await supabase
               .from("parcelas")
               .select(
-                "id, emprestimo_id, numero, valor, vencimento, pago, valor_pago, valor_pago_acumulado, juros_atraso, multa_valor, acrescimos, saldo_restante, pago_em, created_at, updated_at"
+                "id, emprestimo_id, numero, descricao, referencia_parcela_numero, valor, vencimento, pago, valor_pago, valor_pago_acumulado, juros_atraso, multa_valor, acrescimos, saldo_restante, pago_em, created_at, updated_at"
               )
               .eq("emprestimo_id", e.id)
               .order("numero", { ascending: true });
@@ -691,6 +691,8 @@ stopRealtime:
             id,
             emprestimo_id,
             numero,
+            descricao,
+            referencia_parcela_numero,
             valor,
             vencimento,
             pago,

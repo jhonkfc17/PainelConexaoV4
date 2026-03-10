@@ -7,6 +7,7 @@ import { useEmprestimosStore } from "../store/useEmprestimosStore";
 import type { Emprestimo } from "@/store/useEmprestimosStore";
 import { fillTemplate, getMessageTemplate } from "../lib/messageTemplates";
 import { sendWhatsAppFromPanel } from "../services/whatsappDispatch";
+import { getParcelaLabel } from "@/lib/parcelaLabel";
 
 function brl(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -309,7 +310,7 @@ export default function EmprestimoDetalhe() {
               <div key={idx} className="rounded-xl border border-white/10 bg-black/20 p-3 flex items-center justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold">
-                    Parcela {p.numero}/{emprestimo.numeroParcelas} • {brl(p.valor)}
+                    {getParcelaLabel({ numero: p.numero, descricao: (p as any).descricao })}/{emprestimo.numeroParcelas} • {brl(p.valor)}
                   </div>
                   <div className="text-xs text-white/50">Vencimento: {p.vencimento}</div>
                   {!p.pago && (p.saldo_restante > 0 || p.valor_pago_acumulado > 0) ? (

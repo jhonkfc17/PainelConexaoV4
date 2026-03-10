@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useEmprestimosStore } from "@/store/useEmprestimosStore";
 import type { PagamentoTipo } from "@/services/emprestimos.service";
+import { getParcelaLabel } from "@/lib/parcelaLabel";
 
 type Props = {
   open: boolean;
@@ -70,6 +71,7 @@ function normalizeParcela(row: any, i: number) {
   return {
     id: String(row?.id ?? ""),
     numero: Number(row?.numero ?? i + 1),
+    descricao: String(row?.descricao ?? ""),
     valor: Number(row?.valor ?? 0),
     pago: Boolean(row?.pago),
     vencimento: String(row?.vencimento ?? ""),
@@ -449,7 +451,7 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
                         }
                       >
                         <div className="min-w-0">
-                          <div className="text-sm text-white font-medium">Parcela {p.numero}/{parcelasTotal || "-"}</div>
+                          <div className="text-sm text-white font-medium">{getParcelaLabel({ numero: p.numero, descricao: p.descricao })}/{parcelasTotal || "-"}</div>
                           <div className="text-xs text-white/50 truncate">{p.vencimento || "-"}</div>
                         </div>
                         <div className="text-right">
