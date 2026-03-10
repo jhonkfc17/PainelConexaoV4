@@ -82,34 +82,53 @@ function normalizeParcela(row: any, i: number) {
 }
 
 function saldoDaParcela(p: ReturnType<typeof normalizeParcela>) {
-  const saldo = Number(p.saldo_restante ?? 0);
-  if (saldo > 0) return saldo;
   const acumulado = Number(p.valor_pago_acumulado ?? 0);
-  if (acumulado > 0) return Math.max(Number(p.valor ?? 0) - acumulado, 0);
-  if (!p.pago) return Number(p.valor ?? 0);
-  return 0;
+  const pendenteCalculado = Math.max(
+    0,
+    Number(p.valor ?? 0) +
+      Number(p.multa_valor ?? 0) +
+      Number(p.juros_atraso ?? 0) +
+      Number(p.acrescimos ?? 0) -
+      Math.max(0, acumulado)
+  );
+  const saldoRestante = p.saldo_restante;
+  const saldoRestanteNum =
+    saldoRestante === null || saldoRestante === undefined
+      ? null
+      : Number(saldoRestante);
+
+  if (p.pago) return 0;
+  if (acumulado > 0) return pendenteCalculado;
+  if (pendenteCalculado > 0) return pendenteCalculado;
+  if (saldoRestanteNum !== null && Number.isFinite(saldoRestanteNum)) {
+    return Math.max(0, saldoRestanteNum);
+  }
+  return pendenteCalculado;
+}
+
+function jurosExtraDaParcela(emprestimo: any, p: ReturnType<typeof normalizeParcela>, dataPagamentoISO: string) {
+  const jurosCalculado = calcJurosAtraso(emprestimo, p, dataPagamentoISO);
+  const jurosJaAplicado = Number(p.juros_atraso ?? 0);
+  return Math.max(jurosCalculado - jurosJaAplicado, 0);
 }
 
 function totalDaParcela(emprestimo: any, p: ReturnType<typeof normalizeParcela>, dataPagamentoISO: string) {
-  const principal = saldoDaParcela(p);
-  const multa = Number((p as any).multa_valor ?? 0);
-  const acrescimos = Number((p as any).acrescimos ?? 0);
-
-  // juros de atraso calculado na data do pagamento (fonte: config do empréstimo)
-  const jurosCalc = calcJurosAtraso(emprestimo, p, dataPagamentoISO);
-
-  return Math.max(principal + multa + acrescimos + jurosCalc, 0);
+  return Math.max(saldoDaParcela(p) + jurosExtraDaParcela(emprestimo, p, dataPagamentoISO), 0);
 }
 
 function diferencaSobreEmprestado(emprestimo: any, p: ReturnType<typeof normalizeParcela>) {
   const valorEmprestado = Number(emprestimo?.valor ?? 0);
   if (!(valorEmprestado > 0)) return 0;
-  const saldoPrincipal = saldoDaParcela(p);
-  return Math.max(saldoPrincipal - valorEmprestado, 0);
+  const saldoContratual =
+    saldoDaParcela(p) -
+    Math.max(0, Number(p.multa_valor ?? 0)) -
+    Math.max(0, Number(p.juros_atraso ?? 0)) -
+    Math.max(0, Number(p.acrescimos ?? 0));
+  return Math.max(saldoContratual - valorEmprestado, 0);
 }
 
 function composicaoJurosPagar(emprestimo: any, p: ReturnType<typeof normalizeParcela>, dataPagamentoISO: string) {
-  const jurosAtraso = calcJurosAtraso(emprestimo, p, dataPagamentoISO);
+  const jurosAtraso = jurosExtraDaParcela(emprestimo, p, dataPagamentoISO);
   const multaAplicada = Math.max(0, Number((p as any).multa_valor ?? 0));
   const diferencaEmprestado = diferencaSobreEmprestado(emprestimo, p);
   const limiteParcela = totalDaParcela(emprestimo, p, dataPagamentoISO);
@@ -244,16 +263,16 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
 
       if (tab === "PARCELA") {
         for (const p of parcelasSelecionadas) {
-          const juros = calcJurosAtraso(emprestimo, p, dataPagamento);
-          const v = Math.max(saldoDaParcela(p) + Number((p as any).multa_valor ?? 0) + Number((p as any).acrescimos ?? 0) + juros, 0);
-          if (v <= 0) continue;
+          const valorBase = saldoDaParcela(p);
+          const jurosExtra = jurosExtraDaParcela(emprestimo, p, dataPagamento);
+          if (valorBase + jurosExtra <= 0) continue;
           await registrarPagamento({
             emprestimoId: emprestimo.id,
             tipo: "PARCELA_INTEGRAL" as PagamentoTipo,
             dataPagamento,
-            valor: v,
+            valor: valorBase,
             parcelaNumero: p.numero,
-            jurosAtraso: juros,
+            jurosAtraso: jurosExtra,
             flags: { origem: "ui_registrar_pagamento_modal", modo: "PARCELA" },
           });
         }
@@ -268,13 +287,18 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
         if (saldo <= 0) return alert("Esta parcela não possui saldo pendente.");
         if (valor > saldo) return alert("O valor não pode ser maior que o saldo pendente.");
 
+        const jurosExtra = jurosExtraDaParcela(emprestimo, p, dataPagamento);
+        const valorBase = saldoDaParcela(p);
+        const valorRegistrado = MODO_JUROS ? valor : Math.min(valor, valorBase);
+        const jurosRegistrado = MODO_JUROS ? 0 : Math.min(jurosExtra, Math.max(valor - valorRegistrado, 0));
+
         await registrarPagamento({
           emprestimoId: emprestimo.id,
           tipo: (MODO_JUROS ? "JUROS" : adiantamento ? "ADIANTAMENTO_MANUAL" : "SALDO_PARCIAL") as PagamentoTipo,
           dataPagamento,
-          valor,
+          valor: valorRegistrado,
           parcelaNumero: p.numero,
-          jurosAtraso: MODO_JUROS ? Number(compJuros?.jurosAtraso ?? 0) : calcJurosAtraso(emprestimo, p, dataPagamento),
+          jurosAtraso: MODO_JUROS ? 0 : jurosRegistrado,
           flags: {
             eh_pagamento_juros: MODO_JUROS || undefined,
             origem: "ui_registrar_pagamento_modal",
@@ -317,9 +341,9 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
           emprestimoId: emprestimo.id,
           tipo: "QUITACAO_TOTAL" as PagamentoTipo,
           dataPagamento,
-          valor: totalQuitar,
+          valor: parcelasAbertas.reduce((acc, par) => acc + saldoDaParcela(par), 0),
           parcelaNumero: null,
-          jurosAtraso: parcelasAbertas.reduce((acc: number, par: any) => acc + calcJurosAtraso(emprestimo, par, dataPagamento), 0),
+          jurosAtraso: parcelasAbertas.reduce((acc: number, par: any) => acc + jurosExtraDaParcela(emprestimo, par, dataPagamento), 0),
           flags: { origem: "ui_registrar_pagamento_modal", modo: "TOTAL" },
         });
       }
@@ -342,7 +366,7 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
             dataPagamento,
             valor: aplicar,
             parcelaNumero: p.numero,
-            jurosAtraso: calcJurosAtraso(emprestimo, p, dataPagamento),
+            jurosAtraso: jurosExtraDaParcela(emprestimo, p, dataPagamento),
             flags: { origem: "ui_registrar_pagamento_modal", modo: "DESCONTO" },
           });
         }
