@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import ModalBase from "../ui/ModalBase";
 
@@ -23,6 +23,35 @@ function daysDiffISO(aISO: string, bISO: string) {
   return Math.floor((a.getTime() - b.getTime()) / (1000 * 60 * 60 * 24));
 }
 
+function calcMultaValor(args: {
+  parcela: any;
+  hoje: string;
+  tipoDb: string;
+  valorConfigurado: number;
+}) {
+  const { parcela, hoje, tipoDb, valorConfigurado } = args;
+  const venc = String(parcela?.vencimento ?? "");
+  const dias = Math.max(0, daysDiffISO(hoje, venc));
+  const valorParcela = Number(parcela?.valor ?? 0);
+
+  let multaCalc = 0;
+  if (!valorConfigurado) multaCalc = 0;
+  else if (tipoDb === "fixo_unico") multaCalc = valorConfigurado;
+  else if (tipoDb === "percentual_por_dia") multaCalc = valorParcela * (valorConfigurado / 100) * dias;
+  else multaCalc = valorConfigurado * dias;
+
+  return Math.max(0, Number(multaCalc.toFixed(2)));
+}
+
+function calcSaldoRestante(parcela: any, multaValor: number) {
+  const valorParcela = Number(parcela?.valor ?? 0);
+  const juros = Number(parcela?.juros_atraso ?? 0);
+  const acrescimos = Number(parcela?.acrescimos ?? 0);
+  const acumulado = Number(parcela?.valor_pago_acumulado ?? 0);
+  const total = valorParcela + multaValor + juros + acrescimos;
+  return Math.max(Number((total - acumulado).toFixed(2)), 0);
+}
+
 export default function AplicarMultaModal({ open, onClose, onSaved, emprestimo }: Props) {
   const payload = (emprestimo?.payload ?? {}) as any;
   const existingCfg = payload?.multa_config as any;
@@ -31,48 +60,47 @@ export default function AplicarMultaModal({ open, onClose, onSaved, emprestimo }
   const [valor, setValor] = useState<number>(Number(existingCfg?.valor ?? 0));
   const [alvo, setAlvo] = useState<string>(existingCfg?.alvo ?? "todas_atrasadas");
   const [parcelaNumero, setParcelaNumero] = useState<number>(Number(existingCfg?.parcelaNumero ?? 1));
+  const [modoCobranca, setModoCobranca] = useState<string>(existingCfg?.modo_cobranca ?? "imediato");
   const [salvando, setSalvando] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setTipo(existingCfg?.tipo ?? "fixo_unico_parcela");
+    setValor(Number(existingCfg?.valor ?? 0));
+    setAlvo(existingCfg?.alvo ?? "todas_atrasadas");
+    setParcelaNumero(Number(existingCfg?.parcelaNumero ?? 1));
+    setModoCobranca(existingCfg?.modo_cobranca ?? "imediato");
+  }, [existingCfg, open]);
 
   const preview = useMemo(() => {
     const v = Number(valor || 0);
     if (!v) return "Informe um valor para ver a prévia";
-    if (tipo === "fixo_unico_parcela") return `Multa fixa de R$ ${v.toFixed(2)} por parcela selecionada.`;
-    if (tipo === "percentual_por_dia") return `Multa de ${v}% ao dia sobre o valor da parcela (somente em atraso).`;
-    return `Multa de R$ ${v.toFixed(2)} por dia de atraso (somente em atraso).`;
-  }, [tipo, valor]);
+    const sufixo =
+      modoCobranca === "final_emprestimo"
+        ? " O total calculado será somado à última parcela em aberto."
+        : " A cobrança ficará nas parcelas em atraso.";
+    if (tipo === "fixo_unico_parcela") return `Multa fixa de R$ ${v.toFixed(2)} por parcela selecionada.${sufixo}`;
+    if (tipo === "percentual_por_dia") return `Multa de ${v}% ao dia sobre o valor da parcela.${sufixo}`;
+    return `Multa de R$ ${v.toFixed(2)} por dia de atraso.${sufixo}`;
+  }, [modoCobranca, tipo, valor]);
 
   async function aplicar() {
     if (!emprestimo?.id) return;
 
     setSalvando(true);
     try {
-      const cfg = {
-        tipo,
-        valor: Number(valor || 0),
-        alvo,
-        parcelaNumero: alvo === "parcela" ? Number(parcelaNumero || 0) : null,
-      };
-
-      // 1) salva config no payload do empréstimo
-      const payloadAtual = (emprestimo?.payload ?? {}) as any;
-      const payloadNovo = { ...payloadAtual, multa_config: cfg };
-
-      const { error: errEmp } = await supabase
-        .from("emprestimos")
-        .update({ payload: payloadNovo })
-        .eq("id", emprestimo.id);
-      if (errEmp) throw errEmp;
-
-      // 2) aplica multa diretamente nas parcelas atrasadas (para refletir saldo_restante)
       const hoje = todayISO();
+      const tipoDb = tipo === "fixo_unico_parcela" ? "fixo_unico" : tipo === "percentual_por_dia" ? "percentual_por_dia" : "valor_por_dia";
+      const vCfg = Number(valor || 0);
 
       const { data: parcelasDb, error: errParc } = await supabase
         .from("parcelas")
-        .select("id, numero, vencimento, valor, pago, valor_pago_acumulado, juros_atraso, acrescimos")
+        .select("id, numero, vencimento, valor, pago, valor_pago_acumulado, juros_atraso, acrescimos, multa_valor, multa_tipo")
         .eq("emprestimo_id", emprestimo.id);
       if (errParc) throw errParc;
 
-      const abertas = (parcelasDb ?? []).filter((p: any) => !p?.pago);
+      const parcelas = [...(parcelasDb ?? [])];
+      const abertas = parcelas.filter((p: any) => !p?.pago);
       const atrasadas = abertas
         .filter((p: any) => String(p?.vencimento ?? "") < hoje)
         .sort((a: any, b: any) => String(a?.vencimento ?? "").localeCompare(String(b?.vencimento ?? "")));
@@ -82,40 +110,93 @@ export default function AplicarMultaModal({ open, onClose, onSaved, emprestimo }
           ? atrasadas.filter((p: any) => Number(p?.numero ?? 0) === Number(parcelaNumero || 0))
           : atrasadas;
 
-      const tipoDb = tipo === "fixo_unico_parcela" ? "fixo_unico" : tipo === "percentual_por_dia" ? "percentual_por_dia" : "valor_por_dia";
-      const vCfg = Number(valor || 0);
+      if (alvoParcelas.length === 0) {
+        throw new Error("Nenhuma parcela em atraso encontrada para aplicar a multa.");
+      }
+
+      const updates = new Map<number, Record<string, any>>();
+
+      const scheduleUpdate = (parcela: any, multaValor: number, multaTipo: string | null, multaAplicadaEm: string | null) => {
+        updates.set(Number(parcela?.numero ?? 0), {
+          multa_tipo: multaTipo,
+          multa_valor: multaValor,
+          multa_aplicada_em: multaAplicadaEm,
+          saldo_restante: calcSaldoRestante(parcela, multaValor),
+        });
+      };
+
+      const aplicacaoAnterior = existingCfg?.aplicacao_final as any;
+      if (existingCfg?.modo_cobranca === "final_emprestimo" && aplicacaoAnterior?.parcelaNumero && aplicacaoAnterior?.valorTotal) {
+        const parcelaAnterior = parcelas.find((p: any) => Number(p?.numero ?? 0) === Number(aplicacaoAnterior.parcelaNumero));
+        if (parcelaAnterior) {
+          const multaSemTransferenciaAnterior = Math.max(
+            0,
+            Number((Number(parcelaAnterior?.multa_valor ?? 0) - Number(aplicacaoAnterior.valorTotal ?? 0)).toFixed(2))
+          );
+          scheduleUpdate(
+            parcelaAnterior,
+            multaSemTransferenciaAnterior,
+            multaSemTransferenciaAnterior > 0 ? String(parcelaAnterior?.multa_tipo ?? tipoDb) : null,
+            multaSemTransferenciaAnterior > 0 ? hoje : null
+          );
+          parcelaAnterior.multa_valor = multaSemTransferenciaAnterior;
+        }
+      }
+
+      let aplicacaoFinal: { parcelaNumero: number; valorTotal: number } | null = null;
+
+      if (modoCobranca === "final_emprestimo") {
+        const parcelaFinal = [...abertas].sort((a: any, b: any) => Number(b?.numero ?? 0) - Number(a?.numero ?? 0))[0];
+        if (!parcelaFinal) throw new Error("Não existe parcela em aberto para lançar a multa final.");
+
+        const totalMulta = alvoParcelas.reduce((acc: number, p: any) => {
+          return acc + calcMultaValor({ parcela: p, hoje, tipoDb, valorConfigurado: vCfg });
+        }, 0);
+
+        for (const parcela of alvoParcelas) {
+          if (Number(parcela?.numero ?? 0) === Number(parcelaFinal?.numero ?? 0)) continue;
+          scheduleUpdate(parcela, 0, null, null);
+        }
+
+        const multaBaseFinal = Math.max(0, Number(parcelaFinal?.multa_valor ?? 0));
+        const totalFinal = Math.max(0, Number((multaBaseFinal + totalMulta).toFixed(2)));
+        scheduleUpdate(parcelaFinal, totalFinal, `${tipoDb}_final`, hoje);
+        aplicacaoFinal = {
+          parcelaNumero: Number(parcelaFinal?.numero ?? 0),
+          valorTotal: Math.max(0, Number(totalMulta.toFixed(2))),
+        };
+      } else {
+        for (const parcela of alvoParcelas) {
+          const multaCalc = calcMultaValor({ parcela, hoje, tipoDb, valorConfigurado: vCfg });
+          scheduleUpdate(parcela, multaCalc, tipoDb, hoje);
+        }
+      }
+
+      const cfg = {
+        tipo,
+        valor: vCfg,
+        alvo,
+        parcelaNumero: alvo === "parcela" ? Number(parcelaNumero || 0) : null,
+        modo_cobranca: modoCobranca,
+        aplicacao_final: aplicacaoFinal,
+      };
+
+      const payloadAtual = (emprestimo?.payload ?? {}) as any;
+      const payloadNovo = { ...payloadAtual, multa_config: cfg };
+
+      const { error: errEmp } = await supabase
+        .from("emprestimos")
+        .update({ payload: payloadNovo })
+        .eq("id", emprestimo.id);
+      if (errEmp) throw errEmp;
 
       await Promise.all(
-        (alvoParcelas ?? []).map(async (p: any) => {
-          const venc = String(p?.vencimento ?? "");
-          const dias = Math.max(0, daysDiffISO(hoje, venc));
-
-          const valorParcela = Number(p?.valor ?? 0);
-          const juros = Number(p?.juros_atraso ?? 0);
-          const acrescimos = Number(p?.acrescimos ?? 0);
-          const acumulado = Number(p?.valor_pago_acumulado ?? 0);
-
-          let multaCalc = 0;
-          if (!vCfg) multaCalc = 0;
-          else if (tipoDb === "fixo_unico") multaCalc = vCfg;
-          else if (tipoDb === "percentual_por_dia") multaCalc = valorParcela * (vCfg / 100) * dias;
-          else multaCalc = vCfg * dias;
-
-          multaCalc = Math.max(0, Number(multaCalc.toFixed(2)));
-
-          const total = valorParcela + multaCalc + juros + acrescimos;
-          const saldoRestante = Math.max(total - acumulado, 0);
-
+        Array.from(updates.entries()).map(async ([numero, update]) => {
           const { error: errUp } = await supabase
             .from("parcelas")
-            .update({
-              multa_tipo: tipoDb,
-              multa_valor: multaCalc,
-              multa_aplicada_em: hoje,
-              saldo_restante: saldoRestante,
-            })
+            .update(update)
             .eq("emprestimo_id", emprestimo.id)
-              .eq("numero", Number(p?.numero ?? 0));
+            .eq("numero", numero);
           if (errUp) throw errUp;
         })
       );
@@ -136,6 +217,35 @@ export default function AplicarMultaModal({ open, onClose, onSaved, emprestimo }
         <div className="rounded-xl border border-white/10 bg-white/5 p-3">
           <div className="text-sm font-semibold text-white">{emprestimo?.clienteNome ?? "Cliente"}</div>
           <div className="text-xs text-white/60">Configure a multa para parcelas em atraso</div>
+        </div>
+
+        <div className="space-y-2">
+          <div className="text-xs font-semibold text-white/70">Quando cobrar</div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setModoCobranca("imediato")}
+              className={`rounded-xl border px-3 py-2 text-sm font-semibold ${
+                modoCobranca === "imediato" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100" : "border-white/10 bg-white/5 text-white/80"
+              }`}
+            >
+              Cobrar agora
+            </button>
+            <button
+              type="button"
+              onClick={() => setModoCobranca("final_emprestimo")}
+              className={`rounded-xl border px-3 py-2 text-sm font-semibold ${
+                modoCobranca === "final_emprestimo" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100" : "border-white/10 bg-white/5 text-white/80"
+              }`}
+            >
+              No final do empréstimo
+            </button>
+          </div>
+          {modoCobranca === "final_emprestimo" ? (
+            <div className="text-xs text-amber-200/90">
+              A multa será calculada pelas parcelas em atraso escolhidas e somada à última parcela em aberto.
+            </div>
+          ) : null}
         </div>
 
         <div className="space-y-2">
