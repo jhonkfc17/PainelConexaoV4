@@ -656,7 +656,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
       ? ehSemanalOuQuinzenal
         ? "atraso_semanal"
         : "atraso_mensal"
-      : "cobranca_mensal";
+      : "cobranca_semanal";
 
     const prox = proximaAberta || cronogramaParcelas[0] || {};
     const vars = {

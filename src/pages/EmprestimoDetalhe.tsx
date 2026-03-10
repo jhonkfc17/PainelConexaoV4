@@ -180,7 +180,7 @@ export default function EmprestimoDetalhe() {
         ? emprestimo.modalidade === "semanal"
           ? "atraso_semanal"
           : "atraso_mensal"
-        : "cobranca_mensal";
+        : "cobranca_semanal";
 
     const tpl = getMessageTemplate(key);
     const vars = {
