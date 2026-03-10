@@ -117,9 +117,31 @@ export default function PagarParcelaModal({ open, emprestimo, onClose, onConfirm
     return Number.isFinite(total) ? Math.round((total + Number.EPSILON) * 100) / 100 : 0;
   }, [emprestimo, vencimentoISO, dataPagamento, valorParcela]);
 
+  const jurosJaAplicado = useMemo(() => {
+    return Math.max(0, Number((parcelaDb as any)?.juros_atraso ?? 0));
+  }, [parcelaDb]);
+
+  const valorBaseSugerido = useMemo(() => {
+    const saldoRegistrado = Number((parcelaDb as any)?.saldo_restante ?? 0);
+    if (Number.isFinite(saldoRegistrado) && saldoRegistrado > 0) {
+      return Math.round((saldoRegistrado + Number.EPSILON) * 100) / 100;
+    }
+
+    const valor = Number((parcelaDb as any)?.valor ?? valorParcela ?? 0);
+    const multa = Number((parcelaDb as any)?.multa_valor ?? 0);
+    const acrescimos = Number((parcelaDb as any)?.acrescimos ?? 0);
+    const acumulado = Math.max(0, Number((parcelaDb as any)?.valor_pago_acumulado ?? 0));
+    const base = Math.max(valor + multa + acrescimos + jurosJaAplicado - acumulado, 0);
+    return Math.round((base + Number.EPSILON) * 100) / 100;
+  }, [parcelaDb, valorParcela, jurosJaAplicado]);
+
+  const jurosExtra = useMemo(() => {
+    return Math.max(0, Number(jurosAtraso || 0) - jurosJaAplicado);
+  }, [jurosAtraso, jurosJaAplicado]);
+
   const valorSugerido = useMemo(() => {
-    return Math.round(((valorParcela || 0) + (jurosAtraso || 0) + Number.EPSILON) * 100) / 100;
-  }, [valorParcela, jurosAtraso]);
+    return Math.round(((valorBaseSugerido || 0) + (jurosExtra || 0) + Number.EPSILON) * 100) / 100;
+  }, [valorBaseSugerido, jurosExtra]);
 
   if (!open || !emprestimo) return null;
   const semPendentes = pendentes.length === 0;
@@ -198,8 +220,12 @@ export default function PagarParcelaModal({ open, emprestimo, onClose, onConfirm
                 <b className="text-white">{vencimentoISO || "-"}</b>
               </div>
               <div className="mt-2 flex items-center justify-between text-sm text-white/80">
+                <span>Valor base</span>
+                <b className="text-white">R$ {Number(valorBaseSugerido || 0).toFixed(2)}</b>
+              </div>
+              <div className="mt-2 flex items-center justify-between text-sm text-white/80">
                 <span>Juros por atraso</span>
-                <b className="text-amber-200">R$ {Number(jurosAtraso || 0).toFixed(2)}</b>
+                <b className="text-amber-200">R$ {Number(jurosExtra || 0).toFixed(2)}</b>
               </div>
               <div className="mt-2 flex items-center justify-between text-sm text-white/80">
                 <span>Total sugerido</span>
@@ -222,9 +248,11 @@ export default function PagarParcelaModal({ open, emprestimo, onClose, onConfirm
                     setSaving(true);
 
                     const valorFinal = Number(valorPago || 0) > 0 ? Number(valorPago || 0) : Number(valorSugerido || 0);
+                    const valorBaseFinal = Math.min(valorFinal, valorBaseSugerido);
+                    const jurosFinal = Math.max(0, Math.min(jurosExtra, valorFinal - valorBaseFinal));
 
                     if (onConfirm) {
-                      await onConfirm({ idx: parcelaIndex, valorPago: valorFinal, jurosAtraso: Number(jurosAtraso || 0), dataPagamento });
+                      await onConfirm({ idx: parcelaIndex, valorPago: valorBaseFinal, jurosAtraso: jurosFinal, dataPagamento });
                       setSaving(false);
                       onClose();
                       return;
@@ -233,8 +261,8 @@ export default function PagarParcelaModal({ open, emprestimo, onClose, onConfirm
                     await pagarParcela({
                       emprestimoId: String((emprestimo as any).id),
                       idx: parcelaIndex,
-                      valorPago: valorFinal,
-                      jurosAtraso: Number(jurosAtraso || 0),
+                      valorPago: valorBaseFinal,
+                      jurosAtraso: jurosFinal,
                       dataPagamento,
                     } as any);
 

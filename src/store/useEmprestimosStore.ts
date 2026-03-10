@@ -816,7 +816,7 @@ stopRealtime:
         emprestimoId,
         tipo: "PARCELA_INTEGRAL",
         dataPagamento: dataPagamento || todayYmd(),
-        valor: (valorPago ?? 0) + (jurosAtraso ?? 0),
+        valor: valorPago ?? 0,
         parcelaNumero,
         jurosAtraso,
         flags: { origem: "ui_pagar_parcela" },
