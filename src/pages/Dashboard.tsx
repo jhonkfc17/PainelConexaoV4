@@ -167,6 +167,7 @@ export default function Dashboard() {
       .channel("dashboard-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "parcelas" }, debouncedRefresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "emprestimos" }, debouncedRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "pagamentos" }, debouncedRefresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "clientes" }, debouncedRefresh)
       .subscribe();
 

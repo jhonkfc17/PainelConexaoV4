@@ -71,6 +71,9 @@ type ParcelaRow = {
   // alguns bancos usam amortização parcial
   valor_pago_acumulado?: number | null;
   juros_atraso: number | null;
+  saldo_restante?: number | null;
+  multa_valor?: number | null;
+  acrescimos?: number | null;
 };
 
 type EmprestimoRow = {
@@ -105,6 +108,43 @@ function valorRecebidoTotal(p: ParcelaRow): number {
   const principal = valorPagoAcumulado(p) || safeNum(p.valor);
   const juros = safeNum(p.juros_atraso);
   return principal + juros;
+}
+
+function saldoRestanteParcela(p: ParcelaRow): number {
+  const saldoRegistrado = p.saldo_restante;
+  if (saldoRegistrado != null && Number.isFinite(Number(saldoRegistrado))) {
+    return Math.max(0, safeNum(saldoRegistrado));
+  }
+
+  const totalDevido =
+    safeNum(p.valor) +
+    safeNum(p.juros_atraso) +
+    safeNum(p.multa_valor) +
+    safeNum(p.acrescimos);
+  return Math.max(0, totalDevido - valorPagoAcumulado(p));
+}
+
+function parsePaymentFlags(raw: any): Record<string, any> | null {
+  try {
+    if (!raw) return null;
+    if (typeof raw === "string") return JSON.parse(raw);
+    if (typeof raw === "object") return raw;
+  } catch {}
+  return null;
+}
+
+function paymentRecoversPrincipal(payment: any): boolean {
+  const flags = parsePaymentFlags(payment?.flags) ?? {};
+  const tipo = String(payment?.tipo ?? "").toUpperCase();
+  const modo = String((flags as any)?.modo ?? "").toUpperCase();
+
+  return !(
+    tipo === "JUROS" ||
+    Boolean((flags as any)?.contabilizar_como_lucro) ||
+    modo === "JUROS" ||
+    Boolean((flags as any)?.juros_composto) ||
+    (tipo === "ADIANTAMENTO_MANUAL" && safeNum(payment?.juros_atraso) > 0)
+  );
 }
 
 function paidDateOrToday(p: ParcelaRow, todayISO: string): string | null {
@@ -330,6 +370,15 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   const { count: clientesCount, error: clientesCountErr } = await clientesCountQuery;
   if (clientesCountErr) throw clientesCountErr;
 
+  let allEmprestimosQuery = supabase
+    .from("emprestimos")
+    .select("id, created_at, payload")
+    .order("created_at", { ascending: true });
+  allEmprestimosQuery = applyPrincipalScope(allEmprestimosQuery, userId);
+  const { data: allEmprestimosData, error: allEmprestimosErr } = await allEmprestimosQuery;
+  if (allEmprestimosErr) throw allEmprestimosErr;
+  const emprestimosCarteira = (allEmprestimosData as EmprestimoRow[]) ?? [];
+
   // =========================
   // Pull emprestimos + parcelas for the selected window
   // =========================
@@ -349,20 +398,22 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
   const backForArrears = range === "12m" ? 400 : range === "6m" ? 220 : 60;
   const parcelasFromISO = toDateOnlyISO(addDays(new Date(startISO), -backForArrears));
 
-  let parcQuery = supabase
-    .from("parcelas")
-    .select("emprestimo_id, vencimento, valor, pago, pago_em, valor_pago_acumulado, juros_atraso")
-    .gte("vencimento", parcelasFromISO)
-    .order("vencimento", { ascending: true });
-
   const ids = emprestimos.map((e) => String(e.id));
-  if (ids.length === 0) return buildEmptyDashboard(range);
-  parcQuery = parcQuery.in("emprestimo_id", ids);
+  let parcelas: ParcelaRow[] = [];
+  if (ids.length > 0) {
+    let parcQuery = supabase
+      .from("parcelas")
+      .select("emprestimo_id, vencimento, valor, pago, pago_em, valor_pago, valor_pago_acumulado, juros_atraso, saldo_restante, multa_valor, acrescimos")
+      .gte("vencimento", parcelasFromISO)
+      .order("vencimento", { ascending: true });
 
-  const { data: parcelasData, error: parcErr } = await parcQuery;
-  if (parcErr) throw parcErr;
+    parcQuery = parcQuery.in("emprestimo_id", ids);
 
-  const parcelas = ((parcelasData as ParcelaRow[] | null) ?? []) as ParcelaRow[];
+    const { data: parcelasData, error: parcErr } = await parcQuery;
+    if (parcErr) throw parcErr;
+
+    parcelas = ((parcelasData as ParcelaRow[] | null) ?? []) as ParcelaRow[];
+  }
 
   // =========================
   // Week cards (semana atual)
@@ -377,16 +428,76 @@ export async function getDashboardData(range: DashboardRange = "6m", opts?: { fo
 
   const emprestimosSemana = emprestimos.filter((e) => isoFromAny(e.created_at) >= weekStartISO).length;
 
+  const emprestimosCarteiraIds = emprestimosCarteira.map((e) => String(e.id)).filter(Boolean);
+  let parcelasCarteira: ParcelaRow[] = [];
+  let pagamentosCarteira: any[] = [];
+
+  if (emprestimosCarteiraIds.length > 0) {
+    const [{ data: parcelasCarteiraData, error: parcelasCarteiraErr }, { data: pagamentosCarteiraData, error: pagamentosCarteiraErr }] =
+      await Promise.all([
+        supabase
+          .from("parcelas")
+          .select("emprestimo_id, vencimento, valor, pago, pago_em, valor_pago, valor_pago_acumulado, juros_atraso, saldo_restante, multa_valor, acrescimos")
+          .in("emprestimo_id", emprestimosCarteiraIds)
+          .order("vencimento", { ascending: true }),
+        supabase
+          .from("pagamentos")
+          .select("emprestimo_id, valor, juros_atraso, tipo, flags, estornado_em")
+          .in("emprestimo_id", emprestimosCarteiraIds)
+          .is("estornado_em", null),
+      ]);
+
+    if (parcelasCarteiraErr) throw parcelasCarteiraErr;
+    if (pagamentosCarteiraErr) throw pagamentosCarteiraErr;
+
+    parcelasCarteira = ((parcelasCarteiraData as ParcelaRow[] | null) ?? []) as ParcelaRow[];
+    pagamentosCarteira = (pagamentosCarteiraData ?? []) as any[];
+  }
+
   const capitalEmprestado = emprestimos.reduce((acc, e) => acc + safeNum(e.payload?.valor), 0);
-  const capitalEmprestadoSemAtraso = emprestimos
-    .filter((e) => !emprestimosComAtraso.has(String(e.id)))
-    .reduce((acc, e) => acc + safeNum(e.payload?.valor), 0);
+  const atrasadasCarteira = parcelasCarteira.filter(
+    (p) => String(p.vencimento) < todayISO && saldoRestanteParcela(p) > 0.00001 && !isPaidByDate(p, todayISO)
+  );
+  const emprestimosCarteiraComAtraso = new Set(
+    atrasadasCarteira.map((p) => String(p.emprestimo_id ?? "")).filter(Boolean)
+  );
 
-  const totalReceberSemAtraso = parcelas
-    .filter((p) => !emprestimosComAtraso.has(String(p.emprestimo_id ?? "")))
-    .reduce((acc, p) => acc + safeNum(p.valor), 0);
+  const principalRecuperadoByLoan = new Map<string, number>();
+  for (const pagamento of pagamentosCarteira) {
+    if (!paymentRecoversPrincipal(pagamento)) continue;
+    const loanId = String((pagamento as any).emprestimo_id ?? "");
+    if (!loanId) continue;
+    principalRecuperadoByLoan.set(loanId, (principalRecuperadoByLoan.get(loanId) ?? 0) + safeNum((pagamento as any).valor));
+  }
 
-  const lucroPrevisto = Math.max(0, totalReceberSemAtraso - capitalEmprestadoSemAtraso);
+  const principalRecuperadoFallbackByLoan = new Map<string, number>();
+  for (const parcela of parcelasCarteira) {
+    const loanId = String(parcela.emprestimo_id ?? "");
+    if (!loanId) continue;
+    const principalPago = valorPagoAcumulado(parcela) || (Boolean(parcela.pago) ? safeNum(parcela.valor) : 0);
+    principalRecuperadoFallbackByLoan.set(loanId, (principalRecuperadoFallbackByLoan.get(loanId) ?? 0) + principalPago);
+  }
+
+  const saldoReceberByLoan = new Map<string, number>();
+  for (const parcela of parcelasCarteira) {
+    const loanId = String(parcela.emprestimo_id ?? "");
+    if (!loanId) continue;
+    saldoReceberByLoan.set(loanId, (saldoReceberByLoan.get(loanId) ?? 0) + saldoRestanteParcela(parcela));
+  }
+
+  const lucroPrevisto = emprestimosCarteira
+    .filter((e) => !emprestimosCarteiraComAtraso.has(String(e.id)))
+    .reduce((acc, e) => {
+      const loanId = String(e.id);
+      const principalOriginal = safeNum(e.payload?.valor);
+      const principalRecuperado = Math.min(
+        principalOriginal,
+        principalRecuperadoByLoan.get(loanId) ?? principalRecuperadoFallbackByLoan.get(loanId) ?? 0
+      );
+      const principalRestante = Math.max(0, principalOriginal - principalRecuperado);
+      const saldoReceber = Math.max(0, saldoReceberByLoan.get(loanId) ?? 0);
+      return acc + Math.max(0, saldoReceber - principalRestante);
+    }, 0);
 
   const venceHoje = parcelas.filter((p) => !p.pago && String(p.vencimento) === todayISO).length;
   const venceAmanha = parcelas.filter((p) => !p.pago && String(p.vencimento) === tomorrowISO).length;
