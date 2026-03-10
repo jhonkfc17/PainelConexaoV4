@@ -191,14 +191,18 @@ useEffect(() => {
       if (isOwner) return;
       if (!user?.id) return;
 
-      const wallet = await getMyStaffWallet();
-      if (wallet) {
-        if (!alive) return;
-        setStaffCommissionPct(wallet.commission_pct);
-        setStaffLucroRealizado(wallet.realized_profit);
-        setStaffCommissionValue(Math.max(0, wallet.available_balance));
-        setStaffPaidOutValue(Math.max(0, wallet.paid_total));
-        return;
+      try {
+        const wallet = await getMyStaffWallet();
+        if (wallet) {
+          if (!alive) return;
+          setStaffCommissionPct(wallet.commission_pct);
+          setStaffLucroRealizado(wallet.realized_profit);
+          setStaffCommissionValue(Math.max(0, wallet.available_balance));
+          setStaffPaidOutValue(Math.max(0, wallet.paid_total));
+          return;
+        }
+      } catch (walletError) {
+        console.warn("Falha ao carregar carteira própria do staff, usando fallback local:", walletError);
       }
 
       // fallback local enquanto a migration nova não for aplicada
