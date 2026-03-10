@@ -10,6 +10,14 @@ import { usePermissoes } from "../store/usePermissoes";
 import { useAuthStore } from "../store/useAuthStore";
 import { supabase } from "../lib/supabaseClient";
 import {
+  commissionFactorFromPct,
+  formatBrlValue,
+  getStaffCommissionPct,
+  parseBrlValue,
+  scaleByCommission,
+  scaleCurrencyDisplay,
+} from "../lib/staffCommission";
+import {
   getDashboardData,
   invalidateDashboardCache,
   peekDashboardCache,
@@ -33,7 +41,6 @@ export default function Dashboard() {
   const [staffCommissionPct, setStaffCommissionPct] = useState<number>(0);
   const [staffLucroRealizado, setStaffLucroRealizado] = useState<number>(0);
   const [staffCommissionValue, setStaffCommissionValue] = useState<number>(0);
-  const [lucroMensal, setLucroMensal] = useState<any[]>([]);
   const [lucro30d, setLucro30d] = useState<number>(0);
 
   // Pesquisa rápida (clientes) — ajuda a navegar sem sair do Dashboard
@@ -126,11 +133,6 @@ export default function Dashboard() {
       ]);
       setData(d);
       setLucro30d(Number(metrics?.lucro_30d ?? 0));
-      const chartRows = (d?.charts?.evolucao?.data ?? []).map((r: any) => ({
-        mes_ref: String(r.label ?? ""),
-        lucro_mes: Number(r.lucro ?? 0),
-      }));
-      setLucroMensal(chartRows);
     } catch (e: any) {
       console.error(e);
       setError(e?.message || "Falha ao carregar dados do dashboard.");
@@ -187,13 +189,7 @@ useEffect(() => {
       if (!user?.id) return;
 
       // 1) Pega % de comissão do funcionário
-      const { data: staffRow } = await supabase
-        .from("staff_members")
-        .select("commission_pct")
-        .eq("auth_user_id", user.id)
-        .maybeSingle();
-
-      const pct = Number((staffRow as any)?.commission_pct ?? 0);
+      const pct = await getStaffCommissionPct(user.id);
       if (!alive) return;
       setStaffCommissionPct(pct);
 
@@ -229,7 +225,7 @@ useEffect(() => {
 
       if (!alive) return;
       setStaffLucroRealizado(lucroReal);
-      setStaffCommissionValue(Math.max(0, lucroReal * (pct / 100)));
+      setStaffCommissionValue(Math.max(0, scaleByCommission(lucroReal, commissionFactorFromPct(pct))));
     } catch (e) {
       console.error(e);
     }
@@ -245,21 +241,10 @@ const header = data?.header ?? {
     roleLabel: "Dono (acesso total)",
   };
 
-  const parseBRL = (v: unknown) => {
-    const s = String(v ?? "");
-    // Extrai número de "R$ 1.234,56" -> 1234.56
-    const cleaned = s.replace(/[^0-9,.-]/g, "").replace(/\./g, "").replace(",", ".");
-    const n = Number(cleaned);
-    return Number.isFinite(n) ? n : 0;
-  };
-
-  const atrasoValor = useMemo(() => {
-    const card = (data?.weekCards ?? []).find((c) => c.label === "Em atraso");
-    if (!card) return 0;
-    // Pode ser número (count) ou string (R$)
-    if (typeof card.value === "number") return card.value;
-    return parseBRL(card.value);
-  }, [data]);
+  const staffCommissionFactor = useMemo(() => {
+    if (isOwner) return 1;
+    return commissionFactorFromPct(staffCommissionPct);
+  }, [isOwner, staffCommissionPct]);
 
   const fallbackWeekCards = [
     { label: "Cobranças", value: "—", hint: "esta semana" },
@@ -280,17 +265,59 @@ const header = data?.header ?? {
     const cards = data?.weekCards ?? fallbackWeekCards;
     return cards.map((c) => {
       const lbl = c.label.toLowerCase();
+      const scaledValue =
+        isOwner || typeof c.value === "number" ? c.value : scaleCurrencyDisplay(c.value, staffCommissionFactor);
       if (lbl.includes("lucro") && (lbl.includes("mês") || lbl.includes("mes"))) {
         return {
           ...c,
           label: "Lucro (30 dias)",
-          value: `R$ ${Number(lucro30d).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`,
+          value: formatBrlValue(scaleByCommission(Number(lucro30d), staffCommissionFactor)),
           hint: "lucro últimos 30 dias",
         };
       }
-      return c;
+      return { ...c, value: scaledValue };
     });
-  }, [data?.weekCards, lucro30d]);
+  }, [data?.weekCards, isOwner, lucro30d, staffCommissionFactor]);
+
+  const atrasoValor = useMemo(() => {
+    const card = weekCards.find((c) => c.label === "Em atraso");
+    if (!card) return 0;
+    if (typeof card.value === "number") return card.value;
+    return parseBrlValue(card.value);
+  }, [weekCards]);
+
+  const lucroMensal = useMemo(() => {
+    return (data?.charts?.evolucao?.data ?? []).map((r: any) => ({
+      mes_ref: String(r.label ?? ""),
+      lucro_mes: scaleByCommission(Number(r.lucro ?? 0), staffCommissionFactor),
+    }));
+  }, [data?.charts?.evolucao?.data, staffCommissionFactor]);
+
+  const health = useMemo(() => {
+    const base = data?.health ?? {
+      score: 0,
+      status: "—",
+      desc: "Carregando métricas…",
+      bars: [
+        { label: "Taxa de recebimento", value: "—" },
+        { label: "Inadimplência", value: "—" },
+        { label: "Recebido", value: "—" },
+        { label: "Em atraso", value: "—" },
+      ],
+      noteTitle: "—",
+      noteDesc: "—",
+    };
+
+    if (isOwner) return base;
+
+    return {
+      ...base,
+      bars: (base.bars ?? []).map((bar) => ({
+        ...bar,
+        value: String(scaleCurrencyDisplay(bar.value, staffCommissionFactor)),
+      })),
+    };
+  }, [data?.health, isOwner, staffCommissionFactor]);
 
   return (
     <div className="min-h-[calc(100vh-64px)] p-0 sm:p-2">
@@ -312,6 +339,9 @@ const header = data?.header ?? {
           </div>
           <div className="mt-2 text-xs text-slate-400">
             Lucro realizado no sistema: <span className="text-slate-200">{staffLucroRealizado.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>
+          </div>
+          <div className="mt-2 text-[11px] text-slate-500">
+            Valores financeiros do painel já consideram esse percentual.
           </div>
         </div>
         <div className="text-right">
@@ -452,6 +482,8 @@ const header = data?.header ?? {
       </div>
 
       <div className="mt-4">
+        <OperationHealth {...health} />
+        {false ? (
         <OperationHealth
           {...(data?.health ?? {
             score: 0,
@@ -467,6 +499,7 @@ const header = data?.header ?? {
             noteDesc: "—",
           })}
         />
+        ) : null}
       </div>
     </div>
   );

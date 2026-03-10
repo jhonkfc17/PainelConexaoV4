@@ -25,6 +25,9 @@ import {
 } from "lucide-react";
 
 import { supabase } from "@/lib/supabaseClient";
+import { usePermissoes } from "@/store/usePermissoes";
+import { useAuthStore } from "@/store/useAuthStore";
+import { commissionFactorFromPct, getStaffCommissionPct, scaleByCommission } from "@/lib/staffCommission";
 import { listEmprestimos, type Emprestimo, type ParcelaDb } from "@/services/emprestimos.service";
 
 type MoneyRow = { label: string; value: number };
@@ -260,12 +263,14 @@ function statusContrato(psAbertas: ParcelaDb[], hoje: string): Status {
 
 export default function RelatorioOperacional() {
   const location = useLocation();
+  const { isOwner } = usePermissoes();
+  const user = useAuthStore((s) => s.user);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [emprestimos, setEmprestimos] = useState<Emprestimo[]>([]);
   const [pagamentosMes, setPagamentosMes] = useState<{ valor: number; juros_atraso: number | null }[]>([]);
   const [lucro30Rows, setLucro30Rows] = useState<Lucro30Row[]>([]);
-  const [lucro30View, setLucro30View] = useState<number>(0);
+  const [staffCommissionPct, setStaffCommissionPct] = useState(0);
   const lucro30Ref = useRef<HTMLDivElement | null>(null);
 
   const hojeISO = useMemo(() => new Date().toISOString().slice(0, 10), []);
@@ -324,7 +329,6 @@ export default function RelatorioOperacional() {
       if (view30d.error) throw view30d.error;
       if (pagamentosByDate.error) throw pagamentosByDate.error;
       if (pagamentosByCreated.error) throw pagamentosByCreated.error;
-      setLucro30View(safeNumber((view30d.data as any)?.lucro_30d ?? 0));
       const pagamentosFiltrados = ((pays.data ?? []) as any[]).filter((p) => {
         const ref = toISODateOnly(p.data_pagamento ?? p.created_at);
         if (!ref) return false;
@@ -414,6 +418,28 @@ export default function RelatorioOperacional() {
   }, [inicioMesISO, hojeISO]);
 
   useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      try {
+        if (isOwner || !user?.id) {
+          if (alive) setStaffCommissionPct(0);
+          return;
+        }
+        const pct = await getStaffCommissionPct(user.id);
+        if (alive) setStaffCommissionPct(pct);
+      } catch (e) {
+        console.error("Falha ao carregar percentual do funcionário:", e);
+        if (alive) setStaffCommissionPct(0);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [isOwner, user?.id]);
+
+  useEffect(() => {
     if (loading) return;
     const focus = new URLSearchParams(location.search).get("focus");
     if (focus !== "lucro30d") return;
@@ -421,6 +447,11 @@ export default function RelatorioOperacional() {
       lucro30Ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 50);
   }, [location.search, loading]);
+
+  const staffCommissionFactor = useMemo(() => {
+    if (isOwner) return 1;
+    return commissionFactorFromPct(staffCommissionPct);
+  }, [isOwner, staffCommissionPct]);
 
   const emprestimosAtivos = useMemo(() => {
     return emprestimos.filter((e) => {
@@ -633,21 +664,100 @@ export default function RelatorioOperacional() {
       .slice(0, 5) as ContratoAtrasoRow[];
   }, [emprestimosAtivos, hojeISO]);
 
-  const lucro30Registrado = useMemo(
-    () => lucro30Rows.reduce((acc, r) => acc + safeNumber(r.total), 0),
-    [lucro30Rows]
+  const scaleMoney = (value: number) => scaleByCommission(value, staffCommissionFactor);
+
+  const displaySaidas = useMemo(
+    () => saidas.map((row) => ({ ...row, value: scaleMoney(row.value) })),
+    [saidas, staffCommissionFactor]
   );
-  const lucro30BaseRows = useMemo(
-    () => lucro30Rows.filter((r) => r.tipo === "VIEW_30D"),
-    [lucro30Rows]
+
+  const displayEntradas = useMemo(
+    () => entradas.map((row) => ({ ...row, value: scaleMoney(row.value) })),
+    [entradas, staffCommissionFactor]
   );
-  const lucro30PagamentoRows = useMemo(
-    () => lucro30Rows.filter((r) => r.tipo !== "VIEW_30D"),
-    [lucro30Rows]
+
+  const displayResultadoPeriodo = useMemo(
+    () => scaleMoney(resultadoPeriodo),
+    [resultadoPeriodo, staffCommissionFactor]
   );
-  const lucro30PagamentosTotal = useMemo(
-    () => lucro30PagamentoRows.reduce((acc, r) => acc + safeNumber(r.total), 0),
-    [lucro30PagamentoRows]
+
+  const displayIndicadores = useMemo(
+    () => ({
+      capitalNaRua: scaleMoney(indicadores.capitalNaRua),
+      jurosAReceber: scaleMoney(indicadores.jurosAReceber),
+      totalRecebido: scaleMoney(indicadores.totalRecebido),
+      jurosRecebidos: scaleMoney(indicadores.jurosRecebidos),
+      emAtraso: scaleMoney(indicadores.emAtraso),
+      lucroRealizado: scaleMoney(indicadores.lucroRealizado),
+    }),
+    [indicadores, staffCommissionFactor]
+  );
+
+  const displayPagoTotalAtivos = useMemo(
+    () => scaleMoney(pagoTotalAtivos),
+    [pagoTotalAtivos, staffCommissionFactor]
+  );
+
+  const displayDistribuicao = useMemo(
+    () => distribuicao.map((item) => ({ ...item, valor: scaleMoney(item.valor) })),
+    [distribuicao, staffCommissionFactor]
+  );
+
+  const displayEvolucaoMensal = useMemo(
+    () => evolucaoMensal.map((item) => ({ ...item, lucro: scaleMoney(item.lucro) })),
+    [evolucaoMensal, staffCommissionFactor]
+  );
+
+  const displayLucro30Rows = useMemo(
+    () =>
+      lucro30Rows.map((row) => ({
+        ...row,
+        valor: scaleMoney(row.valor),
+        jurosAtraso: scaleMoney(row.jurosAtraso),
+        total: scaleMoney(row.total),
+      })),
+    [lucro30Rows, staffCommissionFactor]
+  );
+
+  const displayLucro30Registrado = useMemo(
+    () => displayLucro30Rows.reduce((acc, row) => acc + safeNumber(row.total), 0),
+    [displayLucro30Rows]
+  );
+
+  const displayLucro30BaseRows = useMemo(
+    () => displayLucro30Rows.filter((row) => row.tipo === "VIEW_30D"),
+    [displayLucro30Rows]
+  );
+
+  const displayLucro30PagamentoRows = useMemo(
+    () => displayLucro30Rows.filter((row) => row.tipo !== "VIEW_30D"),
+    [displayLucro30Rows]
+  );
+
+  const displayLucro30PagamentosTotal = useMemo(
+    () => displayLucro30PagamentoRows.reduce((acc, row) => acc + safeNumber(row.total), 0),
+    [displayLucro30PagamentoRows]
+  );
+
+  const displayContratosAtivos = useMemo(
+    () =>
+      contratosAtivos.map((row) => ({
+        ...row,
+        emprestado: scaleMoney(row.emprestado),
+        pago: scaleMoney(row.pago),
+        falta: scaleMoney(row.falta),
+      })),
+    [contratosAtivos, staffCommissionFactor]
+  );
+
+  const displayContratosAtraso = useMemo(
+    () =>
+      contratosAtraso.map((row) => ({
+        ...row,
+        atraso: scaleMoney(row.atraso),
+        emprestado: scaleMoney(row.emprestado),
+      })),
+    [contratosAtraso, staffCommissionFactor]
   );
 
   return (
@@ -668,6 +778,11 @@ export default function RelatorioOperacional() {
           <div className="mt-2 text-[11px] text-slate-500">
             Período: {formatBR(inicioMesISO)} até {formatBR(hojeISO)}
           </div>
+          {!isOwner ? (
+            <div className="mt-2 text-[11px] text-emerald-300/80">
+              Valores financeiros exibidos com {staffCommissionPct.toFixed(1)}% aplicado.
+            </div>
+          ) : null}
           {error ? <div className="mt-2 text-[11px] text-red-300">{error}</div> : null}
         </div>
 
@@ -683,8 +798,8 @@ export default function RelatorioOperacional() {
 
       {/* Saídas / Entradas */}
       <div className="mt-4 grid grid-cols-1 gap-3">
-        <SectionBox title="SAÍDAS" rows={saidas} total={saidas.reduce((a, b) => a + b.value, 0)} variant="out" />
-        <SectionBox title="ENTRADAS" rows={entradas} total={entradas.reduce((a, b) => a + b.value, 0)} variant="in" />
+        <SectionBox title="SAÍDAS" rows={displaySaidas} total={displaySaidas.reduce((a, b) => a + b.value, 0)} variant="out" />
+        <SectionBox title="ENTRADAS" rows={displayEntradas} total={displayEntradas.reduce((a, b) => a + b.value, 0)} variant="in" />
       </div>
 
       {/* Resultado do período */}
@@ -693,8 +808,8 @@ export default function RelatorioOperacional() {
           <CircleDollarSign size={16} /> Resultado do Período
         </div>
         <div className="mt-1 text-2xl font-extrabold text-emerald-200">
-          {resultadoPeriodo >= 0 ? "+" : "-"}
-          {brl(Math.abs(resultadoPeriodo))}
+          {displayResultadoPeriodo >= 0 ? "+" : "-"}
+          {brl(Math.abs(displayResultadoPeriodo))}
         </div>
         <div className="mt-0.5 text-[11px] text-emerald-200/70">ENTRADAS - SAÍDAS DO CAIXA</div>
       </div>
@@ -705,7 +820,7 @@ export default function RelatorioOperacional() {
           <div className="flex items-center justify-center gap-2 text-xs font-semibold text-amber-300">
             <Wallet size={16} /> Na Rua
           </div>
-          <div className="mt-2 text-2xl font-extrabold text-amber-200">{brl(indicadores.capitalNaRua)}</div>
+          <div className="mt-2 text-2xl font-extrabold text-amber-200">{brl(displayIndicadores.capitalNaRua)}</div>
           <div className="mt-1 text-[11px] text-amber-200/70">VALOR A RECEBER</div>
         </div>
 
@@ -713,7 +828,7 @@ export default function RelatorioOperacional() {
           <div className="flex items-center justify-center gap-2 text-xs font-semibold text-emerald-300">
             <CircleDollarSign size={16} /> Lucro
           </div>
-          <div className="mt-2 text-2xl font-extrabold text-emerald-200">{brl(indicadores.lucroRealizado)}</div>
+          <div className="mt-2 text-2xl font-extrabold text-emerald-200">{brl(displayIndicadores.lucroRealizado)}</div>
           <div className="mt-1 text-[11px] text-emerald-200/70">JUROS RECEBIDOS (PERÍODO)</div>
         </div>
 
@@ -721,19 +836,19 @@ export default function RelatorioOperacional() {
           <div className="flex items-center justify-center gap-2 text-xs font-semibold text-purple-300">
             <CircleDollarSign size={16} /> Pago
           </div>
-          <div className="mt-2 text-2xl font-extrabold text-purple-200">{brl(pagoTotalAtivos)}</div>
+          <div className="mt-2 text-2xl font-extrabold text-purple-200">{brl(displayPagoTotalAtivos)}</div>
           <div className="mt-1 text-[11px] text-purple-200/70">TOTAL PAGO EM CONTRATOS ATIVOS</div>
         </div>
       </div>
 
       {/* Linha de cards */}
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
-        <Card icon={<Wallet size={16} />} title="Capital na Rua" value={brl(indicadores.capitalNaRua)} subtitle="Em contratos ativos" tone="emerald" />
-        <Card icon={<ArrowUpCircle size={16} />} title="Juros a Receber" value={brl(indicadores.jurosAReceber)} subtitle="Estimado" tone="amber" />
-        <Card icon={<ArrowDownCircle size={16} />} title="Total Recebido" value={brl(indicadores.totalRecebido)} subtitle="No período" tone="emerald" />
-        <Card icon={<CircleDollarSign size={16} />} title="Juros Recebidos" value={brl(indicadores.jurosRecebidos)} subtitle="No período" tone="emerald" />
-        <Card icon={<AlertTriangle size={16} />} title="Em Atraso" value={brl(indicadores.emAtraso)} subtitle="Saldo vencido" tone="red" />
-        <Card icon={<CircleDollarSign size={16} />} title="Lucro Realizado" value={brl(indicadores.lucroRealizado)} subtitle="Juros recebidos" tone="purple" />
+        <Card icon={<Wallet size={16} />} title="Capital na Rua" value={brl(displayIndicadores.capitalNaRua)} subtitle="Em contratos ativos" tone="emerald" />
+        <Card icon={<ArrowUpCircle size={16} />} title="Juros a Receber" value={brl(displayIndicadores.jurosAReceber)} subtitle="Estimado" tone="amber" />
+        <Card icon={<ArrowDownCircle size={16} />} title="Total Recebido" value={brl(displayIndicadores.totalRecebido)} subtitle="No período" tone="emerald" />
+        <Card icon={<CircleDollarSign size={16} />} title="Juros Recebidos" value={brl(displayIndicadores.jurosRecebidos)} subtitle="No período" tone="emerald" />
+        <Card icon={<AlertTriangle size={16} />} title="Em Atraso" value={brl(displayIndicadores.emAtraso)} subtitle="Saldo vencido" tone="red" />
+        <Card icon={<CircleDollarSign size={16} />} title="Lucro Realizado" value={brl(displayIndicadores.lucroRealizado)} subtitle="Juros recebidos" tone="purple" />
       </div>
 
       {/* Gráficos */}
@@ -753,7 +868,7 @@ export default function RelatorioOperacional() {
           </div>
           <div className="mt-3 h-56">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={evolucaoMensal} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+              <BarChart data={displayEvolucaoMensal} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
                 <XAxis dataKey="label" tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 12 }} />
@@ -771,7 +886,7 @@ export default function RelatorioOperacional() {
           <div className="text-sm font-semibold text-white">Distribuição</div>
           <div className="mt-3 h-56">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={distribuicao}>
+              <BarChart data={displayDistribuicao}>
                 <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
                 <XAxis dataKey="label" strokeOpacity={0.6} />
                 <YAxis strokeOpacity={0.6} />
@@ -788,20 +903,20 @@ export default function RelatorioOperacional() {
         <div ref={lucro30Ref} className="rounded-2xl border border-emerald-500/20 bg-slate-950/30 shadow-glow backdrop-blur-md overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3">
             <div className="text-sm font-semibold text-white">Detalhamento Lucro (30 dias)</div>
-            <div className="text-xs text-emerald-200">Total registrado: {brl(lucro30Registrado)}</div>
+            <div className="text-xs text-emerald-200">Total registrado: {brl(displayLucro30Registrado)}</div>
           </div>
 
           <div className="border-t border-white/10">
             <div className="px-4 py-3 border-b border-white/5">
               <div className="text-xs font-semibold text-slate-400">Base consolidada (view)</div>
               <div className="mt-1 text-sm text-slate-200">
-                {brl(lucro30BaseRows.reduce((acc, r) => acc + safeNumber(r.total), 0))}
+                {brl(displayLucro30BaseRows.reduce((acc, r) => acc + safeNumber(r.total), 0))}
               </div>
             </div>
 
             <div className="flex items-center justify-between px-4 py-3">
               <div className="text-xs font-semibold text-slate-300">Pagamentos registrados (avulsos)</div>
-              <div className="text-xs text-emerald-200">Subtotal: {brl(lucro30PagamentosTotal)}</div>
+              <div className="text-xs text-emerald-200">Subtotal: {brl(displayLucro30PagamentosTotal)}</div>
             </div>
 
             <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[11px] font-semibold text-slate-400">
@@ -812,10 +927,10 @@ export default function RelatorioOperacional() {
               <div className="col-span-2 text-right">Total</div>
             </div>
 
-            {lucro30PagamentoRows.length === 0 ? (
+            {displayLucro30PagamentoRows.length === 0 ? (
               <div className="px-4 py-4 text-sm text-slate-400">Nenhum pagamento registrado nos ultimos 30 dias.</div>
             ) : (
-              lucro30PagamentoRows.map((r) => (
+              displayLucro30PagamentoRows.map((r) => (
                 <div key={r.id} className="grid grid-cols-12 gap-2 px-4 py-3 text-sm border-t border-white/5">
                   <div className="col-span-2 text-slate-300">{formatBR(r.dataRef)}</div>
                   <div className="col-span-4 text-slate-200 truncate">{r.cliente}</div>
@@ -851,10 +966,10 @@ export default function RelatorioOperacional() {
               <div className="col-span-1 text-right">Venc.</div>
             </div>
 
-            {contratosAtivos.length === 0 ? (
+            {displayContratosAtivos.length === 0 ? (
               <div className="px-4 py-4 text-sm text-slate-400">Nenhum contrato ativo encontrado.</div>
             ) : (
-              contratosAtivos.map((r, idx) => (
+              displayContratosAtivos.map((r, idx) => (
                 <div
                   key={`${r.cliente}-${idx}`}
                   className="grid grid-cols-12 gap-2 px-4 py-3 text-sm border-t border-white/5"
@@ -895,10 +1010,10 @@ export default function RelatorioOperacional() {
               <div className="col-span-2 text-right">Ticket</div>
             </div>
 
-            {contratosAtraso.length === 0 ? (
+            {displayContratosAtraso.length === 0 ? (
               <div className="px-4 py-4 text-sm text-slate-400">Nenhum contrato em atraso.</div>
             ) : (
-              contratosAtraso.map((r, idx) => (
+              displayContratosAtraso.map((r, idx) => (
                 <div
                   key={`${r.cliente}-${idx}`}
                   className="grid grid-cols-12 gap-2 px-4 py-3 text-sm border-t border-white/5"
