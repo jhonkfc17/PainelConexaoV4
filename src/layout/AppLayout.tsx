@@ -21,8 +21,9 @@ import {
 } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
 import { useEmprestimosStore } from "../store/useEmprestimosStore";
+import { usePermissoes } from "../store/usePermissoes";
 
-type NavItem = { to: string; label: string; icon: React.ReactNode };
+type NavItem = { to: string; label: string; icon: React.ReactNode; requiresStaffManage?: boolean };
 
 const menu: NavItem[] = [
   { to: "/", label: "Dashboard", icon: <LayoutDashboard size={16} /> },
@@ -36,7 +37,7 @@ const menu: NavItem[] = [
   { to: "/veiculos", label: "Veículos Registrados", icon: <Car size={16} /> },
   { to: "/rel-vendas", label: "Rel. Vendas", icon: <TrendingUp size={16} /> },
   { to: "/simulador", label: "Simulador", icon: <Calculator size={16} /> },
-  { to: "/funcionarios", label: "Funcionários", icon: <Shield size={16} /> },
+  { to: "/funcionarios", label: "Funcionários", icon: <Shield size={16} />, requiresStaffManage: true },
   { to: "/config", label: "Configurações", icon: <Settings size={16} /> },
 ];
 
@@ -63,6 +64,8 @@ function NavItemLink({ to, icon, label }: NavItem) {
 
 function SidebarContent({ onLogout }: { onLogout: () => void }) {
   const user = useAuthStore((s) => s.user);
+  const { canManageStaff } = usePermissoes();
+  const visibleMenu = menu.filter((item) => !item.requiresStaffManage || canManageStaff);
   return (
     <>
       <div className="h-14 px-3 sm:px-4 flex items-center gap-2 border-b border-emerald-500/10">
@@ -92,7 +95,7 @@ function SidebarContent({ onLogout }: { onLogout: () => void }) {
         <div className="mt-4">
           <div className="text-[11px] text-slate-500 px-1 mb-2">MENU</div>
           <div className="space-y-1">
-            {menu.map((it) => (
+            {visibleMenu.map((it) => (
               <NavItemLink key={it.to} {...it} />
             ))}
           </div>
@@ -120,10 +123,12 @@ function SidebarContent({ onLogout }: { onLogout: () => void }) {
 export default function AppLayout() {
   const nav = useNavigate();
   const user = useAuthStore((s) => s.user);
+  const { canManageStaff } = usePermissoes();
   const startRealtime = useEmprestimosStore((s) => s.startRealtime);
   const stopRealtime = useEmprestimosStore((s) => s.stopRealtime);
   const signOut = useAuthStore((s) => s.signOut);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const visibleMenu = menu.filter((item) => !item.requiresStaffManage || canManageStaff);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -194,7 +199,7 @@ export default function AppLayout() {
                 <div className="mt-4">
                   <div className="text-[11px] text-slate-500 px-1 mb-2">MENU</div>
                   <div className="space-y-1">
-                    {menu.map((it) => (
+                    {visibleMenu.map((it) => (
                       <NavLink
                         key={it.to}
                         to={it.to}

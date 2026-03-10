@@ -402,6 +402,6 @@ entrypoint = "./functions/wa-connector/index.ts"
 
 [functions.staff-admin]
 enabled = true
-verify_jwt = true
+verify_jwt = false
 import_map = "./functions/staff-admin/deno.json"
 entrypoint = "./functions/staff-admin/index.ts"

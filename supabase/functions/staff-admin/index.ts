@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 type Json = Record<string, any>;
+type StaffRole = "staff" | "admin";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -19,6 +20,50 @@ function json(data: Json, status = 200) {
       "Content-Type": "application/json; charset=utf-8",
     },
   });
+}
+
+function asObject(value: unknown): Json {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? { ...(value as Json) }
+    : {};
+}
+
+function normalizeRole(value: unknown): StaffRole {
+  const role = String(value ?? "staff").trim().toLowerCase();
+  if (role !== "staff" && role !== "admin") {
+    throw new Error("role must be 'staff' or 'admin'");
+  }
+  return role;
+}
+
+function normalizePermissions(value: unknown): Json {
+  const raw = asObject(value);
+  return Object.fromEntries(
+    Object.entries(raw).map(([key, enabled]) => [key, Boolean(enabled)]),
+  );
+}
+
+function buildAppMetadata(
+  currentMeta: unknown,
+  {
+    tenantId,
+    role,
+    active,
+    permissions,
+  }: {
+    tenantId: string;
+    role: StaffRole;
+    active: boolean;
+    permissions: Json;
+  },
+): Json {
+  return {
+    ...asObject(currentMeta),
+    tenant_id: tenantId,
+    role,
+    active,
+    permissions,
+  };
 }
 
 Deno.serve(async (req) => {
@@ -77,9 +122,18 @@ Deno.serve(async (req) => {
     });
 
     const tenantIdFromToken = (caller.app_metadata as any)?.tenant_id ?? null;
+    const callerRole = String((caller.app_metadata as any)?.role ?? "").trim().toLowerCase();
     const tenantId = tenantIdFromToken ?? caller.id;
+    const isOwnerCaller = callerRole === "owner";
 
-    if (tenantIdFromToken) {
+    if (!isOwnerCaller) {
+      if (!tenantIdFromToken) {
+        return json(
+          { error: "Forbidden", details: "Caller has no tenant context" },
+          403,
+        );
+      }
+
       const { data: staffRow, error: staffErr } = await admin
         .from("staff_members")
         .select("role, active")
@@ -109,8 +163,8 @@ Deno.serve(async (req) => {
       const email = String(body?.email || "").trim().toLowerCase();
       const password = String(body?.password || "");
       const nome = String(body?.nome || "");
-      const role = String(body?.role || "staff");
-      const permissions = (body?.permissions ?? {}) as Json;
+      const role = normalizeRole(body?.role);
+      const permissions = normalizePermissions(body?.permissions);
       const commission_pct = Number(body?.commission_pct ?? 0);
 
       if (!email || !password) {
@@ -122,7 +176,12 @@ Deno.serve(async (req) => {
           email,
           password,
           email_confirm: true,
-          app_metadata: { tenant_id: tenantId, role, active: true },
+          app_metadata: buildAppMetadata({}, {
+            tenantId,
+            role,
+            active: true,
+            permissions,
+          }),
         });
 
       if (createErr) {
@@ -147,6 +206,7 @@ Deno.serve(async (req) => {
       });
 
       if (insErr) {
+        await admin.auth.admin.deleteUser(auth_user_id).catch(() => null);
         return json(
           { error: "insert staff_members failed", details: insErr.message },
           400,
@@ -161,12 +221,29 @@ Deno.serve(async (req) => {
 
       const update: Record<string, unknown> = {};
       if (body?.nome !== undefined) update.nome = String(body.nome);
-      if (body?.role !== undefined) update.role = String(body.role);
-      if (body?.permissions !== undefined) update.permissions = body.permissions;
+      if (body?.role !== undefined) update.role = normalizeRole(body.role);
+      if (body?.permissions !== undefined) update.permissions = normalizePermissions(body.permissions);
       if (body?.commission_pct !== undefined) {
         update.commission_pct = Number(body.commission_pct);
       }
       if (body?.active !== undefined) update.active = Boolean(body.active);
+
+      const { data: currentStaff, error: currentStaffErr } = await admin
+        .from("staff_members")
+        .select("role, permissions, active")
+        .eq("tenant_id", tenantId)
+        .eq("auth_user_id", auth_user_id)
+        .maybeSingle();
+
+      if (currentStaffErr) {
+        return json(
+          { error: "load current staff failed", details: currentStaffErr.message },
+          400,
+        );
+      }
+      if (!currentStaff) {
+        return json({ error: "staff member not found" }, 404);
+      }
 
       const { error: updErr } = await admin
         .from("staff_members")
@@ -180,6 +257,49 @@ Deno.serve(async (req) => {
           400,
         );
       }
+
+      const nextRole = body?.role !== undefined
+        ? normalizeRole(body.role)
+        : normalizeRole(currentStaff.role);
+      const nextPermissions = body?.permissions !== undefined
+        ? normalizePermissions(body.permissions)
+        : normalizePermissions(currentStaff.permissions);
+      const nextActive = body?.active !== undefined
+        ? Boolean(body.active)
+        : Boolean(currentStaff.active);
+
+      const { data: authUserRes, error: authUserErr } = await admin.auth.admin
+        .getUserById(auth_user_id);
+
+      if (authUserErr || !authUserRes?.user) {
+        return json(
+          {
+            error: "load auth user failed",
+            details: authUserErr?.message ?? "User not found in auth.users",
+          },
+          400,
+        );
+      }
+
+      const nextAppMetadata = buildAppMetadata(authUserRes.user.app_metadata, {
+        tenantId,
+        role: nextRole,
+        active: nextActive,
+        permissions: nextPermissions,
+      });
+
+      const { error: authUpdErr } = await admin.auth.admin.updateUserById(
+        auth_user_id,
+        { app_metadata: nextAppMetadata },
+      );
+
+      if (authUpdErr) {
+        return json(
+          { error: "update auth metadata failed", details: authUpdErr.message },
+          400,
+        );
+      }
+
       return json({ ok: true });
     }
 
@@ -196,6 +316,42 @@ Deno.serve(async (req) => {
       if (updErr) {
         return json({ error: "disable failed", details: updErr.message }, 400);
       }
+
+      const { data: authUserRes, error: authUserErr } = await admin.auth.admin
+        .getUserById(auth_user_id);
+
+      if (authUserErr || !authUserRes?.user) {
+        return json(
+          {
+            error: "load auth user failed",
+            details: authUserErr?.message ?? "User not found in auth.users",
+          },
+          400,
+        );
+      }
+
+      const authMeta = asObject(authUserRes.user.app_metadata);
+      const nextRole = normalizeRole(authMeta.role);
+      const nextPermissions = normalizePermissions(authMeta.permissions);
+      const nextAppMetadata = buildAppMetadata(authMeta, {
+        tenantId,
+        role: nextRole,
+        active: false,
+        permissions: nextPermissions,
+      });
+
+      const { error: authUpdErr } = await admin.auth.admin.updateUserById(
+        auth_user_id,
+        { app_metadata: nextAppMetadata },
+      );
+
+      if (authUpdErr) {
+        return json(
+          { error: "disable auth metadata failed", details: authUpdErr.message },
+          400,
+        );
+      }
+
       return json({ ok: true });
     }
 

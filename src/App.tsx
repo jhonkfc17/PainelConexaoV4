@@ -4,6 +4,7 @@ import { useEffect } from "react";
 
 import AppLayout from "./layout/AppLayout";
 import ProtectedRoute from "./components/auth/ProtectedRoute";
+import RequireStaffManage from "./components/auth/RequireStaffManage";
 
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -67,7 +68,14 @@ export default function App() {
           <Route path="/desconto-cheque" element={<Placeholder title="Desconto de Cheque" />} />
           <Route path="/veiculos" element={<Placeholder title="Veículos Registrados" />} />
           <Route path="/rel-vendas" element={<Placeholder title="Rel. Vendas" />} />
-          <Route path="/funcionarios" element={<Funcionarios />} />
+          <Route
+            path="/funcionarios"
+            element={
+              <RequireStaffManage>
+                <Funcionarios />
+              </RequireStaffManage>
+            }
+          />
           <Route path="/config" element={<Configuracoes />} />
 
           <Route path="*" element={<Navigate to="/" replace />} />

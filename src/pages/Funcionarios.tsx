@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Navigate } from "react-router-dom";
 import {
   createStaff,
   listStaff,
@@ -8,6 +9,7 @@ import {
   type StaffMember,
   type StaffRole,
 } from "../services/funcionarios.service";
+import { usePermissoes } from "../store/usePermissoes";
 
 type PermKey =
   | "clients_view"
@@ -53,6 +55,7 @@ function makeAllPermissions(value: boolean) {
 }
 
 export default function Funcionarios() {
+  const { canManageStaff } = usePermissoes();
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +77,10 @@ export default function Funcionarios() {
   const [pwUserId, setPwUserId] = useState<string>("");
   const [pwEmail, setPwEmail] = useState<string>("");
   const [pwNew, setPwNew] = useState<string>("");
+
+  if (!canManageStaff) {
+    return <Navigate to="/" replace />;
+  }
 
   const load = async () => {
     try {
