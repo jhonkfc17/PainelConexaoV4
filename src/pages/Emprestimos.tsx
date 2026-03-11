@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 
 import EmprestimosHeader from "../components/emprestimos/EmprestimosHeader";
@@ -19,7 +19,7 @@ import { useClientesStore } from "../store/useClientesStore";
 import { useEmprestimosStore } from "../store/useEmprestimosStore";
 
 function fmtDateBR(iso?: string | null): string {
-  if (!iso) return "â€”";
+  if (!iso) return "—";
   const d = new Date(String(iso));
   if (Number.isNaN(d.getTime())) return String(iso);
   const dd = String(d.getDate()).padStart(2, "0");
@@ -78,7 +78,7 @@ export default function Emprestimos() {
     useEmprestimosStore();
   const [pagamentosMapa, setPagamentosMapa] = useState<Record<string, any[]>>({});
 
-  // âœ… mantÃ©m o emprÃ©stimo selecionado sincronizado com o store (atualiza totais apÃ³s pagamentos)
+  // ✅ mantém o empréstimo selecionado sincronizado com o store (atualiza totais após pagamentos)
   useEffect(() => {
     const idSel = emprestimoSelecionado?.id;
     if (!idSel) return;
@@ -124,7 +124,7 @@ export default function Emprestimos() {
     };
   }, [emprestimos]);
 
-  // Abre "Novo emprÃ©stimo" jÃ¡ com o cliente preenchido quando vier do perfil do cliente
+  // Abre "Novo empréstimo" já com o cliente preenchido quando vier do perfil do cliente
   useEffect(() => {
     const novo = searchParams.get("novo");
     if (novo !== "1") return;
@@ -154,10 +154,10 @@ export default function Emprestimos() {
 
     // tab -> modalidade
     if (tab === "recebimentos") {
-      // Melhor interpretaÃ§Ã£o para o produto: "Recebimentos" = contratos quitados / totalmente pagos
+      // Melhor interpretação para o produto: "Recebimentos" = contratos quitados / totalmente pagos
       lista = lista.filter(isQuitadoOuRecebido);
     } else {
-      // EmprÃ©stimos (ativos) = exclui quitados; outras abas tambÃ©m excluem quitados
+      // Empréstimos (ativos) = exclui quitados; outras abas também excluem quitados
       lista = lista.filter((e) => !isQuitadoOuRecebido(e));
 
       if (tab === "diario") {
@@ -165,7 +165,7 @@ export default function Emprestimos() {
       } else if (tab === "tabela_price") {
         lista = lista.filter((e) => e.modalidade === "tabela_price");
       } else {
-        // "emprestimos" => todos nÃ£o-diÃ¡rio e nÃ£o-price
+        // "emprestimos" => todos não-diário e não-price
         lista = lista.filter((e) => e.modalidade !== "diario" && e.modalidade !== "tabela_price");
       }
     }
@@ -254,14 +254,14 @@ export default function Emprestimos() {
 
   function abrirComprovanteEmprestimo(e: Emprestimo) {
     const linhas = [
-      `Raposacobra - Comprovante de EmprÃ©stimo`,
+      `Raposacobra - Comprovante de Empréstimo`,
       "",
       `Cliente: ${e.clienteNome}`,
       `Data do contrato: ${fmtDateBR(e.dataContrato)}`,
       `Valor emprestado: R$ ${e.valor.toFixed(2)}`,
       `Total a receber: R$ ${e.totalReceber.toFixed(2)}`,
       `Parcelas: ${e.numeroParcelas}x de R$ ${e.valorParcela.toFixed(2)}`,
-      `1Âº vencimento: ${fmtDateBR(getPrimeiroVencimentoAtual(e))}`,
+      `1º vencimento: ${fmtDateBR(getPrimeiroVencimentoAtual(e))}`,
       "",
       "Obrigado!",
     ];
@@ -277,16 +277,16 @@ export default function Emprestimos() {
     const novo = await criarEmprestimo(payload, cliente);
     if (!novo) return;
 
-    // comprovante (como no vÃ­deo)
+    // comprovante (como no vídeo)
     const linhas = [
-      `Raposacobra - Comprovante de EmprÃ©stimo`,
+      `Raposacobra - Comprovante de Empréstimo`,
       "",
       `Cliente: ${novo.clienteNome}`,
       `Data do contrato: ${fmtDateBR(novo.dataContrato)}`,
       `Valor emprestado: R$ ${novo.valor.toFixed(2)}`,
       `Total a receber: R$ ${novo.totalReceber.toFixed(2)}`,
       `Parcelas: ${novo.numeroParcelas}x de R$ ${novo.valorParcela.toFixed(2)}`,
-      `1Âº vencimento: ${fmtDateBR(getPrimeiroVencimentoAtual(novo))}`,
+      `1º vencimento: ${fmtDateBR(getPrimeiroVencimentoAtual(novo))}`,
       "",
       "Obrigado!",
     ];
@@ -296,7 +296,7 @@ export default function Emprestimos() {
   }
 
   async function remover(id: string) {
-    if (!confirm("Remover este emprÃ©stimo?")) return;
+    if (!confirm("Remover este empréstimo?")) return;
     await removerEmprestimo(id);
   }
 
@@ -309,14 +309,14 @@ export default function Emprestimos() {
     setPagarOpen(true);
   }
 
-  // Pagamentos (parcela, parcial/adiantamento, quitaÃ§Ã£o total e estorno)
-  // Pagamentos agora sÃ£o registrados pelo modal "RegistrarPagamento".
+  // Pagamentos (parcela, parcial/adiantamento, quitação total e estorno)
+  // Pagamentos agora são registrados pelo modal "RegistrarPagamento".
 
   return (
     <div className="min-h-[calc(100vh-64px)] p-0 sm:p-2 sm:p-0 sm:p-2 overflow-x-hidden">
       <EmprestimosHeader
         onClickTutorial={() => alert("Tutorial: em breve")}
-        onClickBaixarRelatorio={() => alert("RelatÃ³rio: em breve")}
+        onClickBaixarRelatorio={() => alert("Relatório: em breve")}
       />
 
       <div className="mt-4">
@@ -365,7 +365,7 @@ export default function Emprestimos() {
       </div>
 
       {emprestimosFiltrados.length > 0 && (
-        <div className="mt-4 text-xs text-white/40">Dica: abra um emprÃ©stimo para pagar parcelas e gerar comprovantes.</div>
+        <div className="mt-4 text-xs text-white/40">Dica: abra um empréstimo para pagar parcelas e gerar comprovantes.</div>
       )}
 
       {/* Modal novo */}

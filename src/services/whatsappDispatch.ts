@@ -26,15 +26,15 @@ export function sanitizeOutgoingWhatsAppText(raw: string) {
   let txt = String(raw ?? "").normalize("NFC");
 
   const commonFixes: Array<[string, string]> = [
-    ["Ã°Å¸â€œâ€ž", "\u{1F4C4}"], // ðŸ“„
-    ["Ã°Å¸â€™Â°", "\u{1F4B0}"], // ðŸ’°
-    ["Ã°Å¸â€œâ€ ", "\u{1F4C6}"], // ðŸ“†
-    ["Ã°Å¸â€”â€œ", "\u{1F5D3}"], // ðŸ—“
-    ["Ã¢Å“â€¦", "\u{2705}"], // âœ…
-    ["Ã¢Å¡Â Ã¯Â¸Â", "\u{26A0}\u{FE0F}"], // âš ï¸
-    ["Ã°Å¸Å½Â¯", "\u{1F3AF}"], // ðŸŽ¯
-    ["Ã¢ÂÂ±", "\u{23F1}"], // â±
-    ["Ã¢ÂÂ³", "\u{23F3}"], // â³
+    ["\u00C3\u00B0\u00C5\u00B8\u00E2\u20AC\u0153\u00E2\u20AC\u017E", "\u{1F4C4}"], // mojibake for 📄
+    ["\u00C3\u00B0\u00C5\u00B8\u00E2\u20AC\u2122\u00C2\u00B0", "\u{1F4B0}"], // mojibake for 💰
+    ["\u00C3\u00B0\u00C5\u00B8\u00E2\u20AC\u0153\u00E2\u20AC\u00A0", "\u{1F4C6}"], // mojibake for 📆
+    ["\u00C3\u00B0\u00C5\u00B8\u00E2\u20AC\u201D\u00E2\u20AC\u0153", "\u{1F5D3}"], // mojibake for 🗓
+    ["\u00C3\u00A2\u00C5\u201C\u00E2\u20AC\u00A6", "\u{2705}"], // mojibake for ✅
+    ["\u00C3\u00A2\u00C5\u00A1\u00C2\u00A0\u00C3\u00AF\u00C2\u00B8\u00C2\u008F", "\u{26A0}\u{FE0F}"], // mojibake for ⚠️
+    ["\u00C3\u00B0\u00C5\u00B8\u00C5\u00BD\u00C2\u00AF", "\u{1F3AF}"], // mojibake for 🎯
+    ["\u00C3\u00A2\u00C2\u008F\u00C2\u00B1", "\u{23F1}"], // mojibake for ⏱
+    ["\u00C3\u00A2\u00C2\u008F\u00C2\u00B3", "\u{23F3}"], // mojibake for ⏳
   ];
 
   for (const [bad, good] of commonFixes) {
@@ -44,12 +44,12 @@ export function sanitizeOutgoingWhatsAppText(raw: string) {
   // Não prefixe linhas com emojis automaticamente. Apenas remova caracteres claramente quebrados.
   return txt
     .replace(/\uFFFD+/g, "")
-    .replace(/ï¿½|�/g, "")
+    .replace(/\u00EF\u00BF\u00BD|\uFFFD/g, "")
     .replace(/^\s*(?:\?)+\s*/gm, "");
 }
 
 /**
- * Envio pelo WhatsApp do usuÃ¡rio logado (Cloud API). Se o modo manual estiver
+ * Envio pelo WhatsApp do usuário logado (Cloud API). Se o modo manual estiver
  * ativo, abre o WhatsApp Web com o texto preenchido.
  */
 export async function sendWhatsAppFromPanel(params: { to: string; message: string }) {

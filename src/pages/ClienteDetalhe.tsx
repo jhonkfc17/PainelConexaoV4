@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import type { Cliente } from "../components/clientes/clienteTipos";
@@ -13,7 +13,7 @@ import ComprovanteModal from "../components/emprestimos/ComprovanteModal";
 import { useEmprestimosStore } from "../store/useEmprestimosStore";
 
 function fmtDateBR(iso?: string | null): string {
-  if (!iso) return "â€”";
+  if (!iso) return "—";
   const d = new Date(String(iso));
   if (Number.isNaN(d.getTime())) return String(iso);
   const dd = String(d.getDate()).padStart(2, "0");
@@ -37,7 +37,7 @@ function Badge({ faixa, score }: { faixa: string; score: number | null }) {
   return (
     <span className={`inline-flex items-center gap-2 rounded-full border bg-slate-900/40 px-3 py-1 text-xs ${cls}`}>
       <span className="font-semibold">{faixa}</span>
-      <span className="opacity-80">{score === null ? "â€”" : score}</span>
+      <span className="opacity-80">{score === null ? "—" : score}</span>
     </span>
   );
 }
@@ -79,7 +79,7 @@ export default function ClienteDetalhe() {
   const [pagamentosCliente, setPagamentosCliente] = useState<PagamentoDb[]>([]);
   const [pagLoading, setPagLoading] = useState(false);
 
-  // âœ… mantÃ©m o emprÃ©stimo selecionado sincronizado com o store (para atualizar totais apÃ³s pagamentos)
+  // ✅ mantém o empréstimo selecionado sincronizado com o store (para atualizar totais após pagamentos)
   useEffect(() => {
     const idSel = emprestimoSelecionado?.id;
     if (!idSel) return;
@@ -98,14 +98,14 @@ export default function ClienteDetalhe() {
 
   function abrirComprovanteEmprestimo(e: any) {
     const linhas = [
-      `Raposacobra - Comprovante de EmprÃ©stimo`,
+      `Raposacobra - Comprovante de Empréstimo`,
       "",
       `Cliente: ${e.clienteNome ?? e.cliente_nome ?? ""}`,
       `Data do contrato: ${fmtDateBR(e.dataContrato ?? e.created_at ?? "")}`,
       `Valor emprestado: R$ ${Number(e.valor ?? 0).toFixed(2)}`,
       `Total a receber: R$ ${Number(e.totalReceber ?? 0).toFixed(2)}`,
       `Parcelas: ${Number(e.numeroParcelas ?? 0)}x de R$ ${Number(e.valorParcela ?? 0).toFixed(2)}`,
-      `1Âº vencimento: ${fmtDateBR(getPrimeiroVencimentoAtual(e))}`,
+      `1º vencimento: ${fmtDateBR(getPrimeiroVencimentoAtual(e))}`,
       "",
       "Obrigado!",
     ];
@@ -116,7 +116,7 @@ export default function ClienteDetalhe() {
   }
 
   async function remover(id: string) {
-    const ok = window.confirm("Tem certeza que deseja excluir este emprÃ©stimo?");
+    const ok = window.confirm("Tem certeza que deseja excluir este empréstimo?");
     if (!ok) return;
     await removerEmprestimo(id);
   }
@@ -158,7 +158,7 @@ export default function ClienteDetalhe() {
         setEmpLoading(true);
         await fetchEmprestimos();
       } catch (e) {
-        console.error("Falha ao carregar emprÃ©stimos:", e);
+        console.error("Falha ao carregar empréstimos:", e);
       } finally {
         if (alive) setEmpLoading(false);
       }
@@ -281,14 +281,14 @@ export default function ClienteDetalhe() {
   }, [emprestimos, emprestimosCliente, parcelasFlat, hojeISO, pagamentosCliente]);
 
   if (loading) {
-    return <div className="p-6 text-sm text-slate-400">Carregando clienteâ€¦</div>;
+    return <div className="p-6 text-sm text-slate-400">Carregando cliente…</div>;
   }
 
   if (!cliente) {
     return (
       <div className="p-6">
         <div className="rc-card p-6">
-          <div className="text-lg font-semibold">Cliente nÃ£o encontrado</div>
+          <div className="text-lg font-semibold">Cliente não encontrado</div>
           <button className="rc-btn-outline mt-4" onClick={() => nav("/clientes")}>
             Voltar
           </button>
@@ -297,7 +297,7 @@ export default function ClienteDetalhe() {
     );
   }
 
-  const faixa = score?.faixa ?? "â€”";
+  const faixa = score?.faixa ?? "—";
   const scoreVal = score?.score ?? null;
 
   return (
@@ -305,12 +305,12 @@ export default function ClienteDetalhe() {
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
           <button type="button" className="rc-btn-outline" onClick={() => nav("/clientes")}>
-            â† Voltar
+            ← Voltar
           </button>
           <div className="text-2xl font-bold text-slate-100">{cliente.nomeCompleto}</div>
           <div className="text-sm text-slate-400">
-            {cliente.cpf ? `CPF: ${cliente.cpf}` : "Sem CPF"} {cliente.telefone ? `â€¢ ${cliente.telefone}` : ""}{" "}
-            {cliente.email ? `â€¢ ${cliente.email}` : ""}
+            {cliente.cpf ? `CPF: ${cliente.cpf}` : "Sem CPF"} {cliente.telefone ? `• ${cliente.telefone}` : ""}{" "}
+            {cliente.email ? `• ${cliente.email}` : ""}
           </div>
         </div>
 
@@ -320,7 +320,7 @@ export default function ClienteDetalhe() {
             className="rc-btn-primary w-full"
             onClick={() => nav(`/emprestimos?novo=1&cliente=${cliente.id}`)}
           >
-            + Novo emprÃ©stimo para este cliente
+            + Novo empréstimo para este cliente
           </button>
 
           <div className="rc-card p-4">
@@ -348,13 +348,13 @@ export default function ClienteDetalhe() {
 
       <div className="flex flex-wrap gap-2">
         <button type="button" className={tab === "visao_geral" ? "rc-btn-primary" : "rc-btn-outline"} onClick={() => setTab("visao_geral")}>
-          VisÃ£o geral
+          Visão geral
         </button>
         <button type="button" className={tab === "emprestimos" ? "rc-btn-primary" : "rc-btn-outline"} onClick={() => setTab("emprestimos")}>
-          EmprÃ©stimos
+          Empréstimos
         </button>
         <button type="button" className={tab === "historico" ? "rc-btn-primary" : "rc-btn-outline"} onClick={() => setTab("historico")}>
-          HistÃ³rico de pagamentos
+          Histórico de pagamentos
         </button>
       </div>
 
@@ -364,7 +364,7 @@ export default function ClienteDetalhe() {
             <div className="text-lg font-semibold">Resumo</div>
             <div className="mt-3 grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
               <div className="rounded-xl border border-emerald-500/10 bg-slate-950/30 p-3">
-                <div className="text-slate-400 text-xs">EmprÃ©stimos</div>
+                <div className="text-slate-400 text-xs">Empréstimos</div>
                 <div className="text-slate-100 font-semibold">{resumo.totalEmp}</div>
               </div>
               <div className="rounded-xl border border-emerald-500/10 bg-slate-950/30 p-3">
@@ -395,9 +395,9 @@ export default function ClienteDetalhe() {
             <div className="mt-3 space-y-2 text-sm text-slate-200">
               <div><span className="text-slate-400">Status:</span> {cliente.ativo ? "Ativo" : "Inativo"}</div>
               <div><span className="text-slate-400">Tipo:</span> {cliente.tipoCliente}</div>
-              <div><span className="text-slate-400">ProfissÃ£o:</span> {cliente.profissao || "â€”"}</div>
-              <div><span className="text-slate-400">IndicaÃ§Ã£o:</span> {cliente.indicacao || "â€”"}</div>
-              <div><span className="text-slate-400">ObservaÃ§Ãµes:</span> {cliente.observacoes || "â€”"}</div>
+              <div><span className="text-slate-400">Profissão:</span> {cliente.profissao || "—"}</div>
+              <div><span className="text-slate-400">Indicação:</span> {cliente.indicacao || "—"}</div>
+              <div><span className="text-slate-400">Observações:</span> {cliente.observacoes || "—"}</div>
             </div>
           </div>
         </div>
@@ -405,11 +405,11 @@ export default function ClienteDetalhe() {
 
       {tab === "emprestimos" ? (
         <div className="rc-card p-5">
-          <div className="text-lg font-semibold">EmprÃ©stimos do cliente</div>
+          <div className="text-lg font-semibold">Empréstimos do cliente</div>
           {empLoading ? (
-            <div className="mt-3 text-sm text-slate-400">Carregandoâ€¦</div>
+            <div className="mt-3 text-sm text-slate-400">Carregando…</div>
           ) : emprestimosCliente.length === 0 ? (
-            <div className="mt-3 text-sm text-slate-400">Nenhum emprÃ©stimo encontrado.</div>
+            <div className="mt-3 text-sm text-slate-400">Nenhum empréstimo encontrado.</div>
           ) : (
             <div className="mt-4">
               <EmprestimosLista
@@ -428,7 +428,7 @@ export default function ClienteDetalhe() {
 
       {tab === "historico" ? (
         <div className="rc-card p-5">
-          <div className="text-lg font-semibold">HistÃ³rico de pagamentos</div>
+          <div className="text-lg font-semibold">Histórico de pagamentos</div>
           <div className="mt-2 text-xs text-slate-500">
             Filtre as parcelas do cliente (ordenadas por vencimento).
           </div>
@@ -466,7 +466,7 @@ export default function ClienteDetalhe() {
 
           <div className="mt-4 overflow-auto">
             <div className="min-w-[860px] grid grid-cols-[120px_90px_140px_140px_140px_140px] gap-2 text-xs text-slate-400 border-b border-emerald-500/10 pb-2">
-              <div>EmprÃ©stimo</div>
+              <div>Empréstimo</div>
               <div>#</div>
               <div>Vencimento</div>
               <div>Valor</div>
@@ -498,7 +498,7 @@ export default function ClienteDetalhe() {
                         </span>
                       )}
                     </div>
-                    <div className="text-slate-200">{p.pago_em ? String(p.pago_em).slice(0, 10).split("-").reverse().join("/") : "â€”"}</div>
+                    <div className="text-slate-200">{p.pago_em ? String(p.pago_em).slice(0, 10).split("-").reverse().join("/") : "—"}</div>
                   </div>
                 );
               })}

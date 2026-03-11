@@ -314,7 +314,7 @@ export default function CarteiraStaff() {
       }
 
       if (file.size > 4 * 1024 * 1024) {
-        setError("O comprovante deve ter no mÃ¡ximo 4MB.");
+        setError("O comprovante deve ter no máximo 4MB.");
         return;
       }
 
@@ -705,7 +705,7 @@ export default function CarteiraStaff() {
                   className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-white outline-none file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-500 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-black"
                 />
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-white/60">
-                  <span>{form.comprovante_nome ? `Arquivo atual: ${form.comprovante_nome}` : "Aceita imagem ou PDF atÃ© 4MB."}</span>
+                  <span>{form.comprovante_nome ? `Arquivo atual: ${form.comprovante_nome}` : "Aceita imagem ou PDF até 4MB."}</span>
                   {form.comprovante_data_url ? (
                     <button
                       type="button"

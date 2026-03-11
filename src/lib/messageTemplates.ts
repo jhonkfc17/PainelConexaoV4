@@ -168,7 +168,17 @@ export function getMessageTemplate(key: MessageTemplateKey) {
   const raw = lsGet(`cfg_tpl_${key}`, DEFAULT_MESSAGE_TEMPLATES[key]);
 
   // Se o texto tiver sinais claros de mojibake (UTF-8 lido como ISO), volta ao default.
-  const looksBroken = /ðŸ|âœ|âš|â|â˜‚|â¤|\uFFFD|ï¿½|�/.test(raw);
+  const brokenFragments = [
+    "\u00F0\u0178", // ðŸ
+    "\u00E2\u0153", // âœ
+    "\u00E2\u0161", // âš
+    "\u00E2\u008F", // â
+    "\u00E2\u02DC\u201A", // â˜‚
+    "\u00E2\u009D\u00A4", // â¤
+    "\u00EF\u00BF\u00BD", // mojibake for replacement char
+    "\uFFFD", // replacement char
+  ];
+  const looksBroken = brokenFragments.some((fragment) => raw.includes(fragment));
   if (looksBroken) {
     const fixed = DEFAULT_MESSAGE_TEMPLATES[key];
     lsSet(`cfg_tpl_${key}`, fixed);

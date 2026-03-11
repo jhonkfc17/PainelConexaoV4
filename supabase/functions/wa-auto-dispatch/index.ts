@@ -67,7 +67,7 @@ function sanitizeWhatsAppMessage(raw: string) {
     if (txt.includes(bad)) txt = txt.split(bad).join(good);
   }
 
-  // Corrige linhas onde o emoji virou U+FFFD ("�"), comum em templates corrompidos.
+  // Corrige linhas onde o emoji virou U+FFFD (replacement char), comum em templates corrompidos.
   txt = txt
     .split("\n")
     .map((line) => {
