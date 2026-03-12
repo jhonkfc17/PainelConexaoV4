@@ -3,6 +3,7 @@ import { Link, Navigate } from "react-router-dom";
 import {
   createStaff,
   deleteStaff,
+  deleteStaffRow,
   listStaff,
   resetStaffPassword,
   updateStaff,
@@ -312,7 +313,33 @@ export default function Funcionarios() {
       await load();
     } catch (e: any) {
       console.error(e);
-      setError(e?.message || "Falha ao excluir funcionario.");
+
+      const message = String(e?.message || "");
+      const supportsDeleteAction = !/unknown action/i.test(message);
+
+      if (!supportsDeleteAction) {
+        const label = r.nome?.trim() || r.email;
+        const removeOnlyRow = window.confirm(
+          `O backend publicado ainda nao suporta exclusao completa.\n\nDeseja remover apenas o cadastro local de ${label} da lista de funcionarios?\n\nUse isso somente se esse usuario ja foi apagado no Auth.`
+        );
+
+        if (!removeOnlyRow) {
+          setError("A function staff-admin publicada ainda nao suporta exclusao completa.");
+          return;
+        }
+
+        try {
+          await deleteStaffRow(r.auth_user_id);
+          await load();
+          return;
+        } catch (fallbackError: any) {
+          console.error(fallbackError);
+          setError(fallbackError?.message || "Falha ao remover cadastro local do funcionario.");
+          return;
+        }
+      }
+
+      setError(message || "Falha ao excluir funcionario.");
     } finally {
       setLoading(false);
     }
