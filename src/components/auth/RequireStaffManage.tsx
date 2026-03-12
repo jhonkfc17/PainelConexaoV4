@@ -5,7 +5,7 @@ import { usePermissoes } from "../../store/usePermissoes";
 
 export default function RequireStaffManage({ children }: { children: React.ReactNode }) {
   const loading = useAuthStore((s) => s.loading);
-  const { canManageStaff } = usePermissoes();
+  const { isAdmin } = usePermissoes();
   const location = useLocation();
 
   if (loading) {
@@ -19,7 +19,7 @@ export default function RequireStaffManage({ children }: { children: React.React
     );
   }
 
-  if (!canManageStaff) {
+  if (!isAdmin) {
     return <Navigate to="/" replace state={{ from: location.pathname }} />;
   }
 

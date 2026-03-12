@@ -55,7 +55,7 @@ function makeAllPermissions(value: boolean) {
 }
 
 export default function Funcionarios() {
-  const { canManageStaff, isAdmin: isAdminUser } = usePermissoes();
+  const { isAdmin: isAdminUser } = usePermissoes();
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -78,7 +78,7 @@ export default function Funcionarios() {
   const [pwEmail, setPwEmail] = useState<string>("");
   const [pwNew, setPwNew] = useState<string>("");
 
-  if (!canManageStaff) {
+  if (!isAdminUser) {
     return <Navigate to="/" replace />;
   }
 
