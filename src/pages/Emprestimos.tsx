@@ -20,50 +20,80 @@ import { useUIStore } from "../store/useUIStore";
 import { useClientesStore } from "../store/useClientesStore";
 import { useEmprestimosStore } from "../store/useEmprestimosStore";
 
-function fmtDateBR(iso?: string | null): string {
-  if (!iso) return "-";
-  const d = new Date(String(iso));
-  if (Number.isNaN(d.getTime())) return String(iso);
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
+function normalizeDateOnly(value?: string | null): string {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+
+  const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+
+  const brMatch = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (brMatch) return `${brMatch[3]}-${brMatch[2]}-${brMatch[1]}`;
+
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return "";
   const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function fmtDateBR(iso?: string | null): string {
+  const normalized = normalizeDateOnly(iso);
+  if (!normalized) return "-";
+  const [yyyy, mm, dd] = normalized.split("-");
+  if (!yyyy || !mm || !dd) return "-";
   return `${dd}/${mm}/${yyyy}`;
 }
 
-function getPrimeiroVencimentoContrato(e: any): string {
-  const fromPrimeiraParcela = String(e?.primeiraParcela ?? "").trim();
-  if (fromPrimeiraParcela) return fromPrimeiraParcela;
+function collectContractDueDates(e: any): string[] {
+  const dates = new Set<string>();
+  const addDate = (value?: string | null) => {
+    const normalized = normalizeDateOnly(value);
+    if (normalized) dates.add(normalized);
+  };
 
-  const fromVencimentos = Array.isArray(e?.vencimentos) ? String(e.vencimentos[0] ?? "").trim() : "";
-  if (fromVencimentos) return fromVencimentos;
+  addDate(e?.primeiraParcela);
 
-  const parcelas = Array.isArray(e?.parcelasDb) ? [...e.parcelasDb] : [];
-  if (parcelas.length > 0) {
-    parcelas.sort((a: any, b: any) => {
-      const na = Number(a?.numero ?? 0);
-      const nb = Number(b?.numero ?? 0);
-      if (na !== nb) return na - nb;
-      return String(a?.vencimento ?? "").localeCompare(String(b?.vencimento ?? ""));
-    });
-    const fromParcelas = String(parcelas[0]?.vencimento ?? "").trim();
-    if (fromParcelas) return fromParcelas;
+  if (Array.isArray(e?.vencimentos)) {
+    for (const vencimento of e.vencimentos) addDate(String(vencimento ?? ""));
   }
 
-  return "";
+  if (Array.isArray(e?.parcelasDb)) {
+    for (const parcela of e.parcelasDb) addDate(String(parcela?.vencimento ?? ""));
+  }
+
+  return [...dates].sort((a, b) => a.localeCompare(b));
+}
+
+function todayDateOnly(): string {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function getPrimeiroVencimentoContrato(e: any): string {
+  return collectContractDueDates(e)[0] ?? "";
 }
 
 function getProximoVencimentoAtual(e: any): string {
-  const fromBackend = String(e?.proximoVencimentoEmAberto ?? e?.proximo_vencimento_em_aberto ?? "").trim();
-  if (fromBackend) return fromBackend;
+  const parcelasEmAberto = Array.isArray(e?.parcelasDb)
+    ? e.parcelasDb
+        .filter((p: any) => !p?.pago)
+        .map((p: any) => normalizeDateOnly(String(p?.vencimento ?? "")))
+        .filter(Boolean)
+        .sort((a: string, b: string) => a.localeCompare(b))
+    : [];
 
-  const parcelas = Array.isArray(e?.parcelasDb) ? e.parcelasDb.filter((p: any) => !p?.pago) : [];
-  if (parcelas.length > 0) {
-    const sorted = [...parcelas].sort((a: any, b: any) => String(a?.vencimento ?? "").localeCompare(String(b?.vencimento ?? "")));
-    const fromParcelas = String(sorted[0]?.vencimento ?? "").trim();
-    if (fromParcelas) return fromParcelas;
-  }
+  if (parcelasEmAberto.length > 0) return parcelasEmAberto[0];
 
-  return "";
+  const contractDates = collectContractDueDates(e);
+  if (contractDates.length === 0) return "";
+
+  const today = todayDateOnly();
+  return contractDates.find((date) => date >= today) ?? contractDates[0];
 }
 
 function csvCell(value: string | number | boolean | null | undefined) {
