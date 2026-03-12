@@ -74,8 +74,24 @@ export async function staffAdmin(payload: StaffPayload) {
 // ------------------------------
 
 export async function listStaff(): Promise<StaffMember[]> {
-  const resp = await staffAdmin({ action: "list" });
-  return Array.isArray(resp?.rows) ? (resp.rows as StaffMember[]) : [];
+  try {
+    const resp = await staffAdmin({ action: "list" });
+    return Array.isArray(resp?.rows) ? (resp.rows as StaffMember[]) : [];
+  } catch (error) {
+    // Compatibilidade: se a Edge Function publicada ainda não tiver a ação `list`,
+    // usa a leitura direta antiga para a tela não ficar vazia.
+    console.warn("[staff-admin] fallback para leitura direta de staff_members:", error);
+
+    const { data, error: queryError } = await supabase
+      .from("staff_members")
+      .select(
+        "id, tenant_id, auth_user_id, nome, email, role, permissions, commission_pct, active, created_at"
+      )
+      .order("created_at", { ascending: false });
+
+    if (queryError) throw queryError;
+    return (data ?? []) as StaffMember[];
+  }
 }
 
 export async function createStaff(input: {
