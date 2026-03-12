@@ -88,6 +88,12 @@ export default function ImportarClientesModal({
     setFailCount(0);
 
     try {
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      const userId = authData?.user?.id ?? null;
+      if (authError || !userId) {
+        throw new Error("Sessão inválida para importar clientes.");
+      }
+
       // insere em lotes para evitar payload grande
       const batchSize = 200;
       let ok = 0;
@@ -96,9 +102,19 @@ export default function ImportarClientesModal({
       for (let i = 0; i < preview.length; i += batchSize) {
         const chunk = preview.slice(i, i + batchSize);
         const payload = chunk.map((r) => ({
+          user_id: userId,
+          created_by: userId,
           nome: r.nome,
           cpf: r.cpf || null,
           telefone: r.telefone || null,
+          payload: {
+            nomeCompleto: r.nome,
+            cpf: r.cpf || undefined,
+            telefone: r.telefone || undefined,
+            tipoCliente: "geral",
+            ativo: true,
+            createdAt: new Date().toISOString(),
+          },
         }));
 
         const { error: insErr } = await supabase.from("clientes").insert(payload);
