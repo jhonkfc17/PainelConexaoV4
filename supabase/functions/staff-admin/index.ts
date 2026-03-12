@@ -124,7 +124,12 @@ Deno.serve(async (req) => {
     const tenantIdFromToken = (caller.app_metadata as any)?.tenant_id ?? null;
     const callerRole = String((caller.app_metadata as any)?.role ?? "").trim().toLowerCase();
     const tenantId = tenantIdFromToken ?? caller.id;
-    const isOwnerCaller = callerRole === "owner";
+    // New self-signup accounts may not have owner metadata stamped yet.
+    // In that case, treat the account as the owner of its own tenant.
+    const isOwnerCaller =
+      callerRole === "owner" ||
+      !tenantIdFromToken ||
+      tenantIdFromToken === caller.id;
 
     if (!isOwnerCaller) {
       if (!tenantIdFromToken) {
