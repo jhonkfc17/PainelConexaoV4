@@ -1042,6 +1042,16 @@ export default function RelatorioOperacional() {
     [emprestimosAtivos, hojeISO]
   );
 
+  const prejuizoReal = useMemo(
+    () =>
+      emprestimosAtivos.reduce((acc, loan) => {
+        const atraso = sumAtraso(parcelasAbertas(loan), hojeISO);
+        if (!(atraso > 0.00001)) return acc;
+        return acc + safeNumber((loan as any).valor ?? 0);
+      }, 0),
+    [emprestimosAtivos, hojeISO]
+  );
+
   const ticketMedioAtivo = useMemo(
     () => (emprestimosAtivos.length > 0 ? principalTotalAtivos / emprestimosAtivos.length : 0),
     [emprestimosAtivos.length, principalTotalAtivos]
@@ -1220,6 +1230,8 @@ export default function RelatorioOperacional() {
 
   const displayTicketMedioAtivo = useMemo(() => scaleMoney(ticketMedioAtivo), [ticketMedioAtivo, staffCommissionFactor]);
 
+  const displayPrejuizoReal = useMemo(() => scaleMoney(prejuizoReal), [prejuizoReal, staffCommissionFactor]);
+
   const displayFaixasAnalise = useMemo(
     () => faixasAnalise.map((row) => ({ ...row, valor: scaleMoney(row.valor) })),
     [faixasAnalise, staffCommissionFactor]
@@ -1248,6 +1260,7 @@ export default function RelatorioOperacional() {
       ["Juros recebidos", brl(displayIndicadores.jurosRecebidos)],
       ["Em atraso", brl(displayIndicadores.emAtraso)],
       ["Lucro realizado", brl(displayIndicadores.lucroRealizado)],
+      ["Prejuizo real", brl(displayPrejuizoReal)],
       ["Taxa de recuperacao de capital", pct(taxaRecuperacaoCapital)],
       ["Taxa de operacoes em atraso", pct(taxaAtrasoOperacoes)],
       ["Risco sobre carteira", pct(taxaAtrasoCarteira)],
@@ -1390,7 +1403,7 @@ export default function RelatorioOperacional() {
         <Card icon={<CircleDollarSign size={16} />} title="Lucro Realizado" value={brl(displayIndicadores.lucroRealizado)} subtitle="Juros recebidos" tone="purple" />
       </div>
 
-      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <Card
           icon={<Wallet size={16} />}
           title="Operacoes ativas"
@@ -1403,6 +1416,13 @@ export default function RelatorioOperacional() {
           title="Risco da carteira"
           value={pct(taxaAtrasoCarteira)}
           subtitle="saldo vencido sobre capital aberto"
+          tone="red"
+        />
+        <Card
+          icon={<AlertTriangle size={16} />}
+          title="Prejuizo real"
+          value={brl(displayPrejuizoReal)}
+          subtitle="capital emprestado em contratos atrasados"
           tone="red"
         />
         <Card
