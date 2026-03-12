@@ -30,7 +30,13 @@ function fmtDateBR(iso?: string | null): string {
   return `${dd}/${mm}/${yyyy}`;
 }
 
-function getPrimeiroVencimentoAtual(e: any): string {
+function getPrimeiroVencimentoContrato(e: any): string {
+  const fromPrimeiraParcela = String(e?.primeiraParcela ?? "").trim();
+  if (fromPrimeiraParcela) return fromPrimeiraParcela;
+
+  const fromVencimentos = Array.isArray(e?.vencimentos) ? String(e.vencimentos[0] ?? "").trim() : "";
+  if (fromVencimentos) return fromVencimentos;
+
   const parcelas = Array.isArray(e?.parcelasDb) ? [...e.parcelasDb] : [];
   if (parcelas.length > 0) {
     parcelas.sort((a: any, b: any) => {
@@ -43,9 +49,21 @@ function getPrimeiroVencimentoAtual(e: any): string {
     if (fromParcelas) return fromParcelas;
   }
 
-  const fromVencimentos = Array.isArray(e?.vencimentos) ? String(e.vencimentos[0] ?? "").trim() : "";
-  if (fromVencimentos) return fromVencimentos;
-  return String(e?.primeiraParcela ?? "").trim();
+  return "";
+}
+
+function getProximoVencimentoAtual(e: any): string {
+  const fromBackend = String(e?.proximoVencimentoEmAberto ?? e?.proximo_vencimento_em_aberto ?? "").trim();
+  if (fromBackend) return fromBackend;
+
+  const parcelas = Array.isArray(e?.parcelasDb) ? e.parcelasDb.filter((p: any) => !p?.pago) : [];
+  if (parcelas.length > 0) {
+    const sorted = [...parcelas].sort((a: any, b: any) => String(a?.vencimento ?? "").localeCompare(String(b?.vencimento ?? "")));
+    const fromParcelas = String(sorted[0]?.vencimento ?? "").trim();
+    if (fromParcelas) return fromParcelas;
+  }
+
+  return "";
 }
 
 function csvCell(value: string | number | boolean | null | undefined) {
@@ -263,7 +281,7 @@ export default function Emprestimos() {
       `Valor emprestado: R$ ${e.valor.toFixed(2)}`,
       `Total a receber: R$ ${e.totalReceber.toFixed(2)}`,
       `Parcelas: ${e.numeroParcelas}x de R$ ${e.valorParcela.toFixed(2)}`,
-      `1o vencimento: ${fmtDateBR(getPrimeiroVencimentoAtual(e))}`,
+      `1o vencimento: ${fmtDateBR(getPrimeiroVencimentoContrato(e))}`,
       "",
       "Obrigado!",
     ];
@@ -306,8 +324,8 @@ export default function Emprestimos() {
           csvCell(emprestimo.numeroParcelas),
           csvCell(Number(emprestimo.valorParcela ?? 0).toFixed(2)),
           csvCell(fmtDateBR(emprestimo.dataContrato)),
-          csvCell(fmtDateBR(getPrimeiroVencimentoAtual(emprestimo))),
-          csvCell(fmtDateBR(emprestimo.proximoVencimentoEmAberto)),
+          csvCell(fmtDateBR(getPrimeiroVencimentoContrato(emprestimo))),
+          csvCell(fmtDateBR(getProximoVencimentoAtual(emprestimo))),
           csvCell(emprestimo.parcelasEmAberto ?? 0),
           csvCell(emprestimo.parcelasEmAtraso ?? 0),
           csvCell(emprestimo.emAtraso ? "Sim" : "Nao"),
@@ -341,7 +359,7 @@ export default function Emprestimos() {
       `Valor emprestado: R$ ${novo.valor.toFixed(2)}`,
       `Total a receber: R$ ${novo.totalReceber.toFixed(2)}`,
       `Parcelas: ${novo.numeroParcelas}x de R$ ${novo.valorParcela.toFixed(2)}`,
-      `1o vencimento: ${fmtDateBR(getPrimeiroVencimentoAtual(novo))}`,
+      `1o vencimento: ${fmtDateBR(getPrimeiroVencimentoContrato(novo))}`,
       "",
       "Obrigado!",
     ];
