@@ -7,6 +7,39 @@ type RowIn = {
   telefone: string;
 };
 
+function parseCsvLine(line: string, separator: string): string[] {
+  const cols: string[] = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    const next = line[i + 1];
+
+    if (char === '"') {
+      if (inQuotes && next === '"') {
+        current += '"';
+        i += 1;
+        continue;
+      }
+
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if (char === separator && !inQuotes) {
+      cols.push(current.trim());
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  cols.push(current.trim());
+  return cols;
+}
+
 function parseCsv(text: string): RowIn[] {
   const raw = text.replace(/\r/g, "").trim();
   if (!raw) return [];
@@ -17,9 +50,7 @@ function parseCsv(text: string): RowIn[] {
   // aceita , ou ;
   const headerLine = lines[0];
   const sep = headerLine.includes(";") && !headerLine.includes(",") ? ";" : ",";
-  const headers = headerLine
-    .split(sep)
-    .map((h) => h.trim().toLowerCase());
+  const headers = parseCsvLine(headerLine, sep).map((h) => h.trim().toLowerCase());
 
   const idxNome = headers.findIndex((h) => ["nome completo", "nome", "nome_completo"].includes(h));
   const idxCpf = headers.findIndex((h) => ["cpf"].includes(h));
@@ -33,7 +64,7 @@ function parseCsv(text: string): RowIn[] {
 
   const out: RowIn[] = [];
   for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].split(sep).map((c) => c.trim());
+    const cols = parseCsvLine(lines[i], sep);
     const nome = cols[idxNome] ?? "";
     const cpf = (cols[idxCpf] ?? "").replace(/\D/g, "");
     const telefone = (cols[idxTel] ?? "").replace(/\D/g, "");
