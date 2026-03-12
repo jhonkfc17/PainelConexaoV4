@@ -71,6 +71,11 @@ export default function Funcionarios() {
 
   const [isAdmin, setIsAdmin] = useState(false);
   const [permissions, setPermissions] = useState<Record<string, boolean>>(() => makeAllPermissions(false));
+  const [editOpen, setEditOpen] = useState(false);
+  const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
+  const [editIsAdmin, setEditIsAdmin] = useState(false);
+  const [editPermissions, setEditPermissions] = useState<Record<string, boolean>>(() => makeAllPermissions(false));
+  const [savingPermissions, setSavingPermissions] = useState(false);
 
   // modal reset password
   const [pwOpen, setPwOpen] = useState(false);
@@ -114,6 +119,11 @@ export default function Funcionarios() {
   const onToggleAdmin = (v: boolean) => {
     setIsAdmin(v);
     setPermissions(makeAllPermissions(v));
+  };
+
+  const onToggleEditAdmin = (v: boolean) => {
+    setEditIsAdmin(v);
+    setEditPermissions(makeAllPermissions(v));
   };
 
   const resetForm = () => {
@@ -245,6 +255,42 @@ export default function Funcionarios() {
     setPwOpen(true);
   };
 
+  const openEditPermissions = (r: StaffMember) => {
+    setError(null);
+    setEditingStaff(r);
+    setEditIsAdmin(r.role === "admin");
+    setEditPermissions({
+      ...makeAllPermissions(false),
+      ...(r.role === "admin" ? makeAllPermissions(true) : (r.permissions ?? {})),
+    });
+    setEditOpen(true);
+  };
+
+  const toggleEditPerm = (k: string) => {
+    setEditPermissions((prev) => ({ ...prev, [k]: !prev[k] }));
+  };
+
+  const handleSavePermissions = async () => {
+    try {
+      if (!editingStaff) return;
+      setError(null);
+      setSavingPermissions(true);
+      await updateStaff({
+        auth_user_id: editingStaff.auth_user_id,
+        role: editIsAdmin ? "admin" : "staff",
+        permissions: editIsAdmin ? makeAllPermissions(true) : editPermissions,
+      });
+      await load();
+      setEditOpen(false);
+      setEditingStaff(null);
+    } catch (e: any) {
+      console.error(e);
+      setError(e?.message || "Falha ao salvar permissões.");
+    } finally {
+      setSavingPermissions(false);
+    }
+  };
+
   const handleResetPw = async () => {
     try {
       setError(null);
@@ -334,6 +380,13 @@ export default function Funcionarios() {
                     />
                     <span className="text-white/70 text-sm">%</span>
                   </div>
+
+                  <button
+                    onClick={() => openEditPermissions(r)}
+                    className="px-3 py-2 rounded-xl border border-white/10 bg-white/5 text-white hover:bg-white/10"
+                  >
+                    Permissões
+                  </button>
 
                   <button
                     onClick={() => openResetPw(r)}
@@ -490,6 +543,96 @@ export default function Funcionarios() {
                 }`}
               >
                 {creating ? "Criando..." : "Criar acesso"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL EDITAR PERMISSÕES */}
+      {editOpen && editingStaff && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-3">
+          <div className="w-full max-w-[520px] rounded-2xl border border-white/10 bg-[#0B1220] shadow-xl">
+            <div className="p-4 border-b border-white/10 flex items-center justify-between">
+              <div>
+                <div className="text-white font-semibold">Editar permissões</div>
+                <div className="text-white/60 text-sm">{editingStaff.nome || editingStaff.email}</div>
+              </div>
+              <button
+                onClick={() => {
+                  setEditOpen(false);
+                  setEditingStaff(null);
+                }}
+                className="w-9 h-9 rounded-xl border border-white/10 bg-white/5 text-white hover:bg-white/10"
+              >
+                âœ•
+              </button>
+            </div>
+
+            <div className="p-4 max-h-[70vh] overflow-y-auto">
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-white font-semibold">Acesso total (Admin)</div>
+                    <div className="text-white/60 text-sm">
+                      Marca todas as permissões e permite gerenciar funcionários/configurações.
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => onToggleEditAdmin(!editIsAdmin)}
+                    className={`w-14 h-8 rounded-full border border-white/10 transition relative ${
+                      editIsAdmin ? "bg-emerald-500/80" : "bg-white/10"
+                    }`}
+                    aria-label="toggle admin edit"
+                  >
+                    <span
+                      className={`absolute top-1 w-6 h-6 rounded-full bg-white transition ${
+                        editIsAdmin ? "left-7" : "left-1"
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                <div className="mt-3 grid grid-cols-1 gap-2">
+                  {PERMISSIONS.map((p) => (
+                    <label key={p.key} className="flex items-center justify-between gap-3">
+                      <span className="text-white/80 text-sm">{p.label}</span>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(editPermissions[p.key])}
+                        onChange={() => toggleEditPerm(p.key)}
+                        disabled={editIsAdmin}
+                        className="w-5 h-5 accent-emerald-500 disabled:opacity-60"
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-white/10 flex items-center justify-end gap-2">
+              <button
+                onClick={() => {
+                  setEditOpen(false);
+                  setEditingStaff(null);
+                }}
+                className="px-4 py-2 rounded-xl border border-white/10 bg-white/5 text-white hover:bg-white/10"
+                disabled={savingPermissions}
+              >
+                Cancelar
+              </button>
+
+              <button
+                onClick={handleSavePermissions}
+                disabled={savingPermissions}
+                className={`px-4 py-2 rounded-xl font-semibold ${
+                  savingPermissions
+                    ? "bg-emerald-500/30 text-black/60 cursor-not-allowed"
+                    : "bg-emerald-500 text-black hover:bg-emerald-400"
+                }`}
+              >
+                {savingPermissions ? "Salvando..." : "Salvar permissões"}
               </button>
             </div>
           </div>
