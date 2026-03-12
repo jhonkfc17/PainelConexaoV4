@@ -34,8 +34,13 @@ function uid() {
   });
 }
 
+function csvCell(value: string | undefined) {
+  const text = String(value ?? "").replace(/"/g, '""');
+  return `"${text}"`;
+}
+
 export default function Clientes() {
-  const { canManageClients, isAdmin, isOwner } = usePermissoes();
+  const { canManageClients, canExportCSV, isAdmin, isOwner } = usePermissoes();
   const canCreate = Boolean(isOwner || isAdmin || canManageClients);
   const nav = useNavigate();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -99,6 +104,8 @@ useEffect(() => {
       return blob.includes(q);
     });
   }, [clientes, busca]);
+
+  const canExport = Boolean(clientesFiltrados.length) && Boolean(isOwner || isAdmin || canManageClients || canExportCSV);
 
   function abrirDocs(cliente: Cliente) {
     setClienteDocs(cliente);
@@ -174,12 +181,38 @@ useEffect(() => {
     }
   }
 
+  function exportarClientesCsv() {
+    if (!clientesFiltrados.length) return;
+
+    const rows = [
+      "Nome Completo,Cpf,Telefone",
+      ...clientesFiltrados.map((cliente) =>
+        [
+          csvCell(cliente.nomeCompleto),
+          csvCell(cliente.cpf),
+          csvCell(cliente.telefone),
+        ].join(",")
+      ),
+    ];
+
+    const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    a.href = url;
+    a.download = `clientes_export_${stamp}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="min-h-[calc(100vh-64px)] p-0 sm:p-2">
       <ClientesHeader
         onClickNovoCliente={canCreate ? abrirNovoCliente : undefined}
         onImportarClientes={canCreate ? () => setImportOpen(true) : undefined}
+        onExportarClientes={canExport ? exportarClientesCsv : undefined}
         canCreate={canCreate}
+        canExport={canExport}
       />
 
       <div className="mt-4">

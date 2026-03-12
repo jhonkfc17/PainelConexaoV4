@@ -2,6 +2,7 @@
 
 type Props = {
   canCreate?: boolean;
+  canExport?: boolean;
 
   // novo nome (usado no Clientes.tsx)
   onClickNovoCliente?: () => void;
@@ -10,9 +11,17 @@ type Props = {
   onNovoCliente?: () => void;
 
   onImportarClientes?: () => void;
+  onExportarClientes?: () => void;
 };
 
-export default function ClientesHeader({ onClickNovoCliente, onNovoCliente, onImportarClientes, canCreate = true }: Props) {
+export default function ClientesHeader({
+  onClickNovoCliente,
+  onNovoCliente,
+  onImportarClientes,
+  onExportarClientes,
+  canCreate = true,
+  canExport = true,
+}: Props) {
   const handleClick = onClickNovoCliente ?? onNovoCliente;
 
   return (
@@ -23,6 +32,22 @@ export default function ClientesHeader({ onClickNovoCliente, onNovoCliente, onIm
       </div>
 
       <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onExportarClientes}
+          disabled={!canExport}
+          className={[
+            "inline-flex items-center gap-2 rounded-xl px-3 sm:px-4 py-2 text-sm font-semibold transition border",
+            canExport
+              ? "border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
+              : "border-white/10 bg-white/5 text-white/30 cursor-not-allowed",
+          ].join(" ")}
+          title={canExport ? "" : "Nenhum cliente disponível para exportar"}
+        >
+          <span aria-hidden>⬇️</span>
+          Exportar CSV
+        </button>
+
         <button
           type="button"
           onClick={onImportarClientes}
