@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CircleDollarSign, RefreshCcw, Shield, Wallet } from "lucide-react";
 
 import { supabase } from "@/lib/supabaseClient";
+import ModalBase from "@/components/ui/ModalBase";
 import { usePermissoes } from "@/store/usePermissoes";
 import {
   createStaffWalletPayout,
@@ -75,6 +76,17 @@ function shouldHideInactive(wallet: StaffWallet) {
   return !wallet.active;
 }
 
+function isPdfReceipt(mimeType: string | null, fileName: string | null, dataUrl: string | null) {
+  const normalizedMime = String(mimeType ?? "").toLowerCase();
+  const normalizedName = String(fileName ?? "").toLowerCase();
+  const normalizedUrl = String(dataUrl ?? "").toLowerCase();
+  return (
+    normalizedMime === "application/pdf" ||
+    normalizedName.endsWith(".pdf") ||
+    normalizedUrl.startsWith("data:application/pdf")
+  );
+}
+
 export default function CarteiraStaff() {
   const { isAdmin, isOwner } = usePermissoes();
   const canSeeTeamWallet = isOwner;
@@ -86,6 +98,7 @@ export default function CarteiraStaff() {
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
   const [modalOpen, setModalOpen] = useState(false);
   const [editingPayout, setEditingPayout] = useState<StaffWalletPayout | null>(null);
+  const [previewPayout, setPreviewPayout] = useState<StaffWalletPayout | null>(null);
   const [form, setForm] = useState<PayoutFormState>({
     staff_member_id: "",
     valor: "",
@@ -166,6 +179,14 @@ export default function CarteiraStaff() {
     if (!selectedStaffId) return payouts;
     return payouts.filter((payout) => payout.staff_member_id === selectedStaffId);
   }, [payouts, selectedStaffId]);
+
+  const previewIsPdf = useMemo(() => {
+    return isPdfReceipt(
+      previewPayout?.comprovante_mime_type ?? null,
+      previewPayout?.comprovante_nome ?? null,
+      previewPayout?.comprovante_data_url ?? null
+    );
+  }, [previewPayout]);
 
   const totals = useMemo(() => {
     return wallets.reduce(
@@ -592,7 +613,7 @@ export default function CarteiraStaff() {
                         <>
                           <button
                             type="button"
-                            onClick={() => window.open(payout.comprovante_data_url ?? "", "_blank", "noopener,noreferrer")}
+                            onClick={() => setPreviewPayout(payout)}
                             className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm text-sky-100 hover:bg-sky-500/20"
                           >
                             Ver comprovante
@@ -759,6 +780,56 @@ export default function CarteiraStaff() {
           </div>
         </div>
       ) : null}
+
+      <ModalBase
+        open={Boolean(previewPayout?.comprovante_data_url)}
+        onClose={() => setPreviewPayout(null)}
+        title={previewPayout?.comprovante_nome || "Preview do comprovante"}
+        panelClassName="max-w-5xl"
+      >
+        {previewPayout?.comprovante_data_url ? (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-white">
+                  {previewPayout.comprovante_nome || "Comprovante"}
+                </div>
+                <div className="text-[11px] text-white/50">
+                  {previewPayout.comprovante_mime_type || "Arquivo"} • {formatDateTime(previewPayout.created_at)}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  downloadDataUrl(
+                    previewPayout.comprovante_data_url ?? "",
+                    previewPayout.comprovante_nome ?? "comprovante"
+                  )
+                }
+                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white hover:bg-white/10"
+              >
+                Baixar
+              </button>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-black/30 p-2">
+              {previewIsPdf ? (
+                <iframe
+                  title={previewPayout.comprovante_nome || "Preview do comprovante"}
+                  src={previewPayout.comprovante_data_url}
+                  className="h-[75vh] w-full rounded-xl bg-white"
+                />
+              ) : (
+                <img
+                  alt={previewPayout.comprovante_nome || "Preview do comprovante"}
+                  src={previewPayout.comprovante_data_url}
+                  className="max-h-[75vh] w-full rounded-xl object-contain"
+                />
+              )}
+            </div>
+          </div>
+        ) : null}
+      </ModalBase>
     </div>
   );
 }
