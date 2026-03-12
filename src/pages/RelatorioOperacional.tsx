@@ -5,6 +5,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -88,6 +89,8 @@ type PagamentoRow = {
   estornado_em?: string | null;
 };
 
+const DISTRIBUICAO_COLORS = ["#fbbf24", "#38bdf8", "#a78bfa", "#f87171"];
+
 function getTodaySP(): Date {
   const formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Sao_Paulo",
@@ -104,6 +107,15 @@ function getTodaySP(): Date {
 
 function brl(v: number): string {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function brlCompact(v: number): string {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(v);
 }
 
 function formatBR(dISO: string): string {
@@ -1503,11 +1515,40 @@ export default function RelatorioOperacional() {
           <div className="mt-3 h-56">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={displayEvolucaoMensal} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-                <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} />
-                <Tooltip formatter={(value: any) => brl(Number(value || 0))} />
-                <Bar dataKey="lucro" name="Lucro" />
+                <defs>
+                  <linearGradient id="evolucaoLucroGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#34d399" />
+                    <stop offset="100%" stopColor="#06b6d4" />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="#334155" strokeDasharray="4 4" vertical={false} opacity={0.45} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 12, fill: "#cbd5e1" }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 12, fill: "#cbd5e1" }}
+                  tickFormatter={(value) => brlCompact(Number(value || 0))}
+                  axisLine={false}
+                  tickLine={false}
+                  width={64}
+                />
+                <Tooltip
+                  formatter={(value: any) => [brl(Number(value || 0)), "Lucro"]}
+                  contentStyle={{
+                    background: "rgba(2, 6, 23, 0.96)",
+                    border: "1px solid rgba(52, 211, 153, 0.35)",
+                    borderRadius: 14,
+                    color: "#e2e8f0",
+                    boxShadow: "0 18px 48px rgba(0, 0, 0, 0.38)",
+                  }}
+                  labelStyle={{ color: "#86efac", fontWeight: 700 }}
+                  itemStyle={{ color: "#e2e8f0" }}
+                  cursor={{ fill: "rgba(52, 211, 153, 0.08)" }}
+                />
+                <Bar dataKey="lucro" name="Lucro" fill="url(#evolucaoLucroGradient)" radius={[10, 10, 0, 0]} maxBarSize={42} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -1520,12 +1561,39 @@ export default function RelatorioOperacional() {
           <div className="text-sm font-semibold text-white">Distribuição</div>
           <div className="mt-3 h-56">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={displayDistribuicao}>
-                <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
-                <XAxis dataKey="label" strokeOpacity={0.6} />
-                <YAxis strokeOpacity={0.6} />
-                <Tooltip />
-                <Bar dataKey="valor" />
+              <BarChart data={displayDistribuicao} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <CartesianGrid stroke="#334155" strokeDasharray="4 4" vertical={false} opacity={0.45} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 12, fill: "#cbd5e1" }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 12, fill: "#cbd5e1" }}
+                  tickFormatter={(value) => brlCompact(Number(value || 0))}
+                  axisLine={false}
+                  tickLine={false}
+                  width={64}
+                />
+                <Tooltip
+                  formatter={(value: any, _name: any, payload: any) => [brl(Number(value || 0)), payload?.payload?.label ?? "Valor"]}
+                  contentStyle={{
+                    background: "rgba(2, 6, 23, 0.96)",
+                    border: "1px solid rgba(148, 163, 184, 0.3)",
+                    borderRadius: 14,
+                    color: "#e2e8f0",
+                    boxShadow: "0 18px 48px rgba(0, 0, 0, 0.38)",
+                  }}
+                  labelStyle={{ color: "#f8fafc", fontWeight: 700 }}
+                  itemStyle={{ color: "#e2e8f0" }}
+                  cursor={{ fill: "rgba(148, 163, 184, 0.08)" }}
+                />
+                <Bar dataKey="valor" radius={[10, 10, 0, 0]} maxBarSize={58}>
+                  {displayDistribuicao.map((entry, index) => (
+                    <Cell key={`${entry.label}-${index}`} fill={DISTRIBUICAO_COLORS[index % DISTRIBUICAO_COLORS.length]} />
+                  ))}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
