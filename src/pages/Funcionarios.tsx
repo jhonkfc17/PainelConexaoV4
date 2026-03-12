@@ -11,6 +11,7 @@ import {
   type StaffMember,
   type StaffRole,
 } from "../services/funcionarios.service";
+import { listStaffWallets } from "../services/staffWallet.service";
 import { usePermissoes } from "../store/usePermissoes";
 import { useAuthStore } from "../store/useAuthStore";
 
@@ -57,6 +58,10 @@ function makeAllPermissions(value: boolean) {
   }, {} as Record<string, boolean>);
 }
 
+function shouldHideInactiveWithHistory(input: { active: boolean; payout_count?: number }) {
+  return !input.active && Number(input.payout_count ?? 0) > 0;
+}
+
 export default function Funcionarios() {
   const { isAdmin: isAdminUser } = usePermissoes();
   const currentUserId = useAuthStore((state) => state.user?.id ?? "");
@@ -95,8 +100,11 @@ export default function Funcionarios() {
     try {
       setLoading(true);
       setError(null);
-      const data = await listStaff();
-      setRows(data);
+      const [staffRows, walletRows] = await Promise.all([listStaff(), listStaffWallets()]);
+      const hiddenStaffIds = new Set(
+        walletRows.filter(shouldHideInactiveWithHistory).map((wallet) => wallet.staff_member_id)
+      );
+      setRows(staffRows.filter((row) => !hiddenStaffIds.has(row.id)));
     } catch (e: any) {
       console.error(e);
       setError(e?.message || "Falha ao carregar funcionários.");

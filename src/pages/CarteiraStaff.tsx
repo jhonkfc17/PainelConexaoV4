@@ -71,6 +71,10 @@ function downloadDataUrl(dataUrl: string, fileName: string) {
   link.click();
 }
 
+function shouldHideInactiveWithHistory(wallet: StaffWallet) {
+  return !wallet.active && wallet.payout_count > 0;
+}
+
 export default function CarteiraStaff() {
   const { isAdmin, isOwner } = usePermissoes();
   const canSeeTeamWallet = isOwner;
@@ -102,13 +106,16 @@ export default function CarteiraStaff() {
             getMyStaffWallet().then((wallet) => (wallet ? [wallet] : [])),
             listMyStaffWalletPayouts(),
           ]);
-      setWallets(walletRows);
-      setPayouts(payoutRows);
+      const visibleWalletRows = walletRows.filter((wallet) => !shouldHideInactiveWithHistory(wallet));
+      const visibleWalletIds = new Set(visibleWalletRows.map((wallet) => wallet.staff_member_id));
+      const visiblePayoutRows = payoutRows.filter((payout) => visibleWalletIds.has(payout.staff_member_id));
+      setWallets(visibleWalletRows);
+      setPayouts(visiblePayoutRows);
       setSelectedStaffId((current) => {
-        if (current && walletRows.some((wallet) => wallet.staff_member_id === current)) return current;
+        if (current && visibleWalletRows.some((wallet) => wallet.staff_member_id === current)) return current;
         const preferred = canSeeTeamWallet
-          ? walletRows.find((wallet) => wallet.available_balance > 0) ?? walletRows[0]
-          : walletRows[0];
+          ? visibleWalletRows.find((wallet) => wallet.available_balance > 0) ?? visibleWalletRows[0]
+          : visibleWalletRows[0];
         return preferred?.staff_member_id ?? "";
       });
     } catch (e: any) {
