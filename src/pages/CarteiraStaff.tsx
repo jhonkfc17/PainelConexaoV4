@@ -71,8 +71,8 @@ function downloadDataUrl(dataUrl: string, fileName: string) {
   link.click();
 }
 
-function shouldHideInactiveWithHistory(wallet: StaffWallet) {
-  return !wallet.active && wallet.payout_count > 0;
+function shouldHideInactive(wallet: StaffWallet) {
+  return !wallet.active;
 }
 
 export default function CarteiraStaff() {
@@ -106,7 +106,7 @@ export default function CarteiraStaff() {
             getMyStaffWallet().then((wallet) => (wallet ? [wallet] : [])),
             listMyStaffWalletPayouts(),
           ]);
-      const visibleWalletRows = walletRows.filter((wallet) => !shouldHideInactiveWithHistory(wallet));
+      const visibleWalletRows = walletRows.filter((wallet) => !shouldHideInactive(wallet));
       const visibleWalletIds = new Set(visibleWalletRows.map((wallet) => wallet.staff_member_id));
       const visiblePayoutRows = payoutRows.filter((payout) => visibleWalletIds.has(payout.staff_member_id));
       setWallets(visibleWalletRows);

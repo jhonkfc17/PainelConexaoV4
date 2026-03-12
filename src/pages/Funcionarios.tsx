@@ -58,8 +58,8 @@ function makeAllPermissions(value: boolean) {
   }, {} as Record<string, boolean>);
 }
 
-function shouldHideInactiveWithHistory(input: { active: boolean; payout_count?: number }) {
-  return !input.active && Number(input.payout_count ?? 0) > 0;
+function shouldHideInactive(input: { active: boolean }) {
+  return !input.active;
 }
 
 export default function Funcionarios() {
@@ -102,7 +102,7 @@ export default function Funcionarios() {
       setError(null);
       const [staffRows, walletRows] = await Promise.all([listStaff(), listStaffWallets()]);
       const hiddenStaffIds = new Set(
-        walletRows.filter(shouldHideInactiveWithHistory).map((wallet) => wallet.staff_member_id)
+        walletRows.filter(shouldHideInactive).map((wallet) => wallet.staff_member_id)
       );
       setRows(staffRows.filter((row) => !hiddenStaffIds.has(row.id)));
     } catch (e: any) {
