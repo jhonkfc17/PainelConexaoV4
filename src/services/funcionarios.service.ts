@@ -16,7 +16,7 @@ export type StaffMember = {
 };
 
 export type StaffPayload = {
-  action: "create" | "update" | "disable" | "delete" | "reset_password";
+  action: "list" | "create" | "update" | "disable" | "delete" | "reset_password";
   auth_user_id?: string;
   nome?: string;
   email?: string;
@@ -74,15 +74,8 @@ export async function staffAdmin(payload: StaffPayload) {
 // ------------------------------
 
 export async function listStaff(): Promise<StaffMember[]> {
-  const { data, error } = await supabase
-    .from("staff_members")
-    .select(
-      "id, tenant_id, auth_user_id, nome, email, role, permissions, commission_pct, active, created_at"
-    )
-    .order("created_at", { ascending: false });
-
-  if (error) throw error;
-  return (data ?? []) as StaffMember[];
+  const resp = await staffAdmin({ action: "list" });
+  return Array.isArray(resp?.rows) ? (resp.rows as StaffMember[]) : [];
 }
 
 export async function createStaff(input: {

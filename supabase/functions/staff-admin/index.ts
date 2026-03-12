@@ -66,6 +66,28 @@ function buildAppMetadata(
   };
 }
 
+async function countStaffPayouts(
+  admin: ReturnType<typeof createClient>,
+  tenantId: string,
+  staffMemberId: string,
+) {
+  const { count, error } = await admin
+    .from("staff_profit_payouts")
+    .select("id", { count: "exact", head: true })
+    .eq("tenant_id", tenantId)
+    .eq("staff_member_id", staffMemberId);
+
+  if (error) throw error;
+  return count ?? 0;
+}
+
+function isMissingAuthUser(error: unknown, user: unknown) {
+  if (user) return false;
+  if (!error) return true;
+  const message = String((error as { message?: string } | null)?.message ?? "").toLowerCase();
+  return message.includes("not found");
+}
+
 Deno.serve(async (req) => {
   // ✅ OPTIONS consistente + UTF-8
   if (req.method === "OPTIONS") {
@@ -163,6 +185,50 @@ Deno.serve(async (req) => {
     const body = (await req.json().catch(() => ({}))) as Json;
     const action = String(body?.action || "").trim();
     if (!action) return json({ error: "Missing action" }, 400);
+
+    if (action === "list") {
+      const { data: rows, error: listErr } = await admin
+        .from("staff_members")
+        .select(
+          "id, tenant_id, auth_user_id, nome, email, role, permissions, commission_pct, active, created_at",
+        )
+        .eq("tenant_id", tenantId)
+        .order("created_at", { ascending: false });
+
+      if (listErr) {
+        return json({ error: "list staff failed", details: listErr.message }, 400);
+      }
+
+      const visibleRows: Json[] = [];
+
+      for (const row of rows ?? []) {
+        const authUserId = String(row.auth_user_id ?? "");
+        if (!authUserId) continue;
+
+        const { data: authUserRes, error: authUserErr } = await admin.auth.admin.getUserById(authUserId);
+        if (isMissingAuthUser(authUserErr, authUserRes?.user)) {
+          const payoutCount = await countStaffPayouts(admin, tenantId, String(row.id));
+          if (payoutCount === 0) {
+            const { error: cleanupErr } = await admin
+              .from("staff_members")
+              .delete()
+              .eq("tenant_id", tenantId)
+              .eq("id", row.id);
+            if (cleanupErr) {
+              return json({ error: "cleanup orphan staff failed", details: cleanupErr.message }, 400);
+            }
+          }
+          continue;
+        }
+        if (authUserErr) {
+          return json({ error: "load auth user failed", details: authUserErr.message }, 400);
+        }
+
+        visibleRows.push(row);
+      }
+
+      return json({ ok: true, rows: visibleRows });
+    }
 
     if (action === "create") {
       const email = String(body?.email || "").trim().toLowerCase();
@@ -325,11 +391,14 @@ Deno.serve(async (req) => {
       const { data: authUserRes, error: authUserErr } = await admin.auth.admin
         .getUserById(auth_user_id);
 
-      if (authUserErr || !authUserRes?.user) {
+      if (isMissingAuthUser(authUserErr, authUserRes?.user)) {
+        return json({ ok: true, orphaned_auth_user: true });
+      }
+      if (authUserErr) {
         return json(
           {
             error: "load auth user failed",
-            details: authUserErr?.message ?? "User not found in auth.users",
+            details: authUserErr.message,
           },
           400,
         );
@@ -409,11 +478,27 @@ Deno.serve(async (req) => {
       const { data: authUserRes, error: authUserErr } = await admin.auth.admin
         .getUserById(auth_user_id);
 
-      if (authUserErr || !authUserRes?.user) {
+      if (isMissingAuthUser(authUserErr, authUserRes?.user)) {
+        const { error: deleteStaffErr } = await admin
+          .from("staff_members")
+          .delete()
+          .eq("tenant_id", tenantId)
+          .eq("auth_user_id", auth_user_id);
+
+        if (deleteStaffErr) {
+          return json(
+            { error: "delete staff_members failed", details: deleteStaffErr.message },
+            400,
+          );
+        }
+
+        return json({ ok: true, orphaned_auth_user: true });
+      }
+      if (authUserErr) {
         return json(
           {
             error: "load auth user failed",
-            details: authUserErr?.message ?? "User not found in auth.users",
+            details: authUserErr.message,
           },
           400,
         );
