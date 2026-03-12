@@ -787,15 +787,23 @@ export default function RelatorioOperacional() {
       .reduce((a, e) => a + safeNumber((e as any).valor ?? 0), 0);
   }, [emprestimos, inicioMesISO, hojeISO]);
 
-  const { capitalNaRua, emAtraso } = useMemo(() => {
-    let naRua = 0;
+  const capitalNaRua = useMemo(() => {
+    let principalAberto = 0;
+    for (const loan of emprestimosAtivos) {
+      const loanId = String((loan as any).id ?? "");
+      principalAberto +=
+        resumoPagamentosPorEmprestimo.get(loanId)?.principalRemaining ?? safeNumber((loan as any).valor ?? 0);
+    }
+    return principalAberto;
+  }, [emprestimosAtivos, resumoPagamentosPorEmprestimo]);
+
+  const emAtraso = useMemo(() => {
     let atraso = 0;
     for (const e of emprestimosAtivos) {
       const ab = parcelasAbertas(e);
-      naRua += sumSaldo(ab);
       atraso += sumAtraso(ab, hojeISO);
     }
-    return { capitalNaRua: naRua, emAtraso: atraso };
+    return atraso;
   }, [emprestimosAtivos, hojeISO]);
 
   const jurosPrevistos = useMemo(() => {
@@ -1147,7 +1155,7 @@ export default function RelatorioOperacional() {
             <Wallet size={16} /> Na Rua
           </div>
           <div className="mt-2 text-2xl font-extrabold text-amber-200">{brl(displayIndicadores.capitalNaRua)}</div>
-          <div className="mt-1 text-[11px] text-amber-200/70">VALOR A RECEBER</div>
+          <div className="mt-1 text-[11px] text-amber-200/70">CAPITAL EM ABERTO</div>
         </div>
 
         <div className="rounded-2xl border border-emerald-500/25 bg-emerald-950/10 shadow-glow backdrop-blur-md p-4 text-center">
