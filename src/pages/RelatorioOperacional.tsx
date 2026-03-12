@@ -19,7 +19,6 @@ import {
   ArrowUpCircle,
   CircleDollarSign,
   Download,
-  Plus,
   RefreshCcw,
   Wallet,
 } from "lucide-react";
@@ -51,6 +50,19 @@ type ContratoAtrasoRow = {
   emprestado: number;
   vencimento: string;
   ticket: string;
+};
+
+type AnaliseFaixaRow = {
+  label: string;
+  contratos: number;
+  valor: number;
+};
+
+type ExposicaoRow = {
+  cliente: string;
+  capitalAberto: number;
+  atraso: number;
+  vencimento: string;
 };
 
 type Lucro30Row = {
@@ -109,6 +121,46 @@ function toISODateOnly(v: any): string {
 function safeNumber(v: any): number {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
+}
+
+function pct(v: number): string {
+  return `${(safeNumber(v) * 100).toFixed(1)}%`;
+}
+
+function csvCell(value: unknown): string {
+  const text = String(value ?? "");
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function safeFilePart(value: string): string {
+  return (
+    String(value ?? "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9_-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase() || "relatorio"
+  );
+}
+
+function downloadCsv(filename: string, headers: string[], rows: Array<Array<unknown>>) {
+  const content = [headers.map(csvCell).join(","), ...rows.map((row) => row.map(csvCell).join(","))].join("\r\n");
+  const blob = new Blob(["\uFEFF", content], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function diffDaysISO(fromISO: string, toISO: string): number {
+  if (!fromISO || !toISO) return 0;
+  const from = new Date(`${fromISO}T12:00:00Z`);
+  const to = new Date(`${toISO}T12:00:00Z`);
+  return Math.round((to.getTime() - from.getTime()) / 86400000);
 }
 
 function applyEmprestimoScope<T>(query: T, userId: string): T {
@@ -975,6 +1027,101 @@ export default function RelatorioOperacional() {
       .slice(0, 5) as ContratoAtrasoRow[];
   }, [emprestimosAtivos, hojeISO]);
 
+  const principalTotalAtivos = useMemo(
+    () => emprestimosAtivos.reduce((acc, loan) => acc + safeNumber((loan as any).valor ?? 0), 0),
+    [emprestimosAtivos]
+  );
+
+  const principalRecuperadoTotal = useMemo(
+    () => [...resumoPagamentosPorEmprestimo.values()].reduce((acc, item) => acc + item.principalRecovered, 0),
+    [resumoPagamentosPorEmprestimo]
+  );
+
+  const contratosEmAtrasoCount = useMemo(
+    () => emprestimosAtivos.filter((loan) => sumAtraso(parcelasAbertas(loan), hojeISO) > 0.00001).length,
+    [emprestimosAtivos, hojeISO]
+  );
+
+  const ticketMedioAtivo = useMemo(
+    () => (emprestimosAtivos.length > 0 ? principalTotalAtivos / emprestimosAtivos.length : 0),
+    [emprestimosAtivos.length, principalTotalAtivos]
+  );
+
+  const taxaRecuperacaoCapital = useMemo(
+    () => (principalTotalAtivos > 0 ? principalRecuperadoTotal / principalTotalAtivos : 0),
+    [principalRecuperadoTotal, principalTotalAtivos]
+  );
+
+  const taxaAtrasoOperacoes = useMemo(
+    () => (emprestimosAtivos.length > 0 ? contratosEmAtrasoCount / emprestimosAtivos.length : 0),
+    [contratosEmAtrasoCount, emprestimosAtivos.length]
+  );
+
+  const taxaAtrasoCarteira = useMemo(
+    () => (capitalNaRua > 0 ? emAtraso / capitalNaRua : 0),
+    [capitalNaRua, emAtraso]
+  );
+
+  const faixasAnalise = useMemo(() => {
+    const buckets = [
+      { label: "Vence hoje", contratos: new Set<string>(), valor: 0 },
+      { label: "Atraso 1-7d", contratos: new Set<string>(), valor: 0 },
+      { label: "Atraso 8-30d", contratos: new Set<string>(), valor: 0 },
+      { label: "Atraso 31+d", contratos: new Set<string>(), valor: 0 },
+    ];
+
+    for (const loan of emprestimosAtivos) {
+      const loanId = String((loan as any).id ?? "");
+      for (const parcela of parcelasAbertas(loan)) {
+        const vencimento = toISODateOnly((parcela as any).vencimento);
+        if (!vencimento) continue;
+
+        const saldo = parcelaSaldoRestante(parcela);
+        if (!(saldo > 0.00001)) continue;
+
+        if (vencimento === hojeISO) {
+          buckets[0].contratos.add(loanId);
+          buckets[0].valor += saldo;
+          continue;
+        }
+
+        if (vencimento >= hojeISO) continue;
+        const atrasoDias = diffDaysISO(vencimento, hojeISO);
+        const idx = atrasoDias <= 7 ? 1 : atrasoDias <= 30 ? 2 : 3;
+        buckets[idx].contratos.add(loanId);
+        buckets[idx].valor += saldo;
+      }
+    }
+
+    return buckets.map(
+      (bucket): AnaliseFaixaRow => ({
+        label: bucket.label,
+        contratos: bucket.contratos.size,
+        valor: bucket.valor,
+      })
+    );
+  }, [emprestimosAtivos, hojeISO]);
+
+  const maioresExposicoes = useMemo(() => {
+    return emprestimosAtivos
+      .map((loan): ExposicaoRow => {
+        const loanId = String((loan as any).id ?? "");
+        const abertas = parcelasAbertas(loan);
+        const vencimento = nextVencimento(abertas);
+
+        return {
+          cliente: String((loan as any).clienteNome ?? "") || "Cliente",
+          capitalAberto:
+            resumoPagamentosPorEmprestimo.get(loanId)?.principalRemaining ?? safeNumber((loan as any).valor ?? 0),
+          atraso: sumAtraso(abertas, hojeISO),
+          vencimento: formatBR(vencimento),
+        };
+      })
+      .filter((row) => row.capitalAberto > 0.00001 || row.atraso > 0.00001)
+      .sort((a, b) => b.capitalAberto - a.capitalAberto || b.atraso - a.atraso)
+      .slice(0, 5);
+  }, [emprestimosAtivos, hojeISO, resumoPagamentosPorEmprestimo]);
+
   const scaleMoney = (value: number) => scaleByCommission(value, staffCommissionFactor);
 
   const displaySaidas = useMemo(
@@ -1071,6 +1218,64 @@ export default function RelatorioOperacional() {
     [contratosAtraso, staffCommissionFactor]
   );
 
+  const displayTicketMedioAtivo = useMemo(() => scaleMoney(ticketMedioAtivo), [ticketMedioAtivo, staffCommissionFactor]);
+
+  const displayFaixasAnalise = useMemo(
+    () => faixasAnalise.map((row) => ({ ...row, valor: scaleMoney(row.valor) })),
+    [faixasAnalise, staffCommissionFactor]
+  );
+
+  const displayMaioresExposicoes = useMemo(
+    () =>
+      maioresExposicoes.map((row) => ({
+        ...row,
+        capitalAberto: scaleMoney(row.capitalAberto),
+        atraso: scaleMoney(row.atraso),
+      })),
+    [maioresExposicoes, staffCommissionFactor]
+  );
+
+  const exportarResumo = () => {
+    downloadCsv(`relatorio-resumo-${safeFilePart(selectedScopeLabel)}-${hojeISO}.csv`, ["Indicador", "Valor"], [
+      ["Escopo", selectedScopeLabel],
+      ["Periodo inicial", formatBR(inicioMesISO)],
+      ["Periodo final", formatBR(hojeISO)],
+      ["Contratos ativos", emprestimosAtivos.length],
+      ["Contratos em atraso", contratosEmAtrasoCount],
+      ["Capital na rua", brl(displayIndicadores.capitalNaRua)],
+      ["Juros a receber", brl(displayIndicadores.jurosAReceber)],
+      ["Total recebido", brl(displayIndicadores.totalRecebido)],
+      ["Juros recebidos", brl(displayIndicadores.jurosRecebidos)],
+      ["Em atraso", brl(displayIndicadores.emAtraso)],
+      ["Lucro realizado", brl(displayIndicadores.lucroRealizado)],
+      ["Taxa de recuperacao de capital", pct(taxaRecuperacaoCapital)],
+      ["Taxa de operacoes em atraso", pct(taxaAtrasoOperacoes)],
+      ["Risco sobre carteira", pct(taxaAtrasoCarteira)],
+      ["Ticket medio", brl(displayTicketMedioAtivo)],
+    ]);
+  };
+
+  const exportarContratosAtivos = () => {
+    downloadCsv(`relatorio-contratos-ativos-${safeFilePart(selectedScopeLabel)}-${hojeISO}.csv`, [
+      "Cliente",
+      "Emprestado",
+      "Pago",
+      "Capital em aberto",
+      "Status",
+      "Vencimento",
+    ], displayContratosAtivos.map((row) => [row.cliente, brl(row.emprestado), brl(row.pago), brl(row.falta), row.status, row.vencimento]));
+  };
+
+  const exportarContratosAtraso = () => {
+    downloadCsv(`relatorio-contratos-atraso-${safeFilePart(selectedScopeLabel)}-${hojeISO}.csv`, [
+      "Cliente",
+      "Atraso",
+      "Emprestado",
+      "Vencimento",
+      "Ticket",
+    ], displayContratosAtraso.map((row) => [row.cliente, brl(row.atraso), brl(row.emprestado), row.vencimento, row.ticket]));
+  };
+
   return (
     <div className="min-h-[calc(100vh-64px)] p-0 sm:p-2 overflow-x-hidden">
       {/* Header */}
@@ -1122,11 +1327,11 @@ export default function RelatorioOperacional() {
 
         <button
           type="button"
-          onClick={() => alert("Adicionar: em breve")}
+          onClick={exportarResumo}
           className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-200 hover:bg-emerald-500/15"
         >
-          <Plus size={16} />
-          Adicionar
+          <Download size={16} />
+          Exportar resumo
         </button>
       </div>
 
@@ -1183,6 +1388,81 @@ export default function RelatorioOperacional() {
         <Card icon={<CircleDollarSign size={16} />} title="Juros Recebidos" value={brl(displayIndicadores.jurosRecebidos)} subtitle="No período" tone="emerald" />
         <Card icon={<AlertTriangle size={16} />} title="Em Atraso" value={brl(displayIndicadores.emAtraso)} subtitle="Saldo vencido" tone="red" />
         <Card icon={<CircleDollarSign size={16} />} title="Lucro Realizado" value={brl(displayIndicadores.lucroRealizado)} subtitle="Juros recebidos" tone="purple" />
+      </div>
+
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Card
+          icon={<Wallet size={16} />}
+          title="Operacoes ativas"
+          value={String(emprestimosAtivos.length)}
+          subtitle={`${contratosEmAtrasoCount} em atraso`}
+          tone="emerald"
+        />
+        <Card
+          icon={<AlertTriangle size={16} />}
+          title="Risco da carteira"
+          value={pct(taxaAtrasoCarteira)}
+          subtitle="saldo vencido sobre capital aberto"
+          tone="red"
+        />
+        <Card
+          icon={<ArrowDownCircle size={16} />}
+          title="Recuperacao de capital"
+          value={pct(taxaRecuperacaoCapital)}
+          subtitle="principal ja recuperado"
+          tone="emerald"
+        />
+        <Card
+          icon={<CircleDollarSign size={16} />}
+          title="Ticket medio"
+          value={brl(displayTicketMedioAtivo)}
+          subtitle={`inadimplencia em ${pct(taxaAtrasoOperacoes)} das operacoes`}
+          tone="amber"
+        />
+      </div>
+
+      <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-2">
+        <div className="rounded-2xl border border-amber-500/20 bg-slate-950/30 shadow-glow backdrop-blur-md overflow-hidden">
+          <div className="px-4 py-3 text-sm font-semibold text-white">Faixas operacionais</div>
+          <div className="grid grid-cols-12 gap-2 border-y border-white/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            <div className="col-span-6">Faixa</div>
+            <div className="col-span-2 text-center">Contratos</div>
+            <div className="col-span-4 text-right">Valor em aberto</div>
+          </div>
+          <div>
+            {displayFaixasAnalise.map((row) => (
+              <div key={row.label} className="grid grid-cols-12 gap-2 px-4 py-3 text-sm border-t first:border-t-0 border-white/5">
+                <div className="col-span-6 text-slate-200">{row.label}</div>
+                <div className="col-span-2 text-center text-slate-400">{row.contratos}</div>
+                <div className="col-span-4 text-right font-semibold text-amber-200">{brl(row.valor)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-emerald-500/20 bg-slate-950/30 shadow-glow backdrop-blur-md overflow-hidden">
+          <div className="px-4 py-3 text-sm font-semibold text-white">Maiores exposicoes</div>
+          <div className="grid grid-cols-12 gap-2 border-y border-white/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            <div className="col-span-5">Cliente</div>
+            <div className="col-span-3 text-right">Capital</div>
+            <div className="col-span-2 text-right">Atraso</div>
+            <div className="col-span-2 text-right">Prox. venc.</div>
+          </div>
+          <div>
+            {displayMaioresExposicoes.length === 0 ? (
+              <div className="px-4 py-4 text-sm text-slate-400">Nenhuma exposicao relevante encontrada.</div>
+            ) : (
+              displayMaioresExposicoes.map((row, idx) => (
+                <div key={`${row.cliente}-${idx}`} className="grid grid-cols-12 gap-2 px-4 py-3 text-sm border-t first:border-t-0 border-white/5">
+                  <div className="col-span-5 truncate text-slate-200">{row.cliente}</div>
+                  <div className="col-span-3 text-right font-semibold text-emerald-200">{brl(row.capitalAberto)}</div>
+                  <div className="col-span-2 text-right text-red-300">{brl(row.atraso)}</div>
+                  <div className="col-span-2 text-right text-slate-400">{row.vencimento}</div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Gráficos */}
@@ -1282,7 +1562,7 @@ export default function RelatorioOperacional() {
             <div className="text-sm font-semibold text-white">Contratos Ativos (Na Rua)</div>
             <button
               type="button"
-              onClick={() => alert("Exportar: em breve")}
+              onClick={exportarContratosAtivos}
               className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/10"
             >
               <Download size={14} />
@@ -1327,7 +1607,7 @@ export default function RelatorioOperacional() {
             <div className="text-sm font-semibold text-white">Contratos em Atraso</div>
             <button
               type="button"
-              onClick={() => alert("Exportar: em breve")}
+              onClick={exportarContratosAtraso}
               className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/10"
             >
               <Download size={14} />
