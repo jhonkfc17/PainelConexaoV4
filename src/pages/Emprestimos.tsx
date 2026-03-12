@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { usePermissoes } from "../store/usePermissoes";
 
 import EmprestimosHeader from "../components/emprestimos/EmprestimosHeader";
+import ImportarEmprestimosModal from "../components/emprestimos/ImportarEmprestimosModal";
 import EmprestimosTabs, { type EmprestimosTab } from "../components/emprestimos/EmprestimosTabs";
 import EmprestimosToolbar from "../components/emprestimos/EmprestimosToolbar";
 import EmprestimosLista from "../components/emprestimos/EmprestimosLista";
@@ -71,6 +72,7 @@ export default function Emprestimos() {
       return "grid";
     }
   });
+  const [importOpen, setImportOpen] = useState(false);
   const [modalNovo, setModalNovo] = useState(false);
   const [prefillClienteId, setPrefillClienteId] = useState<string | undefined>(undefined);
 
@@ -250,6 +252,7 @@ export default function Emprestimos() {
   }, [emprestimosFiltrados, statusFiltro]);
 
   const canExport = Boolean(emprestimosFiltradosFinal.length) && Boolean(isOwner || isAdmin || canManageLoans || canExportCSV);
+  const canImport = Boolean(isOwner || isAdmin || canManageLoans);
 
   function abrirComprovanteEmprestimo(e: Emprestimo) {
     const linhas = [
@@ -368,6 +371,8 @@ export default function Emprestimos() {
         onClickBaixarRelatorio={() => alert("Relatorio: em breve")}
         onClickExportarCsv={canExport ? exportarEmprestimosCsv : undefined}
         canExport={canExport}
+        onClickImportarCsv={canImport ? () => setImportOpen(true) : undefined}
+        canImport={canImport}
       />
 
       <div className="mt-4">
@@ -430,6 +435,16 @@ export default function Emprestimos() {
         }}
         onCreate={criar}
         prefillClienteId={prefillClienteId}
+      />
+
+      <ImportarEmprestimosModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={() => {
+          setImportOpen(false);
+          fetchEmprestimos();
+          fetchClientes();
+        }}
       />
 
       <ComprovanteModal
