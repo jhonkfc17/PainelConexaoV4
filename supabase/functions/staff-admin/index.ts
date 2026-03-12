@@ -316,6 +316,49 @@ Deno.serve(async (req) => {
         return json({ error: "staff member not found" }, 404);
       }
 
+      const updatesAuthState =
+        body?.role !== undefined ||
+        body?.permissions !== undefined ||
+        body?.active !== undefined;
+
+      let authUser: any = null;
+      if (updatesAuthState) {
+        const { data: authUserRes, error: authUserErr } = await admin.auth.admin
+          .getUserById(auth_user_id);
+
+        if (isMissingAuthUser(authUserErr, authUserRes?.user)) {
+          if (body?.active === true) {
+            return json(
+              {
+                error:
+                  "Este funcionario nao pode ser ativado porque a conta de acesso nao existe mais. Exclua o cadastro local ou crie um novo acesso.",
+              },
+              400,
+            );
+          }
+
+          if (body?.role !== undefined || body?.permissions !== undefined) {
+            return json(
+              {
+                error:
+                  "Este funcionario nao pode ter cargo ou permissoes alterados porque a conta de acesso nao existe mais.",
+              },
+              400,
+            );
+          }
+        } else if (authUserErr) {
+          return json(
+            {
+              error: "load auth user failed",
+              details: authUserErr.message,
+            },
+            400,
+          );
+        } else {
+          authUser = authUserRes?.user ?? null;
+        }
+      }
+
       const { error: updErr } = await admin
         .from("staff_members")
         .update(update)
@@ -329,6 +372,14 @@ Deno.serve(async (req) => {
         );
       }
 
+      if (!updatesAuthState) {
+        return json({ ok: true });
+      }
+
+      if (!authUser) {
+        return json({ ok: true, orphaned_auth_user: true });
+      }
+
       const nextRole = body?.role !== undefined
         ? normalizeRole(body.role)
         : normalizeRole(currentStaff.role);
@@ -339,20 +390,7 @@ Deno.serve(async (req) => {
         ? Boolean(body.active)
         : Boolean(currentStaff.active);
 
-      const { data: authUserRes, error: authUserErr } = await admin.auth.admin
-        .getUserById(auth_user_id);
-
-      if (authUserErr || !authUserRes?.user) {
-        return json(
-          {
-            error: "load auth user failed",
-            details: authUserErr?.message ?? "User not found in auth.users",
-          },
-          400,
-        );
-      }
-
-      const nextAppMetadata = buildAppMetadata(authUserRes.user.app_metadata, {
+      const nextAppMetadata = buildAppMetadata(authUser.app_metadata, {
         tenantId,
         role: nextRole,
         active: nextActive,
@@ -465,18 +503,29 @@ Deno.serve(async (req) => {
           400,
         );
       }
+
+      const { data: authUserRes, error: authUserErr } = await admin.auth.admin
+        .getUserById(auth_user_id);
+
       if ((payoutCount ?? 0) > 0) {
+        if (isMissingAuthUser(authUserErr, authUserRes?.user)) {
+          return json(
+            {
+              error:
+                "Este funcionario ja nao possui conta de acesso e tem historico de repasses. Nao e possivel ativar nem excluir esse cadastro; mantenha-o inativo.",
+            },
+            400,
+          );
+        }
+
         return json(
           {
             error:
-              "This staff member has payout history and cannot be deleted. Block the account instead.",
+              "Este funcionario tem historico de repasses e nao pode ser excluido. Use Bloquear em vez de Excluir.",
           },
           400,
         );
       }
-
-      const { data: authUserRes, error: authUserErr } = await admin.auth.admin
-        .getUserById(auth_user_id);
 
       if (isMissingAuthUser(authUserErr, authUserRes?.user)) {
         const { error: deleteStaffErr } = await admin

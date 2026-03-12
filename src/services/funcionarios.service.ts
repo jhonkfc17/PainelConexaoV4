@@ -27,23 +27,16 @@ export type StaffPayload = {
   active?: boolean;
 };
 
-async function extractEdgeErrorDetails(error: any): Promise<string> {
-  const body = error?.context?.body;
+const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? "";
+const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? "";
 
-  if (typeof body === "string") {
-    try {
-      const parsed = JSON.parse(body);
-      return parsed?.error || parsed?.message || parsed?.details || body;
-    } catch {
-      return body;
-    }
+function parseEdgeResponse(text: string) {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
   }
-
-  if (body && typeof body === "object") {
-    return body?.error || body?.message || body?.details || JSON.stringify(body);
-  }
-
-  return error?.message || "Erro ao chamar Edge Function";
 }
 
 export async function staffAdmin(payload: StaffPayload) {
@@ -51,27 +44,38 @@ export async function staffAdmin(payload: StaffPayload) {
   if (sessErr) throw sessErr;
 
   const token = data.session?.access_token;
-  if (!token) throw new Error("Sessão inválida. Faça login novamente.");
-
-  const { data: resp, error } = await supabase.functions.invoke("staff-admin", {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-    body: payload,
-  });
-
-  if (error) {
-    const msg = await extractEdgeErrorDetails(error);
-    console.error("[staff-admin] error details:", error);
-    throw new Error(msg);
+  if (!token) throw new Error("Sessao invalida. Faca login novamente.");
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error("Configuracao do Supabase ausente para chamar staff-admin.");
   }
 
-  return resp;
-}
+  const response = await fetch(`${supabaseUrl}/functions/v1/staff-admin`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      apikey: supabaseAnonKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
 
-// ------------------------------
-// Helpers usados pela tela
-// ------------------------------
+  const rawText = await response.text();
+  const parsed = parseEdgeResponse(rawText);
+
+  if (!response.ok) {
+    const msg =
+      (parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed.error || parsed.message || parsed.details
+        : null) ||
+      (typeof parsed === "string" ? parsed : null) ||
+      `Edge Function returned ${response.status}`;
+
+    console.error("[staff-admin] error details:", parsed ?? rawText);
+    throw new Error(String(msg));
+  }
+
+  return parsed;
+}
 
 export async function listStaff(): Promise<StaffMember[]> {
   const { data, error } = await supabase
