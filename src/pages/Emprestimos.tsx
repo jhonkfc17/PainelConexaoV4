@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
+import { usePermissoes } from "../store/usePermissoes";
 
 import EmprestimosHeader from "../components/emprestimos/EmprestimosHeader";
 import EmprestimosTabs, { type EmprestimosTab } from "../components/emprestimos/EmprestimosTabs";
@@ -19,7 +20,7 @@ import { useClientesStore } from "../store/useClientesStore";
 import { useEmprestimosStore } from "../store/useEmprestimosStore";
 
 function fmtDateBR(iso?: string | null): string {
-  if (!iso) return "—";
+  if (!iso) return "-";
   const d = new Date(String(iso));
   if (Number.isNaN(d.getTime())) return String(iso);
   const dd = String(d.getDate()).padStart(2, "0");
@@ -45,7 +46,14 @@ function getPrimeiroVencimentoAtual(e: any): string {
   if (fromVencimentos) return fromVencimentos;
   return String(e?.primeiraParcela ?? "").trim();
 }
+
+function csvCell(value: string | number | boolean | null | undefined) {
+  const text = String(value ?? "").replace(/"/g, '""');
+  return `"${text}"`;
+}
+
 export default function Emprestimos() {
+  const { canManageLoans, canExportCSV, isAdmin, isOwner } = usePermissoes();
   const { isBuscarClienteOpen, closeBuscarCliente } = useUIStore();
 
   const [searchParams, setSearchParams] = useSearchParams();
@@ -78,20 +86,18 @@ export default function Emprestimos() {
     useEmprestimosStore();
   const [pagamentosMapa, setPagamentosMapa] = useState<Record<string, any[]>>({});
 
-  // ✅ mantém o empréstimo selecionado sincronizado com o store (atualiza totais após pagamentos)
   useEffect(() => {
     const idSel = emprestimoSelecionado?.id;
     if (!idSel) return;
     const atual = emprestimos.find((e) => e.id === idSel) ?? null;
     if (atual) setEmprestimoSelecionado(atual);
-  }, [emprestimos]);
+  }, [emprestimos, emprestimoSelecionado?.id]);
 
   useEffect(() => {
     void fetchClientes();
     void fetchEmprestimos();
   }, [fetchClientes, fetchEmprestimos]);
 
-  // Carrega pagamentos (valor + juros) para exibir "Recebido" nos cards da lista
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -124,7 +130,6 @@ export default function Emprestimos() {
     };
   }, [emprestimos]);
 
-  // Abre "Novo empréstimo" já com o cliente preenchido quando vier do perfil do cliente
   useEffect(() => {
     const novo = searchParams.get("novo");
     if (novo !== "1") return;
@@ -133,12 +138,11 @@ export default function Emprestimos() {
     setPrefillClienteId(cid ?? undefined);
     setModalNovo(true);
 
-    // limpa a query para evitar reabrir ao atualizar
     const next = new URLSearchParams(searchParams);
     next.delete("novo");
     next.delete("cliente");
     setSearchParams(next, { replace: true });
-  }, []);
+  }, [searchParams, setSearchParams]);
 
   const emprestimosFiltrados = useMemo(() => {
     const q = busca.trim().toLowerCase();
@@ -152,12 +156,9 @@ export default function Emprestimos() {
       return false;
     };
 
-    // tab -> modalidade
     if (tab === "recebimentos") {
-      // Melhor interpretação para o produto: "Recebimentos" = contratos quitados / totalmente pagos
       lista = lista.filter(isQuitadoOuRecebido);
     } else {
-      // Empréstimos (ativos) = exclui quitados; outras abas também excluem quitados
       lista = lista.filter((e) => !isQuitadoOuRecebido(e));
 
       if (tab === "diario") {
@@ -165,7 +166,6 @@ export default function Emprestimos() {
       } else if (tab === "tabela_price") {
         lista = lista.filter((e) => e.modalidade === "tabela_price");
       } else {
-        // "emprestimos" => todos não-diário e não-price
         lista = lista.filter((e) => e.modalidade !== "diario" && e.modalidade !== "tabela_price");
       }
     }
@@ -188,9 +188,7 @@ export default function Emprestimos() {
     return { emprestimos: mensal, diario };
   }, [emprestimos]);
 
-
   function getDueStatus(e: Emprestimo): "atrasado" | "hoje" | "amanha" | "ok" {
-    // Preferir campos calculados do backend (view v_emprestimos_status)
     const emAtraso = Boolean((e as any).emAtraso ?? (e as any).em_atraso ?? false);
     if (emAtraso) return "atrasado";
 
@@ -210,7 +208,6 @@ export default function Emprestimos() {
       }
     }
 
-    // Fallback: calcula pelas parcelas locais
     const parcelas = Array.isArray((e as any).parcelasDb) ? (e as any).parcelasDb : [];
     const abertas = parcelas.filter((p: any) => !p?.pago);
 
@@ -252,16 +249,18 @@ export default function Emprestimos() {
     return emprestimosFiltrados.filter((e) => getDueStatus(e) === statusFiltro);
   }, [emprestimosFiltrados, statusFiltro]);
 
+  const canExport = Boolean(emprestimosFiltradosFinal.length) && Boolean(isOwner || isAdmin || canManageLoans || canExportCSV);
+
   function abrirComprovanteEmprestimo(e: Emprestimo) {
     const linhas = [
-      `Raposacobra - Comprovante de Empréstimo`,
+      "Raposacobra - Comprovante de Emprestimo",
       "",
       `Cliente: ${e.clienteNome}`,
       `Data do contrato: ${fmtDateBR(e.dataContrato)}`,
       `Valor emprestado: R$ ${e.valor.toFixed(2)}`,
       `Total a receber: R$ ${e.totalReceber.toFixed(2)}`,
       `Parcelas: ${e.numeroParcelas}x de R$ ${e.valorParcela.toFixed(2)}`,
-      `1º vencimento: ${fmtDateBR(getPrimeiroVencimentoAtual(e))}`,
+      `1o vencimento: ${fmtDateBR(getPrimeiroVencimentoAtual(e))}`,
       "",
       "Obrigado!",
     ];
@@ -271,22 +270,75 @@ export default function Emprestimos() {
     setConfirmacaoOpen(true);
   }
 
+  function exportarEmprestimosCsv() {
+    if (!emprestimosFiltradosFinal.length) return;
+
+    const rows = [
+      [
+        "Cliente",
+        "Contato",
+        "Modalidade",
+        "Status",
+        "Valor emprestado",
+        "Total a receber",
+        "Parcelas",
+        "Valor da parcela",
+        "Data do contrato",
+        "Primeiro vencimento",
+        "Proximo vencimento",
+        "Parcelas em aberto",
+        "Parcelas em atraso",
+        "Em atraso",
+        "Quitado em",
+        "Criado em",
+      ].join(","),
+      ...emprestimosFiltradosFinal.map((emprestimo) =>
+        [
+          csvCell(emprestimo.clienteNome),
+          csvCell(emprestimo.clienteContato),
+          csvCell(emprestimo.modalidade),
+          csvCell(emprestimo.status),
+          csvCell(Number(emprestimo.valor ?? 0).toFixed(2)),
+          csvCell(Number(emprestimo.totalReceber ?? 0).toFixed(2)),
+          csvCell(emprestimo.numeroParcelas),
+          csvCell(Number(emprestimo.valorParcela ?? 0).toFixed(2)),
+          csvCell(fmtDateBR(emprestimo.dataContrato)),
+          csvCell(fmtDateBR(getPrimeiroVencimentoAtual(emprestimo))),
+          csvCell(fmtDateBR(emprestimo.proximoVencimentoEmAberto)),
+          csvCell(emprestimo.parcelasEmAberto ?? 0),
+          csvCell(emprestimo.parcelasEmAtraso ?? 0),
+          csvCell(emprestimo.emAtraso ? "Sim" : "Nao"),
+          csvCell(fmtDateBR(emprestimo.quitadoEm)),
+          csvCell(fmtDateBR(emprestimo.createdAt)),
+        ].join(",")
+      ),
+    ];
+
+    const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    a.href = url;
+    a.download = `emprestimos_export_${stamp}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   async function criar(payload: NovoEmprestimoPayload) {
     const cliente = clientes.find((c) => c.id === payload.clienteId) ?? null;
 
     const novo = await criarEmprestimo(payload, cliente);
     if (!novo) return;
 
-    // comprovante (como no vídeo)
     const linhas = [
-      `Raposacobra - Comprovante de Empréstimo`,
+      "Raposacobra - Comprovante de Emprestimo",
       "",
       `Cliente: ${novo.clienteNome}`,
       `Data do contrato: ${fmtDateBR(novo.dataContrato)}`,
       `Valor emprestado: R$ ${novo.valor.toFixed(2)}`,
       `Total a receber: R$ ${novo.totalReceber.toFixed(2)}`,
       `Parcelas: ${novo.numeroParcelas}x de R$ ${novo.valorParcela.toFixed(2)}`,
-      `1º vencimento: ${fmtDateBR(getPrimeiroVencimentoAtual(novo))}`,
+      `1o vencimento: ${fmtDateBR(getPrimeiroVencimentoAtual(novo))}`,
       "",
       "Obrigado!",
     ];
@@ -296,7 +348,7 @@ export default function Emprestimos() {
   }
 
   async function remover(id: string) {
-    if (!confirm("Remover este empréstimo?")) return;
+    if (!confirm("Remover este emprestimo?")) return;
     await removerEmprestimo(id);
   }
 
@@ -309,24 +361,27 @@ export default function Emprestimos() {
     setPagarOpen(true);
   }
 
-  // Pagamentos (parcela, parcial/adiantamento, quitação total e estorno)
-  // Pagamentos agora são registrados pelo modal "RegistrarPagamento".
-
   return (
     <div className="min-h-[calc(100vh-64px)] p-0 sm:p-2 sm:p-0 sm:p-2 overflow-x-hidden">
       <EmprestimosHeader
         onClickTutorial={() => alert("Tutorial: em breve")}
-        onClickBaixarRelatorio={() => alert("Relatório: em breve")}
+        onClickBaixarRelatorio={() => alert("Relatorio: em breve")}
+        onClickExportarCsv={canExport ? exportarEmprestimosCsv : undefined}
+        canExport={canExport}
       />
 
       <div className="mt-4">
-        <EmprestimosTabs tab={tab} onChange={(t) => {
-              if (t === "calendario") {
-                navigate("/calendario");
-                return;
-              }
-              setTab(t);
-            }} contadores={contadores} />
+        <EmprestimosTabs
+          tab={tab}
+          onChange={(t) => {
+            if (t === "calendario") {
+              navigate("/calendario");
+              return;
+            }
+            setTab(t);
+          }}
+          contadores={contadores}
+        />
       </div>
 
       <div className="mt-4">
@@ -339,7 +394,6 @@ export default function Emprestimos() {
           statusFiltro={statusFiltro}
           onStatusFiltroChange={setStatusFiltro}
           contadoresStatus={contadoresStatus}
-
           viewMode={viewMode}
           onViewModeChange={(m) => {
             setViewMode(m);
@@ -365,10 +419,9 @@ export default function Emprestimos() {
       </div>
 
       {emprestimosFiltrados.length > 0 && (
-        <div className="mt-4 text-xs text-white/40">Dica: abra um empréstimo para pagar parcelas e gerar comprovantes.</div>
+        <div className="mt-4 text-xs text-white/40">Dica: abra um emprestimo para pagar parcelas e gerar comprovantes.</div>
       )}
 
-      {/* Modal novo */}
       <NovoEmprestimoModal
         open={modalNovo}
         onClose={() => {
@@ -379,7 +432,6 @@ export default function Emprestimos() {
         prefillClienteId={prefillClienteId}
       />
 
-      {/* Modal comprovante */}
       <ComprovanteModal
         open={confirmacaoOpen}
         onClose={() => setConfirmacaoOpen(false)}
@@ -388,14 +440,17 @@ export default function Emprestimos() {
         whatsappPhone={confirmacaoPhone}
       />
 
-      {/* Modal Registrar Pagamento */}
-      <RegistrarPagamentoModal open={pagarOpen} onClose={() => { setPagarOpen(false); fetchEmprestimos(); }} onSaved={() => fetchEmprestimos()} emprestimo={emprestimoSelecionado} />
+      <RegistrarPagamentoModal
+        open={pagarOpen}
+        onClose={() => {
+          setPagarOpen(false);
+          fetchEmprestimos();
+        }}
+        onSaved={() => fetchEmprestimos()}
+        emprestimo={emprestimoSelecionado}
+      />
 
-      {/* Modal Buscar Cliente */}
       <BuscarClienteModal open={isBuscarClienteOpen} onClose={closeBuscarCliente} />
     </div>
   );
 }
-
-
-
