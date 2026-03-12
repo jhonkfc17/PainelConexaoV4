@@ -341,6 +341,16 @@ export default function ImportarEmprestimosModal({
     valorParcela: number,
     quitadoEm?: string
   ) {
+    const normalizedStatus = normalizeText(status);
+    const shouldMarkAsPaid =
+      normalizedStatus === "quitado" ||
+      normalizedStatus === "arquivado" ||
+      Boolean(quitadoEm);
+
+    if (!shouldMarkAsPaid) {
+      return;
+    }
+
     const abertas = Math.max(0, Math.min(parcelas, parcelasEmAberto));
     const pagas = Math.max(0, parcelas - abertas);
 
