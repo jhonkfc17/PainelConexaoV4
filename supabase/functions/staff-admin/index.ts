@@ -360,6 +360,108 @@ Deno.serve(async (req) => {
       return json({ ok: true });
     }
 
+    if (action === "delete") {
+      const auth_user_id = String(body?.auth_user_id || "");
+      if (!auth_user_id) return json({ error: "auth_user_id required" }, 400);
+      if (auth_user_id === caller.id) {
+        return json({ error: "You cannot delete your own account" }, 400);
+      }
+
+      const { data: currentStaff, error: currentStaffErr } = await admin
+        .from("staff_members")
+        .select("id, role, permissions")
+        .eq("tenant_id", tenantId)
+        .eq("auth_user_id", auth_user_id)
+        .maybeSingle();
+
+      if (currentStaffErr) {
+        return json(
+          { error: "load current staff failed", details: currentStaffErr.message },
+          400,
+        );
+      }
+      if (!currentStaff) {
+        return json({ error: "staff member not found" }, 404);
+      }
+
+      const { count: payoutCount, error: payoutErr } = await admin
+        .from("staff_profit_payouts")
+        .select("id", { count: "exact", head: true })
+        .eq("tenant_id", tenantId)
+        .eq("staff_member_id", currentStaff.id);
+
+      if (payoutErr) {
+        return json(
+          { error: "load staff payouts failed", details: payoutErr.message },
+          400,
+        );
+      }
+      if ((payoutCount ?? 0) > 0) {
+        return json(
+          {
+            error:
+              "This staff member has payout history and cannot be deleted. Block the account instead.",
+          },
+          400,
+        );
+      }
+
+      const { data: authUserRes, error: authUserErr } = await admin.auth.admin
+        .getUserById(auth_user_id);
+
+      if (authUserErr || !authUserRes?.user) {
+        return json(
+          {
+            error: "load auth user failed",
+            details: authUserErr?.message ?? "User not found in auth.users",
+          },
+          400,
+        );
+      }
+
+      const nextAppMetadata = buildAppMetadata(authUserRes.user.app_metadata, {
+        tenantId,
+        role: normalizeRole(currentStaff.role),
+        active: false,
+        permissions: {},
+      });
+
+      const { error: authDisableErr } = await admin.auth.admin.updateUserById(
+        auth_user_id,
+        { app_metadata: nextAppMetadata },
+      );
+
+      if (authDisableErr) {
+        return json(
+          { error: "disable auth metadata failed", details: authDisableErr.message },
+          400,
+        );
+      }
+
+      const { error: deleteStaffErr } = await admin
+        .from("staff_members")
+        .delete()
+        .eq("tenant_id", tenantId)
+        .eq("auth_user_id", auth_user_id);
+
+      if (deleteStaffErr) {
+        return json(
+          { error: "delete staff_members failed", details: deleteStaffErr.message },
+          400,
+        );
+      }
+
+      const { error: deleteAuthErr } = await admin.auth.admin.deleteUser(auth_user_id);
+      if (deleteAuthErr) {
+        return json(
+          { error: "delete auth user failed", details: deleteAuthErr.message },
+          400,
+        );
+      }
+
+      return json({ ok: true });
+    }
+
     if (action === "reset_password") {
       const auth_user_id = String(body?.auth_user_id || "");
       const password = String(body?.password || "");

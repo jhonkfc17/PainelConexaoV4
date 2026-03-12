@@ -16,7 +16,7 @@ export type StaffMember = {
 };
 
 export type StaffPayload = {
-  action: "create" | "update" | "disable" | "reset_password";
+  action: "create" | "update" | "disable" | "delete" | "reset_password";
   auth_user_id?: string;
   nome?: string;
   email?: string;
@@ -125,6 +125,10 @@ export async function updateStaff(input: {
 
 export async function deactivateStaff(auth_user_id: string) {
   return staffAdmin({ action: "disable", auth_user_id });
+}
+
+export async function deleteStaff(auth_user_id: string) {
+  return staffAdmin({ action: "delete", auth_user_id });
 }
 
 export async function resetStaffPassword(auth_user_id: string, password: string) {

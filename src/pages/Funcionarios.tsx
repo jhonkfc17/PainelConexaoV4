@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import {
   createStaff,
+  deleteStaff,
   listStaff,
   resetStaffPassword,
   updateStaff,
@@ -10,6 +11,7 @@ import {
   type StaffRole,
 } from "../services/funcionarios.service";
 import { usePermissoes } from "../store/usePermissoes";
+import { useAuthStore } from "../store/useAuthStore";
 
 type PermKey =
   | "clients_view"
@@ -56,6 +58,7 @@ function makeAllPermissions(value: boolean) {
 
 export default function Funcionarios() {
   const { isAdmin: isAdminUser } = usePermissoes();
+  const currentUserId = useAuthStore((state) => state.user?.id ?? "");
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -291,6 +294,30 @@ export default function Funcionarios() {
     }
   };
 
+  const handleDelete = async (r: StaffMember) => {
+    try {
+      setError(null);
+      if (r.auth_user_id === currentUserId) {
+        return setError("Voce nao pode excluir sua propria conta.");
+      }
+
+      const label = r.nome?.trim() || r.email;
+      const ok = window.confirm(
+        `Excluir o funcionario ${label}?\n\nEssa acao remove o acesso de forma definitiva.`
+      );
+      if (!ok) return;
+
+      setLoading(true);
+      await deleteStaff(r.auth_user_id);
+      await load();
+    } catch (e: any) {
+      console.error(e);
+      setError(e?.message || "Falha ao excluir funcionario.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleResetPw = async () => {
     try {
       setError(null);
@@ -415,6 +442,23 @@ export default function Funcionarios() {
                     title="Desativar definitivamente"
                   >
                     Bloquear
+                  </button>
+
+                  <button
+                    onClick={() => handleDelete(r)}
+                    disabled={loading || r.auth_user_id === currentUserId}
+                    className={`px-3 py-2 rounded-xl border text-red-100 ${
+                      loading || r.auth_user_id === currentUserId
+                        ? "border-red-500/20 bg-red-500/5 opacity-60 cursor-not-allowed"
+                        : "border-red-500/30 bg-red-500/10 hover:bg-red-500/20"
+                    }`}
+                    title={
+                      r.auth_user_id === currentUserId
+                        ? "Voce nao pode excluir sua propria conta"
+                        : "Excluir funcionario"
+                    }
+                  >
+                    Excluir
                   </button>
                 </div>
               </div>
