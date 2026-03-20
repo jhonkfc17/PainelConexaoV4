@@ -349,6 +349,21 @@ function calcularMultaEstimado(e: Emprestimo) {
 
   const alvo = String(cfg.alvo ?? "todas_atrasadas");
   const parcelaNumero = Number(cfg.parcelaNumero ?? 0);
+  if (alvo === "contrato") {
+    const first = atrasadas[0];
+    return {
+      total: Math.max(0, valor),
+      detalhe: first
+        ? {
+            parcelaNumero: Number(first?.numero ?? 0),
+            vencimento: String(first?.vencimento ?? ""),
+            dias: Math.max(0, daysDiffISO(hoje, String(first?.vencimento ?? ""))),
+            tipo: "fixo_unico_contrato",
+            valor,
+          }
+        : null,
+    };
+  }
   const alvoParcelas = alvo === "parcela" && parcelaNumero ? atrasadas.filter((p) => Number(p?.numero ?? 0) === parcelaNumero) : atrasadas;
 
   const linhas = alvoParcelas.map((p) => {

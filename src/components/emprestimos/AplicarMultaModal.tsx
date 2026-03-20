@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import ModalBase from "../ui/ModalBase";
 import { gerarVencimentosParcelas } from "@/utils/datasCobranca";
@@ -61,11 +61,17 @@ function mapModalidadeCronograma(modalidade: string): "mensal" | "quinzenal" | "
   return "mensal";
 }
 
-function buildParcelaMultaDescricao(parcelasRef: any[]) {
+function buildParcelaMultaDescricao(parcelasRef: any[], alvo: string) {
   const refs = parcelasRef
     .map((p) => Number(p?.numero ?? 0))
     .filter((n) => n > 0)
     .sort((a, b) => a - b);
+
+  if (alvo === "contrato") {
+    if (refs.length === 0) return "multa contrato";
+    return `multa contrato ref pcl ${refs.join(", ")}`;
+  }
+
   if (refs.length === 0) return "multa";
   if (refs.length === 1) return `multa ref pcl ${refs[0]}`;
   return `multa ref pcl ${refs.join(", ")}`;
@@ -123,15 +129,23 @@ export default function AplicarMultaModal({ open, onClose, onSaved, emprestimo }
 
   const preview = useMemo(() => {
     const v = Number(valor || 0);
-    if (!v) return "Informe um valor para ver a prévia";
+    if (!v) return "Informe um valor para ver a previa.";
+
+    if (alvo === "contrato") {
+      return modoCobranca === "final_emprestimo"
+        ? `Multa unica de R$ ${v.toFixed(2)} no contrato. O valor sera cobrado uma vez no final do emprestimo para cobrir todas as parcelas em atraso.`
+        : `Multa unica de R$ ${v.toFixed(2)} no contrato. O valor sera cobrado uma vez para todas as parcelas em atraso.`;
+    }
+
     const sufixo =
       modoCobranca === "final_emprestimo"
-        ? " O total calculado será somado à última parcela em aberto."
-        : " A cobrança ficará nas parcelas em atraso.";
+        ? " O total calculado sera somado a ultima parcela em aberto."
+        : " A cobranca ficara nas parcelas em atraso.";
+
     if (tipo === "fixo_unico_parcela") return `Multa fixa de R$ ${v.toFixed(2)} por parcela selecionada.${sufixo}`;
     if (tipo === "percentual_por_dia") return `Multa de ${v}% ao dia sobre o valor da parcela.${sufixo}`;
     return `Multa de R$ ${v.toFixed(2)} por dia de atraso.${sufixo}`;
-  }, [modoCobranca, tipo, valor]);
+  }, [alvo, modoCobranca, tipo, valor]);
 
   async function aplicar() {
     if (!emprestimo?.id) return;
@@ -153,6 +167,7 @@ export default function AplicarMultaModal({ open, onClose, onSaved, emprestimo }
       const atrasadas = abertas
         .filter((p: any) => String(p?.vencimento ?? "") < hoje)
         .sort((a: any, b: any) => String(a?.vencimento ?? "").localeCompare(String(b?.vencimento ?? "")));
+      const isAlvoContrato = alvo === "contrato";
 
       const alvoParcelas =
         alvo === "parcela" && Number(parcelaNumero || 0)
@@ -180,7 +195,7 @@ export default function AplicarMultaModal({ open, onClose, onSaved, emprestimo }
         if (parcelaAnterior) {
           if (aplicacaoAnterior?.created_extra) {
             if (parcelaAnterior?.pago) {
-              throw new Error("A parcela de multa final já foi paga. Não é possível recriar automaticamente.");
+              throw new Error("A parcela de multa final ja foi paga. Nao e possivel recriar automaticamente.");
             }
             const { error: errDelExtra } = await supabase
               .from("parcelas")
@@ -210,9 +225,11 @@ export default function AplicarMultaModal({ open, onClose, onSaved, emprestimo }
       let parcelaExtraCriada: any | null = null;
 
       if (modoCobranca === "final_emprestimo") {
-        const totalMulta = alvoParcelas.reduce((acc: number, p: any) => {
-          return acc + calcMultaValor({ parcela: p, hoje, tipoDb, valorConfigurado: vCfg });
-        }, 0);
+        const totalMulta = isAlvoContrato
+          ? vCfg
+          : alvoParcelas.reduce((acc: number, p: any) => {
+              return acc + calcMultaValor({ parcela: p, hoje, tipoDb, valorConfigurado: vCfg });
+            }, 0);
         const totalMultaNormalizado = Math.max(0, Number(totalMulta.toFixed(2)));
         if (!(totalMultaNormalizado > 0)) throw new Error("O valor total da multa precisa ser maior que zero.");
 
@@ -223,7 +240,7 @@ export default function AplicarMultaModal({ open, onClose, onSaved, emprestimo }
         const proximoNumero =
           parcelas.reduce((max: number, p: any) => Math.max(max, Number(p?.numero ?? 0)), 0) + 1;
         const proximoVencimento = nextParcelaVencimento(parcelas, emprestimo, payload);
-        const descricao = buildParcelaMultaDescricao(alvoParcelas);
+        const descricao = buildParcelaMultaDescricao(alvoParcelas, alvo);
         parcelaExtraCriada = {
           emprestimo_id: emprestimo.id,
           numero: proximoNumero,
@@ -249,6 +266,10 @@ export default function AplicarMultaModal({ open, onClose, onSaved, emprestimo }
           descricao,
           created_extra: true,
         };
+      } else if (isAlvoContrato) {
+        const parcelaContrato = alvoParcelas[0];
+        if (!parcelaContrato) throw new Error("Nenhuma parcela em atraso encontrada para aplicar a multa.");
+        scheduleUpdate(parcelaContrato, Math.max(0, Number(vCfg.toFixed(2))), "fixo_unico", hoje);
       } else {
         for (const parcela of alvoParcelas) {
           const multaCalc = calcMultaValor({ parcela, hoje, tipoDb, valorConfigurado: vCfg });
@@ -354,12 +375,12 @@ export default function AplicarMultaModal({ open, onClose, onSaved, emprestimo }
                 modoCobranca === "final_emprestimo" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100" : "border-white/10 bg-white/5 text-white/80"
               }`}
             >
-              No final do empréstimo
+              No final do emprestimo
             </button>
           </div>
           {modoCobranca === "final_emprestimo" ? (
             <div className="text-xs text-amber-200/90">
-              A multa será calculada pelas parcelas em atraso escolhidas e somada à última parcela em aberto.
+              A multa sera calculada pelas parcelas em atraso escolhidas e somada a ultima parcela em aberto.
             </div>
           ) : null}
         </div>
@@ -374,7 +395,7 @@ export default function AplicarMultaModal({ open, onClose, onSaved, emprestimo }
                 tipo === "fixo_unico_parcela" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100" : "border-white/10 bg-white/5 text-white/80"
               }`}
             >
-              Fixo único
+              Fixo unico
             </button>
             <button
               type="button"
@@ -410,7 +431,7 @@ export default function AplicarMultaModal({ open, onClose, onSaved, emprestimo }
 
         <div className="space-y-2">
           <div className="text-xs font-semibold text-white/70">Aplicar em</div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <button
               type="button"
               onClick={() => setAlvo("todas_atrasadas")}
@@ -427,13 +448,22 @@ export default function AplicarMultaModal({ open, onClose, onSaved, emprestimo }
                 alvo === "parcela" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100" : "border-white/10 bg-white/5 text-white/80"
               }`}
             >
-              Parcela específica
+              Parcela especifica
+            </button>
+            <button
+              type="button"
+              onClick={() => setAlvo("contrato")}
+              className={`rounded-xl border px-3 py-2 text-sm font-semibold ${
+                alvo === "contrato" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100" : "border-white/10 bg-white/5 text-white/80"
+              }`}
+            >
+              No contrato
             </button>
           </div>
 
           {alvo === "parcela" ? (
             <div className="mt-2">
-              <div className="text-xs text-white/60 mb-1">Número da parcela</div>
+              <div className="mb-1 text-xs text-white/60">Numero da parcela</div>
               <input
                 value={String(parcelaNumero ?? 1)}
                 onChange={(e) => setParcelaNumero(Number(e.target.value || 1))}
@@ -443,10 +473,16 @@ export default function AplicarMultaModal({ open, onClose, onSaved, emprestimo }
               />
             </div>
           ) : null}
+
+          {alvo === "contrato" ? (
+            <div className="text-xs text-amber-200/90">
+              O valor informado sera aplicado uma unica vez no contrato, cobrindo todas as parcelas em atraso.
+            </div>
+          ) : null}
         </div>
 
         <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white/80">
-          <div className="text-xs font-semibold text-white/70 mb-1">Prévia</div>
+          <div className="mb-1 text-xs font-semibold text-white/70">Previa</div>
           {preview}
         </div>
 
