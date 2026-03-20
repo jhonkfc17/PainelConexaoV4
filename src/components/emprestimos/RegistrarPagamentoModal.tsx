@@ -162,6 +162,10 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
     return Math.max(0, Number(parcelaRef?.multa_valor ?? 0));
   }, [parcelaRef]);
 
+  const multaRestantePreview = useMemo(() => {
+    return Math.max(multaDisponivel - Math.max(Number(valor || 0), 0), 0);
+  }, [multaDisponivel, valor]);
+
   const limiteValor = useMemo(() => {
     if (tab === "PARCIAL" && adiantarMulta) return multaDisponivel;
     if (parcelasSelecionadas.length === 0) return 0;
@@ -518,6 +522,12 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
                   <span>Multa aplicada:</span>
                   <b className="text-amber-200">{brl(multaDisponivel)}</b>
                 </div>
+                {adiantarMulta ? (
+                  <div className="mt-1 flex items-center justify-between text-sm text-white/80">
+                    <span>Multa apos pagamento:</span>
+                    <b className="text-emerald-200">{brl(multaRestantePreview)}</b>
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
@@ -530,7 +540,7 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
                 onChange={(e) => setValor(Number(e.target.value))}
                 className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
               />
-              <div className="mt-1 text-xs text-white/45">Máx: {brl(saldoSelecionado)} • Digite qualquer valor até {brl(saldoSelecionado)}</div>
+              <div className="mt-1 text-xs text-white/45">Máx: {brl(limiteValor)} • Digite qualquer valor até {brl(limiteValor)}</div>
             </div>
 
             {tab === "PARCIAL" ? (
@@ -656,7 +666,7 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
 
                   {adiantarMulta && parcelaRef ? (
                     <div className="mt-3 text-xs text-white/55">
-                      Multa atual da parcela: <b className="text-amber-200">{brl(multaDisponivel)}</b>. O valor informado sera abatido apenas dessa multa.
+                      Multa atual da parcela: <b className="text-amber-200">{brl(multaDisponivel)}</b>. O valor informado sera abatido apenas dessa multa, deixando <b className="text-emerald-200">{brl(multaRestantePreview)}</b> em aberto.
                     </div>
                   ) : null}
                 </button>
