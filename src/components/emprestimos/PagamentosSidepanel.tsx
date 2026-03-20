@@ -56,6 +56,7 @@ function tipoLabel(tipo?: string | null) {
   const t = String(tipo ?? "").toUpperCase();
   if (t === "PARCELA_INTEGRAL") return "Parcela integral";
   if (t === "ADIANTAMENTO_MANUAL") return "Adiantamento";
+  if (t === "MULTA") return "Adiantamento de multa";
   if (t === "JUROS") return "Pagamento de juros";
   if (t === "SALDO_PARCIAL") return "Saldo parcial";
   if (t === "QUITACAO_TOTAL") return "Quitação total";
@@ -182,7 +183,7 @@ export default function PagamentosSidepanel({ open, onClose, emprestimo }: Props
   async function onEstornar(p: PagamentoDb) {
     if (!p?.id) return;
     if (p.tipo === "ADIANTAMENTO_MANUAL" && !(isAdmin || (!!authUserId && String((p as any)?.created_by ?? "").trim() === authUserId))) {
-      return alert("ADIANTAMENTO_MANUAL só pode ser revertido por admin.");
+      return alert("Somente quem registrou o pagamento ou admin pode excluir este registro.");
     }
     const ok = confirm("Confirmar exclusão do pagamento?\n\nA ação é feita por estorno para manter auditoria.");
     if (!ok) return;

@@ -124,6 +124,7 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
   const [novaDataVencimento, setNovaDataVencimento] = useState<string>("");
   const [amortizar, setAmortizar] = useState<boolean>(false);
   const [adiantamento, setAdiantamento] = useState<boolean>(false);
+  const [adiantarMulta, setAdiantarMulta] = useState<boolean>(false);
   const [saving, setSaving] = useState(false);
 
   const parcelas = useMemo(() => {
@@ -147,6 +148,7 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
     setNovaDataVencimento("");
     setAmortizar(false);
     setAdiantamento(false);
+    setAdiantarMulta(false);
   }, [open, parcelasAbertas]);
 
   const parcelasSelecionadas = useMemo(() => {
@@ -155,6 +157,17 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
   }, [parcelasAbertas, selectedParcelas]);
 
   const parcelaRef = useMemo(() => parcelasSelecionadas[0] ?? null, [parcelasSelecionadas]);
+
+  const multaDisponivel = useMemo(() => {
+    return Math.max(0, Number(parcelaRef?.multa_valor ?? 0));
+  }, [parcelaRef]);
+
+  const limiteValor = useMemo(() => {
+    if (tab === "PARCIAL" && adiantarMulta) return multaDisponivel;
+    if (parcelasSelecionadas.length === 0) return 0;
+    if (tab === "PARCELA") return parcelasSelecionadas.reduce((acc, p) => acc + totalDaParcela(emprestimo, p, dataPagamento), 0);
+    return totalDaParcela(emprestimo, parcelasSelecionadas[0], dataPagamento);
+  }, [adiantarMulta, dataPagamento, emprestimo, multaDisponivel, parcelasSelecionadas, tab]);
 
   const saldoSelecionado = useMemo(() => {
     if (parcelasSelecionadas.length === 0) return 0;
@@ -235,6 +248,25 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
         const p = parcelasSelecionadas[0];
         if (!p) return;
         if (!(valor > 0)) return alert("Informe o valor pago.");
+        if (adiantarMulta) {
+          if (!(multaDisponivel > 0)) return alert("Esta parcela nao possui multa aplicada para adiantar.");
+          if (valor > multaDisponivel) return alert("O valor nao pode ser maior que a multa aplicada.");
+
+          await registrarPagamento({
+            emprestimoId: emprestimo.id,
+            tipo: "MULTA" as PagamentoTipo,
+            dataPagamento,
+            valor,
+            parcelaNumero: p.numero,
+            jurosAtraso: 0,
+            flags: {
+              origem: "ui_registrar_pagamento_modal",
+              modo: "MULTA",
+              multa_adiantada_valor: valor,
+              contabilizar_como_lucro: true,
+            },
+          });
+        } else {
         const saldo = totalDaParcela(emprestimo, p, dataPagamento);
         if (saldo <= 0) return alert("Esta parcela não possui saldo pendente.");
         if (valor > saldo) return alert("O valor não pode ser maior que o saldo pendente.");
@@ -272,6 +304,7 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
               : undefined,
           },
         });
+        }
       }
 
       if (tab === "TOTAL") {
@@ -481,6 +514,10 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
                   <span>Total da parcela:</span>
                   <b className="text-white">{brl(totalDaParcela(emprestimo, parcelaRef, dataPagamento))}</b>
                 </div>
+                <div className="mt-1 flex items-center justify-between text-sm text-white/80">
+                  <span>Multa aplicada:</span>
+                  <b className="text-amber-200">{brl(multaDisponivel)}</b>
+                </div>
               </div>
             ) : null}
 
@@ -489,7 +526,7 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
               <input
                 type="number"
                 value={valor || ""}
-                placeholder={tab === "DESCONTO" ? "0" : String(saldoSelecionado)}
+                placeholder={tab === "DESCONTO" ? "0" : String(limiteValor)}
                 onChange={(e) => setValor(Number(e.target.value))}
                 className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
               />
@@ -504,7 +541,10 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
                   onClick={() => {
                     setAmortizar((v) => {
                       const next = !v;
-                      if (next) setAdiantamento(false);
+                      if (next) {
+                        setAdiantamento(false);
+                        setAdiantarMulta(false);
+                      }
                       return next;
                     });
                   }}
@@ -556,7 +596,10 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
                   onClick={() => {
                     setAdiantamento((v) => {
                       const next = !v;
-                      if (next) setAmortizar(false);
+                      if (next) {
+                        setAmortizar(false);
+                        setAdiantarMulta(false);
+                      }
                       return next;
                     });
                   }}
@@ -583,7 +626,42 @@ export default function RegistrarPagamentoModal({ open, onClose, onSaved, empres
                 </button>
 
                 {/* Nova data de vencimento (somente quando NÃO é adiantamento) */}
-                {!adiantamento ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAdiantarMulta((v) => {
+                      const next = !v;
+                      if (next) {
+                        setAmortizar(false);
+                        setAdiantamento(false);
+                        setNovaDataVencimento("");
+                      }
+                      return next;
+                    });
+                  }}
+                  className={
+                    "w-full rounded-2xl border px-4 py-3 text-left " +
+                    (adiantarMulta ? "border-emerald-500/40 bg-emerald-500/10" : "border-white/10 bg-white/5 hover:bg-white/10")
+                  }
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-emerald-200">Adiantar valor da multa</div>
+                      <div className="mt-1 text-xs text-white/50">Registra um pagamento somente da multa aplicada, sem amortizar o principal</div>
+                    </div>
+                    <div className={"h-6 w-11 rounded-full border transition-all " + (adiantarMulta ? "bg-emerald-500/60 border-emerald-400/50" : "bg-black/30 border-white/15")}>
+                      <div className={"h-5 w-5 rounded-full bg-white transition-all mt-[2px] " + (adiantarMulta ? "translate-x-5" : "translate-x-0")}></div>
+                    </div>
+                  </div>
+
+                  {adiantarMulta && parcelaRef ? (
+                    <div className="mt-3 text-xs text-white/55">
+                      Multa atual da parcela: <b className="text-amber-200">{brl(multaDisponivel)}</b>. O valor informado sera abatido apenas dessa multa.
+                    </div>
+                  ) : null}
+                </button>
+
+                {!adiantamento && !adiantarMulta ? (
                   <div>
                     <label className="mb-1 block text-sm text-white/80">Nova Data de Vencimento</label>
                     <input
