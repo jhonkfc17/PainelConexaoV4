@@ -6,6 +6,7 @@ import RenegociarDividaModal from "./RenegociarDividaModal";
 import EditarEmprestimoModal from "./EditarEmprestimoModal";
 import JurosAtrasoConfigModal from "./JurosAtrasoConfigModal";
 import AplicarMultaModal from "./AplicarMultaModal";
+import MultasAplicadasModal from "./MultasAplicadasModal";
 import PagamentosSidepanel from "./PagamentosSidepanel";
 import { useEmprestimosStore } from "../../store/useEmprestimosStore";
 import { fillTemplate, getMessageTemplate } from "@/lib/messageTemplates";
@@ -517,6 +518,7 @@ function EmprestimoCardPasta({
   const [renegociarAberto, setRenegociarAberto] = useState(false);
   const [jurosCfgAberto, setJurosCfgAberto] = useState(false);
   const [multaAberto, setMultaAberto] = useState(false);
+  const [multasAplicadasAberto, setMultasAplicadasAberto] = useState(false);
   const [historicoAberto, setHistoricoAberto] = useState(false);
   const [editarAberto, setEditarAberto] = useState(false);
 
@@ -748,6 +750,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
       <RenegociarDividaModal open={renegociarAberto} onClose={() => { setRenegociarAberto(false); safeRefetch(); }} emprestimo={emprestimoModal} />
       <JurosAtrasoConfigModal open={jurosCfgAberto} onClose={() => { setJurosCfgAberto(false); safeRefetch(); }} onSaved={() => safeRefetch()} emprestimo={emprestimo} />
       <AplicarMultaModal open={multaAberto} onClose={() => { setMultaAberto(false); safeRefetch(); }} onSaved={() => safeRefetch()} emprestimo={emprestimo} />
+      <MultasAplicadasModal open={multasAplicadasAberto} onClose={() => { setMultasAplicadasAberto(false); safeRefetch(); }} onSaved={() => safeRefetch()} emprestimo={emprestimo} />
       <PagamentosSidepanel open={historicoAberto} onClose={() => setHistoricoAberto(false)} emprestimo={emprestimo} />
       <EditarEmprestimoModal open={editarAberto} onClose={() => setEditarAberto(false)} onSaved={() => safeRefetch()} emprestimo={emprestimo} />
 
@@ -903,7 +906,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
             </div>
 
             {/* NOVO: botões pedidos no card */}
-            <div className="mt-3 grid grid-cols-2 gap-2">
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
               <button
                 type="button"
                 onClick={() => setJurosCfgAberto(true)}
@@ -917,6 +920,13 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
                 className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-amber-100 hover:bg-black/30"
               >
                 💰 Aplicar multa
+              </button>
+              <button
+                type="button"
+                onClick={() => setMultasAplicadasAberto(true)}
+                className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-white/80 hover:bg-black/30"
+              >
+                Ver multas
               </button>
             </div>
           </div>
@@ -959,7 +969,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
                 ) : null}
               </div>
 
-              <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
                 <button
                   type="button"
                   onClick={() => setJurosCfgAberto(true)}
@@ -973,6 +983,13 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
                   className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-amber-100 hover:bg-black/30"
                 >
                   💰 Aplicar Multa
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMultasAplicadasAberto(true)}
+                  className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-white/80 hover:bg-black/30"
+                >
+                  Ver Multas
                 </button>
               </div>
 
@@ -1188,7 +1205,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
             </button>
           </div>
 
-          <div className="mt-2 grid grid-cols-2 gap-2">
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
             <button
               type="button"
               onClick={() => setJurosCfgAberto(true)}
@@ -1214,6 +1231,13 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
               }
             >
               Aplicar multa
+            </button>
+            <button
+              type="button"
+              onClick={() => setMultasAplicadasAberto(true)}
+              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold text-white/80 transition hover:bg-white/10"
+            >
+              Ver multas
             </button>
           </div>
 
