@@ -33,6 +33,7 @@ export type PagamentoDb = {
   id: string;
   emprestimo_id: string;
   parcela_id: string | null;
+  created_by?: string | null;
 
   // Alguns selects/views trazem o número da parcela diretamente
   parcela_numero?: number | null;
@@ -783,6 +784,12 @@ export async function registrarPagamentoDbV2(args: {
  * Estorno com auditoria.
  * Tenta `rpc_estornar_pagamento`, fallback para `revert_payment`.
  */
+function shouldFallbackLegacyRevert(error: any) {
+  const code = String(error?.code ?? "").trim();
+  const message = String(error?.message ?? "").toLowerCase();
+  return code === "42883" || code === "PGRST202" || message.includes("revert_payment") || message.includes("rpc_estornar_pagamento");
+}
+
 export async function estornarPagamentoDbV2(args: {
   pagamentoId: string;
   motivo?: string;
@@ -797,6 +804,10 @@ export async function estornarPagamentoDbV2(args: {
   });
 
   if (!r1.error) return r1.data;
+
+  if (!shouldFallbackLegacyRevert(r1.error)) {
+    throw r1.error;
+  }
 
   const r2 = await supabase.rpc("revert_payment", { p_pagamento_id: pagamentoId });
   if (r2.error) throw r2.error;

@@ -83,6 +83,7 @@ function escapeHtml(s: string) {
 
 export default function PagamentosSidepanel({ open, onClose, emprestimo }: Props) {
   const role = useAuthStore((s) => s.role);
+  const authUserId = useAuthStore((s) => s.user?.id ?? null);
   const isAdmin = role === "admin";
 
   const loading = useEmprestimosStore((s) => s.loading);
@@ -180,7 +181,7 @@ export default function PagamentosSidepanel({ open, onClose, emprestimo }: Props
 
   async function onEstornar(p: PagamentoDb) {
     if (!p?.id) return;
-    if (p.tipo === "ADIANTAMENTO_MANUAL" && !isAdmin) {
+    if (p.tipo === "ADIANTAMENTO_MANUAL" && !(isAdmin || (!!authUserId && String((p as any)?.created_by ?? "").trim() === authUserId))) {
       return alert("ADIANTAMENTO_MANUAL só pode ser revertido por admin.");
     }
     const ok = confirm("Confirmar exclusão do pagamento?\n\nA ação é feita por estorno para manter auditoria.");
@@ -344,7 +345,9 @@ export default function PagamentosSidepanel({ open, onClose, emprestimo }: Props
             ) : (
               (pagamentos ?? []).map((p) => {
                 const total = Number(p.valor ?? 0) + Number(p.juros_atraso ?? 0);
-                const bloqueiaEstorno = p.tipo === "ADIANTAMENTO_MANUAL" && !isAdmin;
+                const createdBy = String((p as any)?.created_by ?? "").trim();
+                const podeEstornar = isAdmin || (!!authUserId && createdBy === authUserId);
+                const bloqueiaEstorno = !podeEstornar;
                 return (
                   <div key={p.id} className="rounded-xl border border-white/10 bg-black/20 p-3">
                     <div className="flex items-start justify-between gap-3">
@@ -398,7 +401,7 @@ export default function PagamentosSidepanel({ open, onClose, emprestimo }: Props
                                 : "border-red-500/25 bg-red-500/10 text-red-200 hover:bg-red-500/15"
                             }`}
                             disabled={bloqueiaEstorno}
-                            title={bloqueiaEstorno ? "Somente admin pode excluir este pagamento" : "Excluir pagamento (estorno)"}
+                            title={bloqueiaEstorno ? "Somente quem registrou o pagamento ou admin pode excluir" : "Excluir pagamento (estorno)"}
                           >
                             Excluir
                           </button>
