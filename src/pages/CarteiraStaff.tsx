@@ -536,10 +536,12 @@ export default function CarteiraStaff() {
               </div>
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-                  <div className="text-[11px] text-white/50">Lucro realizado bruto</div>
-                  <div className="mt-2 text-xl font-bold text-white">{brl(selectedWallet.realized_profit)}</div>
-                </div>
+                {selectedWallet.role === "admin" ? (
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+                    <div className="text-[11px] text-white/50">Lucro realizado bruto</div>
+                    <div className="mt-2 text-xl font-bold text-white">{brl(selectedWallet.realized_profit)}</div>
+                  </div>
+                ) : null}
                 <div className="rounded-xl border border-white/10 bg-black/20 p-4">
                   <div className="text-[11px] text-white/50">Lucro da carteira</div>
                   <div className="mt-2 text-xl font-bold text-sky-200">{brl(selectedWallet.commission_profit)}</div>
