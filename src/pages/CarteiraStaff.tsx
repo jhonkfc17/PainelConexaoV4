@@ -5,14 +5,19 @@ import { supabase } from "@/lib/supabaseClient";
 import ModalBase from "@/components/ui/ModalBase";
 import { usePermissoes } from "@/store/usePermissoes";
 import {
+  createStaffWalletAdjustment,
   createStaffWalletPayout,
   getMyStaffWallet,
+  listMyStaffWalletAdjustments,
   listMyStaffWalletPayouts,
+  listStaffWalletAdjustments,
   listStaffWalletPayouts,
   listStaffWallets,
   updateStaffWalletPayout,
+  voidStaffWalletAdjustment,
   voidStaffWalletPayout,
   type StaffWallet,
+  type StaffWalletAdjustment,
   type StaffWalletPayout,
 } from "@/services/staffWallet.service";
 
@@ -24,6 +29,14 @@ type PayoutFormState = {
   comprovante_data_url: string | null;
   comprovante_nome: string;
   comprovante_mime_type: string;
+};
+
+type AdjustmentFormState = {
+  staff_member_id: string;
+  direction: "CREDITO" | "DEBITO";
+  valor: string;
+  applied_at: string;
+  notes: string;
 };
 
 function brl(value: number): string {
@@ -89,14 +102,16 @@ function isPdfReceipt(mimeType: string | null, fileName: string | null, dataUrl:
 
 export default function CarteiraStaff() {
   const { isAdmin, isOwner } = usePermissoes();
-  const canSeeTeamWallet = isOwner;
+  const canSeeTeamWallet = isAdmin;
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [wallets, setWallets] = useState<StaffWallet[]>([]);
   const [payouts, setPayouts] = useState<StaffWalletPayout[]>([]);
+  const [adjustments, setAdjustments] = useState<StaffWalletAdjustment[]>([]);
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
   const [modalOpen, setModalOpen] = useState(false);
+  const [adjustmentModalOpen, setAdjustmentModalOpen] = useState(false);
   const [editingPayout, setEditingPayout] = useState<StaffWalletPayout | null>(null);
   const [previewPayout, setPreviewPayout] = useState<StaffWalletPayout | null>(null);
   const [form, setForm] = useState<PayoutFormState>({
@@ -108,22 +123,32 @@ export default function CarteiraStaff() {
     comprovante_nome: "",
     comprovante_mime_type: "",
   });
+  const [adjustmentForm, setAdjustmentForm] = useState<AdjustmentFormState>({
+    staff_member_id: "",
+    direction: "CREDITO",
+    valor: "",
+    applied_at: todayISO(),
+    notes: "",
+  });
 
   const load = async () => {
     try {
       setLoading(true);
       setError(null);
-      const [walletRows, payoutRows] = canSeeTeamWallet
-        ? await Promise.all([listStaffWallets(), listStaffWalletPayouts()])
+      const [walletRows, payoutRows, adjustmentRows] = canSeeTeamWallet
+        ? await Promise.all([listStaffWallets(), listStaffWalletPayouts(), listStaffWalletAdjustments()])
         : await Promise.all([
             getMyStaffWallet().then((wallet) => (wallet ? [wallet] : [])),
             listMyStaffWalletPayouts(),
+            listMyStaffWalletAdjustments(),
           ]);
       const visibleWalletRows = walletRows.filter((wallet) => !shouldHideInactive(wallet));
       const visibleWalletIds = new Set(visibleWalletRows.map((wallet) => wallet.staff_member_id));
       const visiblePayoutRows = payoutRows.filter((payout) => visibleWalletIds.has(payout.staff_member_id));
+      const visibleAdjustmentRows = adjustmentRows.filter((adjustment) => visibleWalletIds.has(adjustment.staff_member_id));
       setWallets(visibleWalletRows);
       setPayouts(visiblePayoutRows);
+      setAdjustments(visibleAdjustmentRows);
       setSelectedStaffId((current) => {
         if (current && visibleWalletRows.some((wallet) => wallet.staff_member_id === current)) return current;
         const preferred = canSeeTeamWallet
@@ -158,6 +183,7 @@ export default function CarteiraStaff() {
       .on("postgres_changes", { event: "*", schema: "public", table: "emprestimos" }, debouncedRefresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "pagamentos" }, debouncedRefresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "staff_profit_payouts" }, debouncedRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "staff_wallet_adjustments" }, debouncedRefresh)
       .subscribe();
 
     return () => {
@@ -180,6 +206,11 @@ export default function CarteiraStaff() {
     return payouts.filter((payout) => payout.staff_member_id === selectedStaffId);
   }, [payouts, selectedStaffId]);
 
+  const selectedAdjustments = useMemo(() => {
+    if (!selectedStaffId) return adjustments;
+    return adjustments.filter((adjustment) => adjustment.staff_member_id === selectedStaffId);
+  }, [adjustments, selectedStaffId]);
+
   const previewIsPdf = useMemo(() => {
     return isPdfReceipt(
       previewPayout?.comprovante_mime_type ?? null,
@@ -194,11 +225,12 @@ export default function CarteiraStaff() {
         acc.realized += wallet.realized_profit;
         acc.commission += wallet.commission_profit;
         acc.paid += wallet.paid_total;
+        acc.adjustment += wallet.adjustment_total;
         acc.available += wallet.available_balance;
         if (wallet.available_balance > 0.00001) acc.withBalance += 1;
         return acc;
       },
-      { realized: 0, commission: 0, paid: 0, available: 0, withBalance: 0 }
+      { realized: 0, commission: 0, paid: 0, adjustment: 0, available: 0, withBalance: 0 }
     );
   }, [wallets]);
 
@@ -216,6 +248,22 @@ export default function CarteiraStaff() {
     return (modalWallet?.available_balance ?? 0) + modalHeadroom;
   }, [modalWallet, modalHeadroom]);
 
+  const adjustmentWallet = useMemo(
+    () => wallets.find((wallet) => wallet.staff_member_id === adjustmentForm.staff_member_id) ?? null,
+    [wallets, adjustmentForm.staff_member_id]
+  );
+
+  const adjustmentAmount = useMemo(() => num(adjustmentForm.valor), [adjustmentForm.valor]);
+
+  const adjustmentSignedAmount = useMemo(() => {
+    if (!(adjustmentAmount > 0)) return 0;
+    return adjustmentForm.direction === "DEBITO" ? 0 - adjustmentAmount : adjustmentAmount;
+  }, [adjustmentAmount, adjustmentForm.direction]);
+
+  const adjustmentPreviewBalance = useMemo(() => {
+    return (adjustmentWallet?.available_balance ?? 0) + adjustmentSignedAmount;
+  }, [adjustmentSignedAmount, adjustmentWallet]);
+
   const openCreateModal = (staffMemberId?: string) => {
     const fallbackId = staffMemberId ?? selectedWallet?.staff_member_id ?? wallets[0]?.staff_member_id ?? "";
     setEditingPayout(null);
@@ -230,6 +278,19 @@ export default function CarteiraStaff() {
     });
     setError(null);
     setModalOpen(true);
+  };
+
+  const openAdjustmentModal = (staffMemberId?: string) => {
+    const fallbackId = staffMemberId ?? selectedWallet?.staff_member_id ?? wallets[0]?.staff_member_id ?? "";
+    setAdjustmentForm({
+      staff_member_id: fallbackId,
+      direction: "CREDITO",
+      valor: "",
+      applied_at: todayISO(),
+      notes: "",
+    });
+    setError(null);
+    setAdjustmentModalOpen(true);
   };
 
   const openEditModal = (payout: StaffWalletPayout) => {
@@ -251,6 +312,11 @@ export default function CarteiraStaff() {
     if (saving) return;
     setModalOpen(false);
     setEditingPayout(null);
+  };
+
+  const closeAdjustmentModal = () => {
+    if (saving) return;
+    setAdjustmentModalOpen(false);
   };
 
   const handleSavePayout = async () => {
@@ -313,6 +379,47 @@ export default function CarteiraStaff() {
     }
   };
 
+  const handleSaveAdjustment = async () => {
+    try {
+      setError(null);
+      if (!adjustmentForm.staff_member_id) {
+        setError("Selecione o funcionario do ajuste.");
+        return;
+      }
+
+      if (!(adjustmentAmount > 0)) {
+        setError("Informe um valor valido para o ajuste.");
+        return;
+      }
+
+      if (!adjustmentForm.applied_at) {
+        setError("Informe a data do ajuste.");
+        return;
+      }
+
+      if (adjustmentForm.direction === "DEBITO" && adjustmentAmount > (adjustmentWallet?.available_balance ?? 0) + 0.00001) {
+        setError("O debito informado ultrapassa o saldo disponivel deste funcionario.");
+        return;
+      }
+
+      setSaving(true);
+      await createStaffWalletAdjustment({
+        staff_member_id: adjustmentForm.staff_member_id,
+        valor: adjustmentSignedAmount,
+        applied_at: adjustmentForm.applied_at,
+        notes: adjustmentForm.notes,
+      });
+
+      setAdjustmentModalOpen(false);
+      await load();
+    } catch (e: any) {
+      console.error(e);
+      setError(e?.message ?? "Falha ao salvar ajuste manual.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleVoidPayout = async (payout: StaffWalletPayout) => {
     const motivo = window.prompt("Informe o motivo do estorno:", payout.estornado_motivo ?? "");
     if (motivo === null) return;
@@ -325,6 +432,23 @@ export default function CarteiraStaff() {
     } catch (e: any) {
       console.error(e);
       setError(e?.message ?? "Falha ao estornar repasse.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleVoidAdjustment = async (adjustment: StaffWalletAdjustment) => {
+    const motivo = window.prompt("Informe o motivo do estorno do ajuste:", adjustment.estornado_motivo ?? "");
+    if (motivo === null) return;
+
+    try {
+      setError(null);
+      setSaving(true);
+      await voidStaffWalletAdjustment({ id: adjustment.id, motivo });
+      await load();
+    } catch (e: any) {
+      console.error(e);
+      setError(e?.message ?? "Falha ao estornar ajuste manual.");
     } finally {
       setSaving(false);
     }
@@ -368,11 +492,11 @@ export default function CarteiraStaff() {
           <div className="flex items-center gap-2">
             <h1 className="text-xl md:text-2xl font-semibold text-white">Carteira Staff</h1>
             <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
-              {canSeeTeamWallet ? "Owner" : isAdmin ? "Admin" : "Staff"}
+              {isOwner ? "Owner" : isAdmin ? "Admin" : "Staff"}
             </span>
           </div>
           {canSeeTeamWallet ? <p className="mt-1 text-sm text-white/70">
-            Saldo de lucro realizado por funcionário, já considerando o percentual configurado e os repasses efetuados.
+            Saldo de lucro realizado por funcionario, ja considerando percentual, repasses e ajustes manuais registrados.
           </p> : <p className="mt-1 text-sm text-white/70">Acompanhe seu saldo atual e o histórico de repasses registrados pelo admin.</p>}
         </div>
 
@@ -386,15 +510,26 @@ export default function CarteiraStaff() {
             Atualizar
           </button>
           {canSeeTeamWallet ? (
-            <button
-              type="button"
-              onClick={() => openCreateModal()}
-              className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 font-semibold text-black hover:bg-emerald-400"
-              disabled={wallets.length === 0}
-            >
-              <CircleDollarSign size={16} />
-              Registrar repasse
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => openAdjustmentModal()}
+                className="inline-flex items-center gap-2 rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-2 font-semibold text-sky-100 hover:bg-sky-500/20"
+                disabled={wallets.length === 0}
+              >
+                <Wallet size={16} />
+                Ajuste manual
+              </button>
+              <button
+                type="button"
+                onClick={() => openCreateModal()}
+                className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 font-semibold text-black hover:bg-emerald-400"
+                disabled={wallets.length === 0}
+              >
+                <CircleDollarSign size={16} />
+                Registrar repasse
+              </button>
+            </>
           ) : null}
         </div>
       </div>
@@ -403,14 +538,14 @@ export default function CarteiraStaff() {
         <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error}</div>
       ) : null}
 
-      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <div className="rounded-2xl border border-emerald-500/20 bg-slate-950/30 p-4">
           <div className="flex items-center gap-2 text-xs font-semibold text-emerald-300">
             <Wallet size={16} />
             Saldo disponível
           </div>
           <div className="mt-2 text-2xl font-extrabold text-emerald-200">{brl(totals.available)}</div>
-          <div className="mt-1 text-[11px] text-white/50">Carteira líquida após repasses</div>
+          <div className="mt-1 text-[11px] text-white/50">Carteira líquida após repasses e ajustes</div>
         </div>
 
         <div className="rounded-2xl border border-sky-500/20 bg-slate-950/30 p-4">
@@ -429,6 +564,17 @@ export default function CarteiraStaff() {
           </div>
           <div className="mt-2 text-2xl font-extrabold text-amber-200">{brl(totals.paid)}</div>
           <div className="mt-1 text-[11px] text-white/50">Pagamentos já registrados na carteira</div>
+        </div>
+
+        <div className="rounded-2xl border border-sky-500/20 bg-slate-950/30 p-4">
+          <div className="flex items-center gap-2 text-xs font-semibold text-sky-300">
+            <Wallet size={16} />
+            Ajustes manuais
+          </div>
+          <div className={`mt-2 text-2xl font-extrabold ${totals.adjustment >= 0 ? "text-sky-200" : "text-red-200"}`}>
+            {brl(totals.adjustment)}
+          </div>
+          <div className="mt-1 text-[11px] text-white/50">Créditos e débitos manuais lançados na carteira</div>
         </div>
 
         <div className="rounded-2xl border border-purple-500/20 bg-slate-950/30 p-4">
@@ -511,14 +657,24 @@ export default function CarteiraStaff() {
               <div className="mt-1 text-sm text-white/60">{canSeeTeamWallet ? "Resumo operacional da carteira individual." : "Seu resumo operacional de repasses."}</div>
             </div>
             {canSeeTeamWallet ? (
-              <button
-                type="button"
-                onClick={() => openCreateModal(selectedWallet?.staff_member_id)}
-                disabled={!selectedWallet}
-                className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-black hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-emerald-500/30 disabled:text-black/60"
-              >
-                Novo repasse
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => openAdjustmentModal(selectedWallet?.staff_member_id)}
+                  disabled={!selectedWallet}
+                  className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:border-sky-500/10 disabled:text-sky-100/40"
+                >
+                  Ajuste manual
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openCreateModal(selectedWallet?.staff_member_id)}
+                  disabled={!selectedWallet}
+                  className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-black hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-emerald-500/30 disabled:text-black/60"
+                >
+                  Novo repasse
+                </button>
+              </div>
             ) : null}
           </div>
 
@@ -551,6 +707,12 @@ export default function CarteiraStaff() {
                   <div className="mt-2 text-xl font-bold text-amber-200">{brl(selectedWallet.paid_total)}</div>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+                  <div className="text-[11px] text-white/50">Ajustes manuais</div>
+                  <div className={`mt-2 text-xl font-bold ${selectedWallet.adjustment_total >= 0 ? "text-sky-200" : "text-red-200"}`}>
+                    {brl(selectedWallet.adjustment_total)}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-black/20 p-4">
                   <div className="text-[11px] text-white/50">Saldo atual</div>
                   <div className={`mt-2 text-xl font-bold ${selectedWallet.available_balance >= 0 ? "text-emerald-200" : "text-red-200"}`}>
                     {brl(selectedWallet.available_balance)}
@@ -561,104 +723,176 @@ export default function CarteiraStaff() {
           )}
         </div>
 
-        <div className="rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
-          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-            <div>
-              <div className="text-white font-semibold">Histórico de repasses</div>
-              <div className="mt-1 text-sm text-white/60">
-                {selectedWallet ? `Somente ${selectedWallet.nome || selectedWallet.email}` : "Todos os funcionários"}
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
+            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+              <div>
+                <div className="text-white font-semibold">Histórico de repasses</div>
+                <div className="mt-1 text-sm text-white/60">
+                  {selectedWallet ? `Somente ${selectedWallet.nome || selectedWallet.email}` : "Todos os funcionários"}
+                </div>
               </div>
             </div>
+
+            {selectedPayouts.length === 0 ? (
+              <div className="p-4 text-white/60">Nenhum repasse registrado para o filtro atual.</div>
+            ) : (
+              <div className="divide-y divide-white/10">
+                {selectedPayouts.map((payout) => {
+                  const wallet = payoutsById.get(payout.staff_member_id);
+                  const isVoided = Boolean(payout.estornado_em);
+                  return (
+                    <div key={payout.id} className="grid grid-cols-1 gap-3 px-4 py-4 md:grid-cols-[1.3fr_repeat(3,minmax(0,1fr))_auto]">
+                      <div className="min-w-0">
+                        <div className="truncate font-semibold text-white">{wallet?.nome || wallet?.email || "Funcionário"}</div>
+                        <div className="mt-1 text-sm text-white/60">{payout.notes || "Sem observação"}</div>
+                        <div className="mt-1 text-xs text-white/50">
+                          Criado em {formatDateTime(payout.created_at)}
+                          {isVoided ? ` • Estornado em ${formatDateTime(payout.estornado_em)}` : ""}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[11px] text-white/50">Valor</div>
+                        <div className={`mt-1 font-semibold ${isVoided ? "text-white/40 line-through" : "text-emerald-200"}`}>
+                          {brl(payout.valor)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[11px] text-white/50">Data do repasse</div>
+                        <div className="mt-1 font-semibold text-white">{formatDate(payout.paid_at)}</div>
+                      </div>
+                      <div>
+                        <div className="text-[11px] text-white/50">Status</div>
+                        <div className={`mt-1 font-semibold ${isVoided ? "text-red-200" : "text-white"}`}>
+                          {isVoided ? "Estornado" : "Ativo"}
+                        </div>
+                        {payout.comprovante_nome ? (
+                          <div className="mt-1 text-xs text-white/60">Comprovante: {payout.comprovante_nome}</div>
+                        ) : null}
+                        {isVoided && payout.estornado_motivo ? (
+                          <div className="mt-1 text-xs text-red-200/80">{payout.estornado_motivo}</div>
+                        ) : null}
+                      </div>
+                      <div className="flex items-center justify-end gap-2">
+                        {payout.comprovante_data_url ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => setPreviewPayout(payout)}
+                              className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm text-sky-100 hover:bg-sky-500/20"
+                            >
+                              Ver comprovante
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => downloadDataUrl(payout.comprovante_data_url ?? "", payout.comprovante_nome ?? "comprovante")}
+                              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white hover:bg-white/10"
+                            >
+                              Baixar
+                            </button>
+                          </>
+                        ) : null}
+                        {canSeeTeamWallet ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => openEditModal(payout)}
+                              disabled={saving || isVoided}
+                              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:text-white/40"
+                            >
+                              Editar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleVoidPayout(payout)}
+                              disabled={saving || isVoided}
+                              className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-100 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:text-red-100/40"
+                            >
+                              Estornar
+                            </button>
+                          </>
+                        ) : (
+                          <span className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/60">
+                            Visualização
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
-          {selectedPayouts.length === 0 ? (
-            <div className="p-4 text-white/60">Nenhum repasse registrado para o filtro atual.</div>
-          ) : (
-            <div className="divide-y divide-white/10">
-              {selectedPayouts.map((payout) => {
-                const wallet = payoutsById.get(payout.staff_member_id);
-                const isVoided = Boolean(payout.estornado_em);
-                return (
-                  <div key={payout.id} className="grid grid-cols-1 gap-3 px-4 py-4 md:grid-cols-[1.3fr_repeat(3,minmax(0,1fr))_auto]">
-                    <div className="min-w-0">
-                      <div className="truncate font-semibold text-white">{wallet?.nome || wallet?.email || "Funcionário"}</div>
-                      <div className="mt-1 text-sm text-white/60">{payout.notes || "Sem observação"}</div>
-                      <div className="mt-1 text-xs text-white/50">
-                        Criado em {formatDateTime(payout.created_at)}
-                        {isVoided ? ` • Estornado em ${formatDateTime(payout.estornado_em)}` : ""}
+          <div className="rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
+            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+              <div>
+                <div className="text-white font-semibold">Ajustes manuais</div>
+                <div className="mt-1 text-sm text-white/60">
+                  {selectedWallet ? `Somente ${selectedWallet.nome || selectedWallet.email}` : "Todos os funcionários"}
+                </div>
+              </div>
+            </div>
+
+            {selectedAdjustments.length === 0 ? (
+              <div className="p-4 text-white/60">Nenhum ajuste manual registrado para o filtro atual.</div>
+            ) : (
+              <div className="divide-y divide-white/10">
+                {selectedAdjustments.map((adjustment) => {
+                  const wallet = payoutsById.get(adjustment.staff_member_id);
+                  const isVoided = Boolean(adjustment.estornado_em);
+                  const isCredit = adjustment.valor >= 0;
+                  return (
+                    <div key={adjustment.id} className="grid grid-cols-1 gap-3 px-4 py-4 md:grid-cols-[1.3fr_repeat(3,minmax(0,1fr))_auto]">
+                      <div className="min-w-0">
+                        <div className="truncate font-semibold text-white">{wallet?.nome || wallet?.email || "Funcionário"}</div>
+                        <div className="mt-1 text-sm text-white/60">{adjustment.notes || "Sem observação"}</div>
+                        <div className="mt-1 text-xs text-white/50">
+                          Criado em {formatDateTime(adjustment.created_at)}
+                          {isVoided ? ` • Estornado em ${formatDateTime(adjustment.estornado_em)}` : ""}
+                        </div>
                       </div>
-                    </div>
-                    <div>
-                      <div className="text-[11px] text-white/50">Valor</div>
-                      <div className={`mt-1 font-semibold ${isVoided ? "text-white/40 line-through" : "text-emerald-200"}`}>
-                        {brl(payout.valor)}
+                      <div>
+                        <div className="text-[11px] text-white/50">Valor</div>
+                        <div className={`mt-1 font-semibold ${isVoided ? "text-white/40 line-through" : isCredit ? "text-sky-200" : "text-red-200"}`}>
+                          {brl(adjustment.valor)}
+                        </div>
                       </div>
-                    </div>
-                    <div>
-                      <div className="text-[11px] text-white/50">Data do repasse</div>
-                      <div className="mt-1 font-semibold text-white">{formatDate(payout.paid_at)}</div>
-                    </div>
-                    <div>
-                      <div className="text-[11px] text-white/50">Status</div>
-                      <div className={`mt-1 font-semibold ${isVoided ? "text-red-200" : "text-white"}`}>
-                        {isVoided ? "Estornado" : "Ativo"}
+                      <div>
+                        <div className="text-[11px] text-white/50">Data do ajuste</div>
+                        <div className="mt-1 font-semibold text-white">{formatDate(adjustment.applied_at)}</div>
                       </div>
-                      {payout.comprovante_nome ? (
-                        <div className="mt-1 text-xs text-white/60">Comprovante: {payout.comprovante_nome}</div>
-                      ) : null}
-                      {isVoided && payout.estornado_motivo ? (
-                        <div className="mt-1 text-xs text-red-200/80">{payout.estornado_motivo}</div>
-                      ) : null}
-                    </div>
-                    <div className="flex items-center justify-end gap-2">
-                      {payout.comprovante_data_url ? (
-                        <>
+                      <div>
+                        <div className="text-[11px] text-white/50">Tipo</div>
+                        <div className={`mt-1 font-semibold ${isCredit ? "text-sky-200" : "text-red-200"}`}>
+                          {isCredit ? "Crédito manual" : "Débito manual"}
+                        </div>
+                        {isVoided && adjustment.estornado_motivo ? (
+                          <div className="mt-1 text-xs text-red-200/80">{adjustment.estornado_motivo}</div>
+                        ) : null}
+                      </div>
+                      <div className="flex items-center justify-end gap-2">
+                        {canSeeTeamWallet ? (
                           <button
                             type="button"
-                            onClick={() => setPreviewPayout(payout)}
-                            className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm text-sky-100 hover:bg-sky-500/20"
-                          >
-                            Ver comprovante
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => downloadDataUrl(payout.comprovante_data_url ?? "", payout.comprovante_nome ?? "comprovante")}
-                            className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white hover:bg-white/10"
-                          >
-                            Baixar
-                          </button>
-                        </>
-                      ) : null}
-                      {canSeeTeamWallet ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => openEditModal(payout)}
-                            disabled={saving || isVoided}
-                            className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:text-white/40"
-                          >
-                            Editar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleVoidPayout(payout)}
+                            onClick={() => void handleVoidAdjustment(adjustment)}
                             disabled={saving || isVoided}
                             className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-100 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:text-red-100/40"
                           >
                             Estornar
                           </button>
-                        </>
-                      ) : (
-                        <span className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/60">
-                          Visualização
-                        </span>
-                      )}
+                        ) : (
+                          <span className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/60">
+                            Visualização
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -777,6 +1011,128 @@ export default function CarteiraStaff() {
                 disabled={saving}
               >
                 {saving ? "Salvando..." : editingPayout ? "Salvar alterações" : "Registrar repasse"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {canSeeTeamWallet && adjustmentModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3">
+          <div className="w-full max-w-[560px] rounded-2xl border border-white/10 bg-[#0B1220] shadow-xl">
+            <div className="flex items-center justify-between border-b border-white/10 p-4">
+              <div className="text-white font-semibold">Ajuste manual de saldo</div>
+              <button
+                type="button"
+                onClick={closeAdjustmentModal}
+                className="h-9 w-9 rounded-xl border border-white/10 bg-white/5 text-white hover:bg-white/10"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-4 p-4">
+              <label className="block">
+                <div className="mb-1 text-sm text-white/70">Funcionário</div>
+                <select
+                  value={adjustmentForm.staff_member_id}
+                  onChange={(event) => setAdjustmentForm((current) => ({ ...current, staff_member_id: event.target.value }))}
+                  className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-white outline-none"
+                >
+                  <option value="">Selecione</option>
+                  {wallets.map((wallet) => (
+                    <option key={wallet.staff_member_id} value={wallet.staff_member_id}>
+                      {wallet.nome || wallet.email} ({wallet.commission_pct.toFixed(1)}%)
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <label className="block">
+                  <div className="mb-1 text-sm text-white/70">Tipo de ajuste</div>
+                  <select
+                    value={adjustmentForm.direction}
+                    onChange={(event) =>
+                      setAdjustmentForm((current) => ({
+                        ...current,
+                        direction: event.target.value === "DEBITO" ? "DEBITO" : "CREDITO",
+                      }))
+                    }
+                    className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-white outline-none"
+                  >
+                    <option value="CREDITO">Crédito no saldo</option>
+                    <option value="DEBITO">Débito no saldo</option>
+                  </select>
+                </label>
+
+                <label className="block">
+                  <div className="mb-1 text-sm text-white/70">Data do ajuste</div>
+                  <input
+                    value={adjustmentForm.applied_at}
+                    onChange={(event) => setAdjustmentForm((current) => ({ ...current, applied_at: event.target.value }))}
+                    className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-white outline-none"
+                    type="date"
+                  />
+                </label>
+              </div>
+
+              <label className="block">
+                <div className="mb-1 text-sm text-white/70">Valor do ajuste</div>
+                <input
+                  value={adjustmentForm.valor}
+                  onChange={(event) => setAdjustmentForm((current) => ({ ...current, valor: event.target.value }))}
+                  className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-white outline-none"
+                  type="number"
+                  min={0}
+                  step={0.01}
+                />
+              </label>
+
+              <label className="block">
+                <div className="mb-1 text-sm text-white/70">Observação</div>
+                <textarea
+                  value={adjustmentForm.notes}
+                  onChange={(event) => setAdjustmentForm((current) => ({ ...current, notes: event.target.value }))}
+                  className="min-h-[96px] w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-white outline-none"
+                  placeholder="Ex: crédito manual por correção operacional"
+                />
+              </label>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white/80">
+                  <div className="text-[11px] uppercase tracking-wide text-white/45">Saldo atual</div>
+                  <div className="mt-1 font-semibold text-white">{brl(adjustmentWallet?.available_balance ?? 0)}</div>
+                </div>
+                <div className="rounded-xl border border-sky-500/20 bg-sky-500/10 p-3 text-sm text-sky-100">
+                  <div className="text-[11px] uppercase tracking-wide text-sky-100/70">Saldo após ajuste</div>
+                  <div className="mt-1 font-semibold">{brl(adjustmentPreviewBalance)}</div>
+                </div>
+              </div>
+
+              {adjustmentForm.direction === "DEBITO" ? (
+                <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-100">
+                  O débito manual não pode deixar o saldo da carteira negativo.
+                </div>
+              ) : null}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-white/10 p-4">
+              <button
+                type="button"
+                onClick={closeAdjustmentModal}
+                className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-white hover:bg-white/10"
+                disabled={saving}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSaveAdjustment()}
+                className="rounded-xl bg-sky-500 px-4 py-2 font-semibold text-black hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-sky-500/30 disabled:text-black/60"
+                disabled={saving}
+              >
+                {saving ? "Salvando..." : "Registrar ajuste"}
               </button>
             </div>
           </div>
