@@ -200,10 +200,6 @@ export default function Emprestimos() {
     }
   }, [statusFiltro, tab]);
 
-  function isEmprestimoArquivado(e: Emprestimo) {
-    return String((e as any)?.status ?? "").toLowerCase() === "arquivado";
-  }
-
   function isQuitadoOuRecebido(e: Emprestimo) {
     const status = String((e as any)?.status ?? "").toLowerCase();
     if (status === "quitado" || status === "arquivado") return true;
@@ -238,7 +234,7 @@ export default function Emprestimos() {
 
   const emprestimosArquivadosTab = useMemo(() => {
     if (tab === "recebimentos") return [];
-    return emprestimosBaseTab.filter(isEmprestimoArquivado);
+    return emprestimosBaseTab.filter(isQuitadoOuRecebido);
   }, [emprestimosBaseTab, tab]);
 
   const contadores = useMemo(() => {

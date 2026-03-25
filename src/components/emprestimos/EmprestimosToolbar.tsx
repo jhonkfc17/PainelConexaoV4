@@ -107,7 +107,7 @@ export default function EmprestimosToolbar({
               type="button"
               onClick={() => onStatusFiltroChange("arquivados")}
               className={chipClass(statusFiltro === "arquivados", "muted")}
-              title="Mostrar empréstimos arquivados"
+              title="Mostrar empréstimos arquivados e pagos"
             >
               Arquivados ({contadoresStatus.arquivados})
             </button>
