@@ -23,6 +23,7 @@ create trigger trg_staff_wallet_adjustments_updated_at
 before update on public.staff_wallet_adjustments
 for each row execute function public.set_updated_at();
 
+drop function if exists public.staff_available_profit_balance(uuid, uuid);
 create or replace function public.staff_available_profit_balance(
   p_staff_member_id uuid,
   p_exclude_payout_id uuid default null,
@@ -148,6 +149,7 @@ create trigger trg_staff_wallet_adjustments_validate
 before insert or update on public.staff_wallet_adjustments
 for each row execute function public.validate_staff_wallet_adjustment();
 
+drop function if exists public.get_staff_wallets();
 create or replace function public.get_staff_wallets()
 returns table (
   staff_member_id uuid,
@@ -235,6 +237,7 @@ begin
 end;
 $$;
 
+drop function if exists public.get_my_staff_wallet();
 create or replace function public.get_my_staff_wallet()
 returns table (
   staff_member_id uuid,

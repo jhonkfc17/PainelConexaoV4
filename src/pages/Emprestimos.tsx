@@ -111,7 +111,7 @@ export default function Emprestimos() {
   const [tab, setTab] = useState<EmprestimosTab>("emprestimos");
   const [busca, setBusca] = useState("");
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
-  const [statusFiltro, setStatusFiltro] = useState<"todos" | "atrasado" | "hoje" | "amanha">("todos");
+  const [statusFiltro, setStatusFiltro] = useState<"todos" | "atrasado" | "hoje" | "amanha" | "arquivados">("todos");
   const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
     try {
       const v = localStorage.getItem("rc_emprestimos_view");
@@ -194,44 +194,54 @@ export default function Emprestimos() {
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
 
-  const emprestimosFiltrados = useMemo(() => {
+  useEffect(() => {
+    if (tab === "recebimentos" && statusFiltro === "arquivados") {
+      setStatusFiltro("todos");
+    }
+  }, [statusFiltro, tab]);
+
+  function isEmprestimoArquivado(e: Emprestimo) {
+    return String((e as any)?.status ?? "").toLowerCase() === "arquivado";
+  }
+
+  function isQuitadoOuRecebido(e: Emprestimo) {
+    const status = String((e as any)?.status ?? "").toLowerCase();
+    if (status === "quitado" || status === "arquivado") return true;
+    const parcelas = Array.isArray((e as any).parcelasDb) ? (e as any).parcelasDb : [];
+    return parcelas.length > 0 && parcelas.every((p: any) => p?.pago === true);
+  }
+
+  function matchesTabModalidade(e: Emprestimo) {
+    if (tab === "diario") return e.modalidade === "diario";
+    if (tab === "tabela_price") return e.modalidade === "tabela_price";
+    return e.modalidade !== "diario" && e.modalidade !== "tabela_price";
+  }
+
+  const emprestimosBaseTab = useMemo(() => {
     const q = busca.trim().toLowerCase();
     let lista = emprestimos;
-
-    const isQuitadoOuRecebido = (e: Emprestimo) => {
-      const status = String((e as any)?.status ?? "").toLowerCase();
-      if (status === "quitado" || status === "arquivado") return true;
-      const parcelas = Array.isArray((e as any).parcelasDb) ? (e as any).parcelasDb : [];
-      if (parcelas.length > 0 && parcelas.every((p: any) => p?.pago === true)) return true;
-      return false;
-    };
 
     if (tab === "recebimentos") {
       lista = lista.filter(isQuitadoOuRecebido);
     } else {
-      lista = lista.filter((e) => !isQuitadoOuRecebido(e));
-
-      if (tab === "diario") {
-        lista = lista.filter((e) => e.modalidade === "diario");
-      } else if (tab === "tabela_price") {
-        lista = lista.filter((e) => e.modalidade === "tabela_price");
-      } else {
-        lista = lista.filter((e) => e.modalidade !== "diario" && e.modalidade !== "tabela_price");
-      }
+      lista = lista.filter(matchesTabModalidade);
     }
 
     if (!q) return lista;
     return lista.filter((e) => (e.clienteNome ?? "").toLowerCase().includes(q));
   }, [emprestimos, tab, busca]);
 
-  const contadores = useMemo(() => {
-    const isQuitadoOuRecebido = (e: Emprestimo) => {
-      const status = String((e as any)?.status ?? "").toLowerCase();
-      if (status === "quitado" || status === "arquivado") return true;
-      const parcelas = Array.isArray((e as any).parcelasDb) ? (e as any).parcelasDb : [];
-      return parcelas.length > 0 && parcelas.every((p: any) => p?.pago === true);
-    };
+  const emprestimosAtivosTab = useMemo(() => {
+    if (tab === "recebimentos") return emprestimosBaseTab;
+    return emprestimosBaseTab.filter((e) => !isQuitadoOuRecebido(e));
+  }, [emprestimosBaseTab, tab]);
 
+  const emprestimosArquivadosTab = useMemo(() => {
+    if (tab === "recebimentos") return [];
+    return emprestimosBaseTab.filter(isEmprestimoArquivado);
+  }, [emprestimosBaseTab, tab]);
+
+  const contadores = useMemo(() => {
     const ativos = emprestimos.filter((e) => !isQuitadoOuRecebido(e));
     const mensal = ativos.filter((e) => e.modalidade !== "diario" && e.modalidade !== "tabela_price").length;
     const diario = ativos.filter((e) => e.modalidade === "diario").length;
@@ -283,8 +293,8 @@ export default function Emprestimos() {
   }
 
   const contadoresStatus = useMemo(() => {
-    const base = emprestimosFiltrados;
-    const counts = { atrasado: 0, hoje: 0, amanha: 0, total: base.length };
+    const base = emprestimosAtivosTab;
+    const counts = { atrasado: 0, hoje: 0, amanha: 0, arquivados: emprestimosArquivadosTab.length, total: base.length };
     for (const e of base) {
       const s = getDueStatus(e);
       if (s === "atrasado") counts.atrasado += 1;
@@ -292,12 +302,13 @@ export default function Emprestimos() {
       if (s === "amanha") counts.amanha += 1;
     }
     return counts;
-  }, [emprestimosFiltrados]);
+  }, [emprestimosArquivadosTab.length, emprestimosAtivosTab]);
 
   const emprestimosFiltradosFinal = useMemo(() => {
-    if (statusFiltro === "todos") return emprestimosFiltrados;
-    return emprestimosFiltrados.filter((e) => getDueStatus(e) === statusFiltro);
-  }, [emprestimosFiltrados, statusFiltro]);
+    if (statusFiltro === "arquivados") return emprestimosArquivadosTab;
+    if (statusFiltro === "todos") return emprestimosAtivosTab;
+    return emprestimosAtivosTab.filter((e) => getDueStatus(e) === statusFiltro);
+  }, [emprestimosArquivadosTab, emprestimosAtivosTab, statusFiltro]);
 
   const canExport = Boolean(emprestimosFiltradosFinal.length) && Boolean(isOwner || isAdmin || canManageLoans || canExportCSV);
   const canImport = Boolean(isOwner || isAdmin || canManageLoans);
@@ -447,6 +458,7 @@ export default function Emprestimos() {
           statusFiltro={statusFiltro}
           onStatusFiltroChange={setStatusFiltro}
           contadoresStatus={contadoresStatus}
+          mostrarFiltroArquivados={tab !== "recebimentos"}
           viewMode={viewMode}
           onViewModeChange={(m) => {
             setViewMode(m);
@@ -471,7 +483,7 @@ export default function Emprestimos() {
         />
       </div>
 
-      {emprestimosFiltrados.length > 0 && (
+      {emprestimosFiltradosFinal.length > 0 && (
         <div className="mt-4 text-xs text-white/40">Dica: abra um emprestimo para pagar parcelas e gerar comprovantes.</div>
       )}
 

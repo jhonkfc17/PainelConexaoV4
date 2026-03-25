@@ -1,4 +1,4 @@
-type StatusFiltro = "todos" | "atrasado" | "hoje" | "amanha";
+type StatusFiltro = "todos" | "atrasado" | "hoje" | "amanha" | "arquivados";
 
 type Props = {
   busca: string;
@@ -9,7 +9,8 @@ type Props = {
 
   statusFiltro: StatusFiltro;
   onStatusFiltroChange: (v: StatusFiltro) => void;
-  contadoresStatus: { atrasado: number; hoje: number; amanha: number; total: number };
+  contadoresStatus: { atrasado: number; hoje: number; amanha: number; arquivados: number; total: number };
+  mostrarFiltroArquivados?: boolean;
 
   viewMode: "grid" | "list";
   onViewModeChange: (m: "grid" | "list") => void;
@@ -38,6 +39,7 @@ export default function EmprestimosToolbar({
   statusFiltro,
   onStatusFiltroChange,
   contadoresStatus,
+  mostrarFiltroArquivados = false,
 
   viewMode,
   onViewModeChange,
@@ -99,6 +101,17 @@ export default function EmprestimosToolbar({
           >
             Amanhã ({contadoresStatus.amanha})
           </button>
+
+          {mostrarFiltroArquivados ? (
+            <button
+              type="button"
+              onClick={() => onStatusFiltroChange("arquivados")}
+              className={chipClass(statusFiltro === "arquivados", "muted")}
+              title="Mostrar empréstimos arquivados"
+            >
+              Arquivados ({contadoresStatus.arquivados})
+            </button>
+          ) : null}
         </div>
       </div>
 
