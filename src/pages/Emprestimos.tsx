@@ -111,7 +111,7 @@ export default function Emprestimos() {
   const [tab, setTab] = useState<EmprestimosTab>("emprestimos");
   const [busca, setBusca] = useState("");
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
-  const [statusFiltro, setStatusFiltro] = useState<"todos" | "atrasado" | "hoje" | "amanha" | "arquivados">("todos");
+  const [statusFiltro, setStatusFiltro] = useState<"todos" | "atrasado" | "hoje" | "amanha" | "quitados" | "arquivados">("todos");
   const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
     try {
       const v = localStorage.getItem("rc_emprestimos_view");
@@ -195,10 +195,14 @@ export default function Emprestimos() {
   }, [searchParams, setSearchParams]);
 
   useEffect(() => {
-    if (tab === "recebimentos" && statusFiltro === "arquivados") {
+    if (tab === "recebimentos" && (statusFiltro === "arquivados" || statusFiltro === "quitados")) {
       setStatusFiltro("todos");
     }
   }, [statusFiltro, tab]);
+
+  function isEmprestimoArquivado(e: Emprestimo) {
+    return String((e as any)?.status ?? "").toLowerCase() === "arquivado";
+  }
 
   function isQuitadoOuRecebido(e: Emprestimo) {
     const status = String((e as any)?.status ?? "").toLowerCase();
@@ -234,7 +238,12 @@ export default function Emprestimos() {
 
   const emprestimosArquivadosTab = useMemo(() => {
     if (tab === "recebimentos") return [];
-    return emprestimosBaseTab.filter(isQuitadoOuRecebido);
+    return emprestimosBaseTab.filter(isEmprestimoArquivado);
+  }, [emprestimosBaseTab, tab]);
+
+  const emprestimosQuitadosTab = useMemo(() => {
+    if (tab === "recebimentos") return [];
+    return emprestimosBaseTab.filter((e) => isQuitadoOuRecebido(e) && !isEmprestimoArquivado(e));
   }, [emprestimosBaseTab, tab]);
 
   const contadores = useMemo(() => {
@@ -290,7 +299,14 @@ export default function Emprestimos() {
 
   const contadoresStatus = useMemo(() => {
     const base = emprestimosAtivosTab;
-    const counts = { atrasado: 0, hoje: 0, amanha: 0, arquivados: emprestimosArquivadosTab.length, total: base.length };
+    const counts = {
+      atrasado: 0,
+      hoje: 0,
+      amanha: 0,
+      quitados: emprestimosQuitadosTab.length,
+      arquivados: emprestimosArquivadosTab.length,
+      total: base.length,
+    };
     for (const e of base) {
       const s = getDueStatus(e);
       if (s === "atrasado") counts.atrasado += 1;
@@ -298,13 +314,14 @@ export default function Emprestimos() {
       if (s === "amanha") counts.amanha += 1;
     }
     return counts;
-  }, [emprestimosArquivadosTab.length, emprestimosAtivosTab]);
+  }, [emprestimosArquivadosTab.length, emprestimosAtivosTab, emprestimosQuitadosTab.length]);
 
   const emprestimosFiltradosFinal = useMemo(() => {
     if (statusFiltro === "arquivados") return emprestimosArquivadosTab;
+    if (statusFiltro === "quitados") return emprestimosQuitadosTab;
     if (statusFiltro === "todos") return emprestimosAtivosTab;
     return emprestimosAtivosTab.filter((e) => getDueStatus(e) === statusFiltro);
-  }, [emprestimosArquivadosTab, emprestimosAtivosTab, statusFiltro]);
+  }, [emprestimosArquivadosTab, emprestimosAtivosTab, emprestimosQuitadosTab, statusFiltro]);
 
   const canExport = Boolean(emprestimosFiltradosFinal.length) && Boolean(isOwner || isAdmin || canManageLoans || canExportCSV);
   const canImport = Boolean(isOwner || isAdmin || canManageLoans);

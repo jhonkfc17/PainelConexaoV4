@@ -1,4 +1,4 @@
-type StatusFiltro = "todos" | "atrasado" | "hoje" | "amanha" | "arquivados";
+type StatusFiltro = "todos" | "atrasado" | "hoje" | "amanha" | "quitados" | "arquivados";
 
 type Props = {
   busca: string;
@@ -9,7 +9,7 @@ type Props = {
 
   statusFiltro: StatusFiltro;
   onStatusFiltroChange: (v: StatusFiltro) => void;
-  contadoresStatus: { atrasado: number; hoje: number; amanha: number; arquivados: number; total: number };
+  contadoresStatus: { atrasado: number; hoje: number; amanha: number; quitados: number; arquivados: number; total: number };
   mostrarFiltroArquivados?: boolean;
 
   viewMode: "grid" | "list";
@@ -17,8 +17,7 @@ type Props = {
 };
 
 function chipClass(active: boolean, tone: "muted" | "danger" | "warn" | "info") {
-  const base =
-    "rounded-full border px-3 py-1 text-xs font-semibold transition-colors";
+  const base = "rounded-full border px-3 py-1 text-xs font-semibold transition-colors";
   const off = "bg-white/5 border-white/10 text-white/70 hover:bg-white/10";
 
   if (!active) return `${base} ${off}`;
@@ -35,17 +34,15 @@ export default function EmprestimosToolbar({
   filtrosAbertos,
   onToggleFiltros,
   onNovoEmprestimo,
-
   statusFiltro,
   onStatusFiltroChange,
   contadoresStatus,
   mostrarFiltroArquivados = false,
-
   viewMode,
   onViewModeChange,
 }: Props) {
   return (
-    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div className="flex-1">
         <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
           <span className="text-white/50">🔎</span>
@@ -65,7 +62,6 @@ export default function EmprestimosToolbar({
             Filtros {filtrosAbertos ? "▲" : "▼"}
           </button>
 
-          {/* Filtros rápidos por vencimento */}
           <button
             type="button"
             onClick={() => onStatusFiltroChange("todos")}
@@ -97,33 +93,44 @@ export default function EmprestimosToolbar({
             type="button"
             onClick={() => onStatusFiltroChange("amanha")}
             className={chipClass(statusFiltro === "amanha", "info")}
-            title="Vence amanhã"
+            title="Vence amanha"
           >
-            Amanhã ({contadoresStatus.amanha})
+            Amanha ({contadoresStatus.amanha})
           </button>
 
           {mostrarFiltroArquivados ? (
-            <button
-              type="button"
-              onClick={() => onStatusFiltroChange("arquivados")}
-              className={chipClass(statusFiltro === "arquivados", "muted")}
-              title="Mostrar empréstimos arquivados e pagos"
-            >
-              Arquivados ({contadoresStatus.arquivados})
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => onStatusFiltroChange("quitados")}
+                className={chipClass(statusFiltro === "quitados", "muted")}
+                title="Mostrar emprestimos quitados"
+              >
+                Quitados ({contadoresStatus.quitados})
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onStatusFiltroChange("arquivados")}
+                className={chipClass(statusFiltro === "arquivados", "muted")}
+                title="Mostrar emprestimos arquivados"
+              >
+                Arquivados ({contadoresStatus.arquivados})
+              </button>
+            </>
           ) : null}
         </div>
       </div>
 
-      <div className="flex w-full flex-col sm:flex-row items-stretch sm:items-center gap-2 md:w-auto">
+      <div className="flex w-full flex-col items-stretch gap-2 sm:flex-row sm:items-center md:w-auto">
         <button
           onClick={onNovoEmprestimo}
-          className="w-full sm:w-auto rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-black hover:opacity-90"
+          className="w-full rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-black hover:opacity-90 sm:w-auto"
         >
-          + Novo Empréstimo
+          + Novo Emprestimo
         </button>
 
-        <div className="flex w-full sm:w-auto overflow-hidden rounded-lg border border-white/10">
+        <div className="flex w-full overflow-hidden rounded-lg border border-white/10 sm:w-auto">
           <button
             type="button"
             onClick={() => onViewModeChange("grid")}
