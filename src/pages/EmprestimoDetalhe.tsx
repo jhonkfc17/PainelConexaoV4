@@ -173,7 +173,7 @@ export default function EmprestimoDetalhe() {
     VALOR_EMPRESTADO: brl(emprestimo.valor),
     VALOR_PARCELA: brl(emprestimo.valorParcela),
     MULTA: brl(multaAtual),
-    JUROS: brl(parcelaParaCobrar?.isAtraso ? jurosAtrasoAtual : jurosAcordo),
+    JUROS: brl(jurosAcordo),
     PROGRESSO: progresso,
     PIX: pixPadrao,
     ASSINATURA: assinaturaPadrao,

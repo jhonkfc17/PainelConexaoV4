@@ -696,7 +696,8 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
     const valorAtraso = isAtraso ? Math.max(0, Number(atraso?.total ?? 0)) : 0;
     const mulataAtraso = isAtraso ? Math.max(0, Number(multa?.total ?? 0)) : 0;
     const valorTotalAtraso = valorBaseParcela + valorAtraso + mulataAtraso;
-    const jurosAtrasoCalc = isAtraso ? valorAtraso : 0;
+    // Juros total = Total a Receber - Valor Emprestado
+    const jurosTotal = Math.max(0, totalReceber - totalEmprestado);
 
     const vars = {
       CLIENTE: (emprestimo as any).clienteNome ?? "Cliente",
@@ -707,7 +708,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
       ASSINATURA: lsGet("cfg_assinatura", ""),
       DIAS_ATRASO: String(atraso?.detalhe?.dias ?? 0),
       MULTA: brl(Math.max(0, Number(multa?.total ?? 0))),
-      JUROS: brl(Math.max(0, jurosAtrasoCalc)),
+      JUROS: brl(isAtraso ? jurosTotal : lucroPrevisto),
       PROGRESSO: `${pagasCount}/${Math.max(totalParcelasCount, 0)} (${progressoPct}%)`,
     };
 
