@@ -677,17 +677,37 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
         : "atraso_mensal"
       : "cobranca_semanal";
 
-    const prox = proximaAberta || cronogramaParcelas[0] || {};
+    // Para mensagens de atraso, calcula o valor total correto
+    const isAtraso = atraso?.detalhe;
+    let parcelaParaCalcular = proximaAberta || cronogramaParcelas[0] || {};
+    
+    // Se há atraso, busca a parcela atrasada
+    if (isAtraso && atraso?.detalhe?.parcelaNumero) {
+      const parcelaAtrasada = cronogramaParcelas.find(
+        (p: any) => Number(p?.numero ?? 0) === Number(atraso.detalhe.parcelaNumero)
+      );
+      if (parcelaAtrasada) {
+        parcelaParaCalcular = parcelaAtrasada;
+      }
+    }
+
+    // Calcula valor total a pagar em caso de atraso
+    const valorBaseParcela = Number(parcelaParaCalcular?.valor ?? totalEmprestado ?? 0);
+    const valorAtraso = isAtraso ? Math.max(0, Number(atraso?.total ?? 0)) : 0;
+    const mulataAtraso = isAtraso ? Math.max(0, Number(multa?.total ?? 0)) : 0;
+    const valorTotalAtraso = valorBaseParcela + valorAtraso + mulataAtraso;
+    const jurosAtrasoCalc = isAtraso ? valorAtraso : 0;
+
     const vars = {
       CLIENTE: (emprestimo as any).clienteNome ?? "Cliente",
-      VALOR: brl(Number(prox?.valor ?? emprestimo.valorParcela ?? 0)),
-      PARCELA: String(prox?.numero ?? 1),
-      DATA: String(prox?.vencimento ?? proximoVenc ?? ""),
+      VALOR: brl(isAtraso ? valorTotalAtraso : Number(parcelaParaCalcular?.valor ?? emprestimo.valorParcela ?? 0)),
+      PARCELA: String(parcelaParaCalcular?.numero ?? 1),
+      DATA: String(parcelaParaCalcular?.vencimento ?? proximoVenc ?? ""),
       PIX: lsGet("cfg_pix", ""),
       ASSINATURA: lsGet("cfg_assinatura", ""),
       DIAS_ATRASO: String(atraso?.detalhe?.dias ?? 0),
       MULTA: brl(Math.max(0, Number(multa?.total ?? 0))),
-      JUROS: brl(Math.max(0, Number(lucroPrevisto ?? 0))),
+      JUROS: brl(Math.max(0, jurosAtrasoCalc)),
       PROGRESSO: `${pagasCount}/${Math.max(totalParcelasCount, 0)} (${progressoPct}%)`,
     };
 

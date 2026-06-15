@@ -160,14 +160,20 @@ export default function EmprestimoDetalhe() {
       : null;
   const jurosAcordo = Math.max(0, Number(emprestimo.totalReceber ?? 0) - Number(emprestimo.valor ?? 0));
   const multaAtual = Math.max(0, Number((parcelaDbAtual as any)?.multa_valor ?? 0));
+  const jurosAtrasoAtual = Math.max(0, Number((parcelaDbAtual as any)?.juros_atraso ?? 0));
+
+  // Cálculo do valor total para cobrança em atraso
+  const valorTotalAtraso = parcelaParaCobrar?.isAtraso
+    ? (parcelaParaCobrar.valor ?? 0) + multaAtual + jurosAtrasoAtual
+    : parcelaParaCobrar?.valor ?? emprestimo.valorParcela ?? 0;
 
   const varsBase: Record<string, string> = {
     CLIENTE: emprestimo.clienteNome,
-    VALOR: parcelaParaCobrar ? brl(parcelaParaCobrar.valor) : brl(emprestimo.valorParcela),
+    VALOR: parcelaParaCobrar ? brl(valorTotalAtraso) : brl(emprestimo.valorParcela),
     VALOR_EMPRESTADO: brl(emprestimo.valor),
     VALOR_PARCELA: brl(emprestimo.valorParcela),
     MULTA: brl(multaAtual),
-    JUROS: brl(jurosAcordo),
+    JUROS: brl(parcelaParaCobrar?.isAtraso ? jurosAtrasoAtual : jurosAcordo),
     PROGRESSO: progresso,
     PIX: pixPadrao,
     ASSINATURA: assinaturaPadrao,
