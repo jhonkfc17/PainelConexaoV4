@@ -86,6 +86,9 @@ export const DEFAULT_MESSAGE_TEMPLATES: Record<MessageTemplateKey, string> = {
     "🗓 *Vencimento:* {DATA}",
     "⏱ *Dias em Atraso:* {DIAS_ATRASO}",
     "",
+    "*Detalhamento:*",
+    "{BREAKDOWN_VALOR}",
+    "",
     "{PIX}",
     "",
     "{ASSINATURA}",
@@ -102,6 +105,9 @@ export const DEFAULT_MESSAGE_TEMPLATES: Record<MessageTemplateKey, string> = {
     "📆 *Parcela:* {PARCELA}",
     "🗓 *Vencimento:* {DATA}",
     "⏱ *Dias em Atraso:* {DIAS_ATRASO}",
+    "",
+    "*Detalhamento:*",
+    "{BREAKDOWN_VALOR}",
     "",
     "{PIX}",
     "",
@@ -154,6 +160,7 @@ export const MESSAGE_TEMPLATE_VARIABLES = [
   "{DIAS_PARA_VENCER}",
   "{MULTA}",
   "{JUROS}",
+  "{BREAKDOWN_VALOR}",
   "{PROGRESSO}",
   "{PIX}",
   "{ASSINATURA}",
@@ -210,6 +217,22 @@ export function getAllMessageTemplates(): Record<MessageTemplateKey, string> {
 
 export function setAllMessageTemplates(v: Record<MessageTemplateKey, string>) {
   (Object.keys(v) as MessageTemplateKey[]).forEach((k) => setMessageTemplate(k, v[k]));
+}
+
+/**
+ * Formata o breakdown do valor: Emprestado + Juros = Total
+ * Exemplo: "Emprestado: R$ 1.300,00 + Juros: R$ 520,00 = Total: R$ 1.820,00"
+ */
+export function formatBreakdownValor(
+  valorEmprestado: number,
+  valorTotal: number
+): string {
+  const juros = Math.max(0, valorTotal - valorEmprestado);
+  
+  const fmt = (n: number) =>
+    n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+  return `Emprestado: ${fmt(valorEmprestado)} + Juros: ${fmt(juros)} = Total: ${fmt(valorTotal)}`;
 }
 
 /**

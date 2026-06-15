@@ -5,7 +5,7 @@ import PagamentosSidepanel from "../components/emprestimos/PagamentosSidepanel";
 
 import { useEmprestimosStore } from "../store/useEmprestimosStore";
 import type { Emprestimo } from "@/store/useEmprestimosStore";
-import { fillTemplate, getMessageTemplate } from "../lib/messageTemplates";
+import { fillTemplate, getMessageTemplate, formatBreakdownValor } from "../lib/messageTemplates";
 import { sendWhatsAppFromPanel } from "../services/whatsappDispatch";
 import { getParcelaLabel } from "@/lib/parcelaLabel";
 
@@ -174,6 +174,7 @@ export default function EmprestimoDetalhe() {
     VALOR_PARCELA: brl(emprestimo.valorParcela),
     MULTA: brl(multaAtual),
     JUROS: brl(jurosAcordo),
+    BREAKDOWN_VALOR: formatBreakdownValor(emprestimo.valor, emprestimo.totalReceber),
     PROGRESSO: progresso,
     PIX: pixPadrao,
     ASSINATURA: assinaturaPadrao,

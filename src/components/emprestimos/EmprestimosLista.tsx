@@ -9,7 +9,7 @@ import AplicarMultaModal from "./AplicarMultaModal";
 import MultasAplicadasModal from "./MultasAplicadasModal";
 import PagamentosSidepanel from "./PagamentosSidepanel";
 import { useEmprestimosStore } from "../../store/useEmprestimosStore";
-import { fillTemplate, getMessageTemplate } from "@/lib/messageTemplates";
+import { fillTemplate, getMessageTemplate, formatBreakdownValor } from "@/lib/messageTemplates";
 import { supabase } from "@/lib/supabaseClient";
 import { buildWhatsAppWebUrl, sendWhatsAppFromPanel } from "@/services/whatsappDispatch";
 import { getParcelaLabel } from "@/lib/parcelaLabel";
@@ -709,6 +709,7 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
       DIAS_ATRASO: String(atraso?.detalhe?.dias ?? 0),
       MULTA: brl(Math.max(0, Number(multa?.total ?? 0))),
       JUROS: brl(isAtraso ? jurosTotal : lucroPrevisto),
+      BREAKDOWN_VALOR: formatBreakdownValor(totalEmprestado, totalReceber),
       PROGRESSO: `${pagasCount}/${Math.max(totalParcelasCount, 0)} (${progressoPct}%)`,
     };
 
