@@ -691,14 +691,17 @@ const restanteExibido = Math.max(0, Number(restante ?? 0) + multaManualFaltante 
       }
     }
 
-    // Quando há atraso, VALOR = Total a Receber (o que vai pagar ao final)
-    // JUROS = Total a Receber - Valor Emprestado
-    // MULTA = Multa por atraso (mostrada separadamente)
+    // Calcula valor total a pagar em caso de atraso
+    const valorBaseParcela = Number(parcelaParaCalcular?.valor ?? totalEmprestado ?? 0);
+    const valorAtraso = isAtraso ? Math.max(0, Number(atraso?.total ?? 0)) : 0;
+    const mulataAtraso = isAtraso ? Math.max(0, Number(multa?.total ?? 0)) : 0;
+    const valorTotalAtraso = valorBaseParcela + valorAtraso + mulataAtraso;
+    // Juros total = Total a Receber - Valor Emprestado
     const jurosTotal = Math.max(0, totalReceber - totalEmprestado);
 
     const vars = {
       CLIENTE: (emprestimo as any).clienteNome ?? "Cliente",
-      VALOR: brl(isAtraso ? totalReceber : Number(parcelaParaCalcular?.valor ?? emprestimo.valorParcela ?? 0)),
+      VALOR: brl(isAtraso ? valorTotalAtraso : Number(parcelaParaCalcular?.valor ?? emprestimo.valorParcela ?? 0)),
       PARCELA: String(parcelaParaCalcular?.numero ?? 1),
       DATA: String(parcelaParaCalcular?.vencimento ?? proximoVenc ?? ""),
       PIX: lsGet("cfg_pix", ""),
